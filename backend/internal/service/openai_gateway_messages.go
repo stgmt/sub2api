@@ -66,12 +66,15 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
 	anthropicCompactRequest := isClaudeCodeCompactAnthropicRequest(&anthropicReq)
 	anthropicCompactModelMapped := false
+	anthropicCompactRequestedModel := billingModel
+	var anthropicCompactFallbackUpstreamModels []string
 	if anthropicCompactRequest {
 		compactBillingModel := resolveOpenAICompactForwardModel(account, billingModel)
 		anthropicCompactModelMapped = compactBillingModel != "" && compactBillingModel != billingModel
 		if anthropicCompactModelMapped {
 			billingModel = compactBillingModel
 			upstreamModel = normalizeOpenAIModelForUpstream(account, billingModel)
+			anthropicCompactFallbackUpstreamModels = resolveOpenAICompactFallbackForwardModels(account, anthropicCompactRequestedModel, billingModel)
 		}
 	}
 	promptCacheKey = strings.TrimSpace(promptCacheKey)
@@ -150,6 +153,9 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 			zap.Bool("anthropic_compact_request", true),
 			zap.Bool("anthropic_compact_model_mapped", anthropicCompactModelMapped),
 		)
+		if len(anthropicCompactFallbackUpstreamModels) > 0 {
+			logFields = append(logFields, zap.Strings("anthropic_compact_fallback_upstream_models", anthropicCompactFallbackUpstreamModels))
+		}
 	}
 	if compatPromptCacheInjected {
 		logFields = append(logFields,
@@ -354,6 +360,30 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 
 		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
+		if anthropicCompactRequest && anthropicCompactModelMapped &&
+			isOpenAICompactModelUnavailableHTTP(resp.StatusCode, upstreamMsg, respBody) &&
+			len(anthropicCompactFallbackUpstreamModels) > 0 {
+			logger.L().Warn("openai_messages.compact_model_unavailable_fallback",
+				zap.Int64("account_id", account.ID),
+				zap.String("model", originalModel),
+				zap.String("upstream_model", upstreamModel),
+				zap.Strings("fallback_upstream_models", anthropicCompactFallbackUpstreamModels),
+				zap.Int("upstream_status", resp.StatusCode),
+				zap.String("upstream_request_id", resp.Header.Get("x-request-id")),
+				zap.String("upstream_message", upstreamMsg),
+			)
+			result, fallbackErr := s.runAnthropicCompactChunkFallbackWithModelFallbacks(ctx, c, account, &anthropicReq, token, originalModel, anthropicCompactFallbackUpstreamModels, startTime, OpenAIUsage{}, clientStream, resp.Header.Get("x-request-id"))
+			if fallbackErr == nil || c.Writer.Written() {
+				return result, fallbackErr
+			}
+			logger.L().Warn("openai_messages.compact_model_unavailable_fallback_failed",
+				zap.Int64("account_id", account.ID),
+				zap.String("model", originalModel),
+				zap.String("upstream_model", upstreamModel),
+				zap.Strings("fallback_upstream_models", anthropicCompactFallbackUpstreamModels),
+				zap.Error(fallbackErr),
+			)
+		}
 		if previousResponseID != "" && (isOpenAICompatPreviousResponseNotFound(resp.StatusCode, upstreamMsg, respBody) || isOpenAICompatPreviousResponseUnsupported(resp.StatusCode, upstreamMsg, respBody)) {
 			if isOpenAICompatPreviousResponseUnsupported(resp.StatusCode, upstreamMsg, respBody) {
 				s.disableOpenAICompatSessionContinuation(ctx, c, account, promptCacheKey)
@@ -408,7 +438,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	var result *OpenAIForwardResult
 	var handleErr error
 	if anthropicCompactRequest && anthropicCompactModelMapped {
-		result, handleErr = s.handleAnthropicCompactMappedStreamingResponse(ctx, c, account, resp, originalModel, billingModel, upstreamModel, startTime, &anthropicReq, token, clientStream)
+		result, handleErr = s.handleAnthropicCompactMappedStreamingResponse(ctx, c, account, resp, originalModel, billingModel, upstreamModel, anthropicCompactFallbackUpstreamModels, startTime, &anthropicReq, token, clientStream)
 	} else if clientStream {
 		result, handleErr = s.handleAnthropicStreamingResponse(resp, c, account, originalModel, billingModel, upstreamModel, startTime, estimatedInputTokens)
 	} else {
@@ -492,6 +522,7 @@ func (s *OpenAIGatewayService) handleAnthropicCompactMappedStreamingResponse(
 	originalModel string,
 	billingModel string,
 	upstreamModel string,
+	compactFallbackUpstreamModels []string,
 	startTime time.Time,
 	anthropicReq *apicompat.AnthropicRequest,
 	token string,
@@ -508,6 +539,23 @@ func (s *OpenAIGatewayService) handleAnthropicCompactMappedStreamingResponse(
 		return nil, fmt.Errorf("upstream stream ended without terminal event")
 	}
 
+	if isOpenAIResponsesCompactModelUnavailable(finalResponse) && len(compactFallbackUpstreamModels) > 0 {
+		logger.L().Warn("openai_messages.compact_model_unavailable_fallback",
+			zap.String("request_id", requestID),
+			zap.Int64("account_id", account.ID),
+			zap.String("model", originalModel),
+			zap.String("upstream_model", upstreamModel),
+			zap.Strings("fallback_upstream_models", compactFallbackUpstreamModels),
+			zap.Int("initial_input_tokens", usage.InputTokens),
+			zap.String("upstream_message", openAIResponsesErrorMessage(finalResponse)),
+		)
+		result, fallbackErr := s.runAnthropicCompactChunkFallbackWithModelFallbacks(ctx, c, account, anthropicReq, token, originalModel, compactFallbackUpstreamModels, startTime, usage, clientStream, requestID)
+		if fallbackErr != nil && !c.Writer.Written() {
+			writeAnthropicError(c, http.StatusBadGateway, "api_error", openAIAnthropicCompactFallbackFallbackResponse)
+		}
+		return result, fallbackErr
+	}
+
 	if isOpenAIResponsesContextLengthExceeded(finalResponse) {
 		logger.L().Warn("openai_messages.compact_context_length_fallback",
 			zap.String("request_id", requestID),
@@ -516,7 +564,8 @@ func (s *OpenAIGatewayService) handleAnthropicCompactMappedStreamingResponse(
 			zap.String("upstream_model", upstreamModel),
 			zap.Int("initial_input_tokens", usage.InputTokens),
 		)
-		result, fallbackErr := s.runAnthropicCompactChunkFallback(ctx, c, account, anthropicReq, token, originalModel, billingModel, upstreamModel, startTime, usage, clientStream, requestID)
+		candidates := append([]string{upstreamModel}, compactFallbackUpstreamModels...)
+		result, fallbackErr := s.runAnthropicCompactChunkFallbackWithModelFallbacks(ctx, c, account, anthropicReq, token, originalModel, candidates, startTime, usage, clientStream, requestID)
 		if fallbackErr != nil && !c.Writer.Written() {
 			writeAnthropicError(c, http.StatusBadGateway, "api_error", openAIAnthropicCompactFallbackFallbackResponse)
 		}
@@ -667,6 +716,65 @@ func isOpenAIResponsesContextLengthExceeded(resp *apicompat.ResponsesResponse) b
 	return strings.Contains(message, "context window") && strings.Contains(message, "exceed")
 }
 
+func isOpenAIResponsesCompactModelUnavailable(resp *apicompat.ResponsesResponse) bool {
+	if resp == nil || resp.Error == nil || isOpenAIResponsesContextLengthExceeded(resp) {
+		return false
+	}
+	return isOpenAICompactUnavailableText(resp.Error.Code + " " + resp.Error.Message)
+}
+
+func isOpenAICompactModelUnavailableHTTP(statusCode int, upstreamMsg string, upstreamBody []byte) bool {
+	if isOpenAIContextWindowError(upstreamMsg, upstreamBody) {
+		return false
+	}
+	switch statusCode {
+	case http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout, 529:
+		return true
+	}
+	if statusCode >= 500 {
+		return true
+	}
+	return isOpenAICompactUnavailableText(upstreamMsg + " " + string(upstreamBody))
+}
+
+func isOpenAICompactModelUnavailableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return isOpenAICompactUnavailableText(err.Error())
+}
+
+func isOpenAICompactUnavailableText(text string) bool {
+	lower := strings.ToLower(strings.TrimSpace(text))
+	if lower == "" {
+		return false
+	}
+	for _, pattern := range []string{
+		"429",
+		"529",
+		"rate_limit",
+		"rate limit",
+		"too many requests",
+		"usage limit",
+		"quota",
+		"resource exhausted",
+		"temporarily unavailable",
+		"service unavailable",
+		"no available account",
+		"no available accounts",
+		"selected model is at capacity",
+		"server is overloaded",
+		"slow_down",
+		"unsupported model",
+		"unknown model",
+	} {
+		if strings.Contains(lower, pattern) {
+			return true
+		}
+	}
+	return strings.Contains(lower, "unavailable") && strings.Contains(lower, "model")
+}
+
 func writeAnthropicResponseAsSSE(c *gin.Context, resp *apicompat.AnthropicResponse) error {
 	if resp == nil {
 		return errors.New("anthropic response is nil")
@@ -757,6 +865,60 @@ func writeAnthropicResponseAsSSE(c *gin.Context, resp *apicompat.AnthropicRespon
 	}
 	c.Writer.Flush()
 	return nil
+}
+
+func (s *OpenAIGatewayService) runAnthropicCompactChunkFallbackWithModelFallbacks(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	anthropicReq *apicompat.AnthropicRequest,
+	token string,
+	originalModel string,
+	candidateUpstreamModels []string,
+	startTime time.Time,
+	initialUsage OpenAIUsage,
+	clientStream bool,
+	initialRequestID string,
+) (*OpenAIForwardResult, error) {
+	candidates := compactModelFallbackCandidates(candidateUpstreamModels, "")
+	if len(candidates) == 0 {
+		return nil, errors.New("compact fallback has no candidate upstream models")
+	}
+
+	runningInitialUsage := initialUsage
+	var lastResult *OpenAIForwardResult
+	var lastErr error
+	for i, candidate := range candidates {
+		candidateUpstreamModel := normalizeOpenAIModelForUpstream(account, candidate)
+		if candidateUpstreamModel == "" {
+			continue
+		}
+		result, err := s.runAnthropicCompactChunkFallback(ctx, c, account, anthropicReq, token, originalModel, candidateUpstreamModel, candidateUpstreamModel, startTime, runningInitialUsage, clientStream, initialRequestID)
+		if err == nil {
+			return result, nil
+		}
+		lastResult = result
+		lastErr = err
+		if result != nil {
+			runningInitialUsage = result.Usage
+		}
+		if !isOpenAICompactModelUnavailableError(err) {
+			return result, err
+		}
+		if i+1 < len(candidates) {
+			logger.L().Warn("openai_messages.compact_chunk_model_unavailable_switching",
+				zap.Int64("account_id", account.ID),
+				zap.String("model", originalModel),
+				zap.String("failed_upstream_model", candidateUpstreamModel),
+				zap.String("next_upstream_model", normalizeOpenAIModelForUpstream(account, candidates[i+1])),
+				zap.Error(err),
+			)
+		}
+	}
+	if lastErr == nil {
+		lastErr = errors.New("compact fallback exhausted candidate upstream models")
+	}
+	return lastResult, lastErr
 }
 
 func (s *OpenAIGatewayService) runAnthropicCompactChunkFallback(
