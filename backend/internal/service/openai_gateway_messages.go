@@ -50,6 +50,16 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	// 2. Model mapping
 	billingModel := resolveOpenAIForwardModel(account, normalizedModel, defaultMappedModel)
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
+	anthropicCompactRequest := isClaudeCodeCompactAnthropicRequest(&anthropicReq)
+	anthropicCompactModelMapped := false
+	if anthropicCompactRequest {
+		compactBillingModel := resolveOpenAICompactForwardModel(account, billingModel)
+		anthropicCompactModelMapped = compactBillingModel != "" && compactBillingModel != billingModel
+		if anthropicCompactModelMapped {
+			billingModel = compactBillingModel
+			upstreamModel = normalizeOpenAIModelForUpstream(account, billingModel)
+		}
+	}
 	promptCacheKey = strings.TrimSpace(promptCacheKey)
 	apiKeyID := getAPIKeyIDFromContext(c)
 	anthropicDigestChain := ""
@@ -120,6 +130,12 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		zap.String("billing_model", billingModel),
 		zap.String("upstream_model", upstreamModel),
 		zap.Bool("stream", isStream),
+	}
+	if anthropicCompactRequest {
+		logFields = append(logFields,
+			zap.Bool("anthropic_compact_request", true),
+			zap.Bool("anthropic_compact_model_mapped", anthropicCompactModelMapped),
+		)
 	}
 	if compatPromptCacheInjected {
 		logFields = append(logFields,
@@ -1212,6 +1228,60 @@ func anthropicStreamEventHasVisibleOutput(evt apicompat.AnthropicStreamEvent) bo
 	default:
 		return false
 	}
+}
+
+func isClaudeCodeCompactAnthropicRequest(req *apicompat.AnthropicRequest) bool {
+	if req == nil || len(req.Messages) == 0 {
+		return false
+	}
+	for i := len(req.Messages) - 1; i >= 0; i-- {
+		msg := req.Messages[i]
+		if strings.TrimSpace(msg.Role) != "user" {
+			continue
+		}
+		return looksLikeClaudeCodeCompactPrompt(anthropicMessageText(msg.Content))
+	}
+	return false
+}
+
+func anthropicMessageText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
+	}
+	var blocks []apicompat.AnthropicContentBlock
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return ""
+	}
+	var parts []string
+	for _, block := range blocks {
+		if strings.TrimSpace(block.Type) == "text" && block.Text != "" {
+			parts = append(parts, block.Text)
+		}
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func looksLikeClaudeCodeCompactPrompt(text string) bool {
+	text = strings.TrimSpace(text)
+	if !strings.Contains(text, "Your task is to create a detailed summary") {
+		return false
+	}
+	for _, marker := range []string{
+		"<analysis>",
+		"<summary>",
+		"All user messages",
+		"Pending Tasks",
+		"Current Work",
+	} {
+		if !strings.Contains(text, marker) {
+			return false
+		}
+	}
+	return true
 }
 
 func anthropicResponseHasVisibleOutput(resp *apicompat.AnthropicResponse) bool {
