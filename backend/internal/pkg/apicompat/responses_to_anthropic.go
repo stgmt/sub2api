@@ -572,7 +572,6 @@ func resToAnthHandleCompleted(evt *ResponsesStreamEvent, state *ResponsesEventTo
 	var events []AnthropicStreamEvent
 	events = append(events, closeCurrentBlock(state)...)
 
-	stopReason := "end_turn"
 	if evt.Usage != nil {
 		usage := anthropicUsageFromResponsesUsage(evt.Usage)
 		state.InputTokens = usage.InputTokens
@@ -580,12 +579,23 @@ func resToAnthHandleCompleted(evt *ResponsesStreamEvent, state *ResponsesEventTo
 		state.CacheReadInputTokens = usage.CacheReadInputTokens
 	}
 	if evt.Response != nil {
+		if evt.Response.ID != "" {
+			state.ResponseID = evt.Response.ID
+		}
+		if state.Model == "" {
+			state.Model = evt.Response.Model
+		}
 		if evt.Response.Usage != nil {
 			usage := anthropicUsageFromResponsesUsage(evt.Response.Usage)
 			state.InputTokens = usage.InputTokens
 			state.OutputTokens = usage.OutputTokens
 			state.CacheReadInputTokens = usage.CacheReadInputTokens
 		}
+		events = append(events, resToAnthHandleTerminalOutput(evt.Response, state)...)
+	}
+
+	stopReason := "end_turn"
+	if evt.Response != nil {
 		switch evt.Response.Status {
 		case "incomplete":
 			if evt.Response.IncompleteDetails != nil && evt.Response.IncompleteDetails.Reason == "max_output_tokens" {
@@ -613,6 +623,94 @@ func resToAnthHandleCompleted(evt *ResponsesStreamEvent, state *ResponsesEventTo
 		AnthropicStreamEvent{Type: "message_stop"},
 	)
 	state.MessageStopSent = true
+	return events
+}
+
+func resToAnthHandleTerminalOutput(resp *ResponsesResponse, state *ResponsesEventToAnthropicState) []AnthropicStreamEvent {
+	if resp == nil || state.ContentBlockOpen || state.ContentBlockIndex > 0 {
+		return nil
+	}
+	anthropicResp := ResponsesToAnthropic(resp, state.Model)
+	var blocks []AnthropicContentBlock
+	for _, block := range anthropicResp.Content {
+		switch block.Type {
+		case "text":
+			if block.Text != "" {
+				blocks = append(blocks, block)
+			}
+		case "thinking":
+			if block.Thinking != "" {
+				blocks = append(blocks, block)
+			}
+		case "tool_use", "server_tool_use", "web_search_tool_result":
+			blocks = append(blocks, block)
+		}
+	}
+	if len(blocks) == 0 {
+		return nil
+	}
+
+	var events []AnthropicStreamEvent
+	if !state.MessageStartSent {
+		state.MessageStartSent = true
+		events = append(events, AnthropicStreamEvent{
+			Type: "message_start",
+			Message: &AnthropicResponse{
+				ID:      state.ResponseID,
+				Type:    "message",
+				Role:    "assistant",
+				Content: []AnthropicContentBlock{},
+				Model:   state.Model,
+				Usage: AnthropicUsage{
+					InputTokens:  state.InputTokens,
+					OutputTokens: 0,
+				},
+			},
+		})
+	}
+
+	for _, block := range blocks {
+		idx := state.ContentBlockIndex
+		startBlock := block
+		switch block.Type {
+		case "text":
+			startBlock.Text = ""
+		case "thinking":
+			startBlock.Thinking = ""
+		case "tool_use", "server_tool_use":
+			state.HasToolCall = true
+		}
+		events = append(events, AnthropicStreamEvent{
+			Type:         "content_block_start",
+			Index:        &idx,
+			ContentBlock: &startBlock,
+		})
+		switch block.Type {
+		case "text":
+			events = append(events, AnthropicStreamEvent{
+				Type:  "content_block_delta",
+				Index: &idx,
+				Delta: &AnthropicDelta{
+					Type: "text_delta",
+					Text: block.Text,
+				},
+			})
+		case "thinking":
+			events = append(events, AnthropicStreamEvent{
+				Type:  "content_block_delta",
+				Index: &idx,
+				Delta: &AnthropicDelta{
+					Type:     "thinking_delta",
+					Thinking: block.Thinking,
+				},
+			})
+		}
+		events = append(events, AnthropicStreamEvent{
+			Type:  "content_block_stop",
+			Index: &idx,
+		})
+		state.ContentBlockIndex++
+	}
 	return events
 }
 

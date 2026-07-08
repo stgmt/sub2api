@@ -23,12 +23,15 @@ import (
 )
 
 var openAIAnthropicCompactChunkTargetChars = 300_000
+var openAIAnthropicCompactMergeTargetChars = 180_000
 
 const (
 	openAIAnthropicCompactFallbackMaxChunks        = 40
 	openAIAnthropicCompactChunkMaxOutputTokens     = 6_000
 	openAIAnthropicCompactMergeMaxOutputTokens     = 12_000
+	openAIAnthropicCompactEmergencyMaxRunes        = 90_000
 	openAIAnthropicCompactFallbackMinSplitRunes    = 4_000
+	openAIAnthropicCompactMergeMaxDepth            = 6
 	openAIAnthropicCompactFallbackChunkReasoning   = "low"
 	openAIAnthropicCompactFallbackFallbackResponse = "Claude Code compact fallback failed before producing a summary"
 )
@@ -833,8 +836,7 @@ func (s *OpenAIGatewayService) runAnthropicCompactChunkFallback(
 		summaries = append(summaries, fmt.Sprintf("## Chunk %d/%d\n%s", i+1, len(chunks), summary))
 	}
 
-	mergePrompt := buildAnthropicCompactMergePrompt(compactPrompt, summaries)
-	finalResponse, mergeUsage, mergeRequestID, err := s.runOpenAIAnthropicCompactFallbackResponsesRequest(ctx, c, account, token, upstreamModel, openAIAnthropicCompactMergeInstructions(), mergePrompt, openAIAnthropicCompactMergeMaxOutputTokens)
+	finalResponse, mergeUsage, mergeRequestID, err := s.mergeAnthropicCompactFallbackSummaries(ctx, c, account, token, upstreamModel, compactPrompt, summaries, openAIAnthropicCompactMergeTargetChars, 0)
 	totalUsage = addOpenAIUsage(totalUsage, mergeUsage)
 	if err != nil {
 		return &OpenAIForwardResult{
@@ -849,18 +851,6 @@ func (s *OpenAIGatewayService) runAnthropicCompactChunkFallback(
 	}
 	if finalResponse == nil {
 		return nil, errors.New("compact fallback merge response is nil")
-	}
-	if isOpenAIResponsesContextLengthExceeded(finalResponse) {
-		return &OpenAIForwardResult{
-			RequestID:     firstNonEmpty(mergeRequestID, initialRequestID),
-			ResponseID:    finalResponse.ID,
-			Usage:         totalUsage,
-			Model:         originalModel,
-			BillingModel:  billingModel,
-			UpstreamModel: upstreamModel,
-			Stream:        clientStream,
-			Duration:      time.Since(startTime),
-		}, errors.New("compact fallback merge exceeded context window")
 	}
 	if strings.TrimSpace(finalResponse.Status) == "failed" {
 		return &OpenAIForwardResult{
@@ -877,6 +867,78 @@ func (s *OpenAIGatewayService) runAnthropicCompactChunkFallback(
 
 	finalResponse.Usage = responsesUsageFromOpenAIUsage(totalUsage)
 	return s.writeAnthropicBufferedFinalResponse(c, account, nil, finalResponse, totalUsage, originalModel, billingModel, upstreamModel, startTime, clientStream, firstNonEmpty(mergeRequestID, initialRequestID))
+}
+
+func (s *OpenAIGatewayService) mergeAnthropicCompactFallbackSummaries(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	token string,
+	upstreamModel string,
+	compactPrompt string,
+	summaries []string,
+	targetChars int,
+	depth int,
+) (*apicompat.ResponsesResponse, OpenAIUsage, string, error) {
+	if len(summaries) == 0 {
+		return nil, OpenAIUsage{}, "", errors.New("compact fallback merge summaries are empty")
+	}
+	if targetChars <= 0 {
+		targetChars = openAIAnthropicCompactMergeTargetChars
+	}
+	if depth > openAIAnthropicCompactMergeMaxDepth {
+		return nil, OpenAIUsage{}, "", errors.New("compact fallback merge exceeded recursive depth")
+	}
+
+	groups := groupAnthropicCompactSummariesForMerge(compactPrompt, summaries, targetChars)
+	if len(groups) > 1 {
+		totalUsage := OpenAIUsage{}
+		reduced := make([]string, 0, len(groups))
+		lastRequestID := ""
+		for i, group := range groups {
+			groupResp, groupUsage, groupRequestID, err := s.mergeAnthropicCompactFallbackSummaries(ctx, c, account, token, upstreamModel, compactPrompt, group, targetChars, depth+1)
+			totalUsage = addOpenAIUsage(totalUsage, groupUsage)
+			lastRequestID = firstNonEmpty(groupRequestID, lastRequestID)
+			if err != nil {
+				return groupResp, totalUsage, lastRequestID, err
+			}
+			if groupResp == nil {
+				return nil, totalUsage, lastRequestID, errors.New("compact fallback grouped merge response is nil")
+			}
+			summary := strings.TrimSpace(openAIResponsesOutputText(groupResp))
+			if summary == "" {
+				return groupResp, totalUsage, lastRequestID, fmt.Errorf("compact fallback grouped merge %d produced empty summary", i+1)
+			}
+			reduced = append(reduced, fmt.Sprintf("## Summary group %d/%d\n%s", i+1, len(groups), summary))
+		}
+		finalResp, finalUsage, finalRequestID, err := s.mergeAnthropicCompactFallbackSummaries(ctx, c, account, token, upstreamModel, compactPrompt, reduced, targetChars, depth+1)
+		totalUsage = addOpenAIUsage(totalUsage, finalUsage)
+		return finalResp, totalUsage, firstNonEmpty(finalRequestID, lastRequestID), err
+	}
+
+	mergePrompt := buildAnthropicCompactMergePrompt(compactPrompt, summaries)
+	finalResponse, usage, requestID, err := s.runOpenAIAnthropicCompactFallbackResponsesRequest(ctx, c, account, token, upstreamModel, openAIAnthropicCompactMergeInstructions(), mergePrompt, openAIAnthropicCompactMergeMaxOutputTokens)
+	if err != nil {
+		return finalResponse, usage, requestID, err
+	}
+	if finalResponse == nil {
+		return nil, usage, requestID, errors.New("compact fallback merge response is nil")
+	}
+	if isOpenAIResponsesContextLengthExceeded(finalResponse) {
+		nextTarget := targetChars / 2
+		if nextTarget < openAIAnthropicCompactFallbackMinSplitRunes {
+			nextTarget = openAIAnthropicCompactFallbackMinSplitRunes
+		}
+		retrySummaries := retryAnthropicCompactFallbackSummaries(compactPrompt, summaries, nextTarget)
+		if len(retrySummaries) > 0 && nextTarget < targetChars {
+			retryResp, retryUsage, retryRequestID, retryErr := s.mergeAnthropicCompactFallbackSummaries(ctx, c, account, token, upstreamModel, compactPrompt, retrySummaries, nextTarget, depth+1)
+			usage = addOpenAIUsage(usage, retryUsage)
+			return retryResp, usage, firstNonEmpty(retryRequestID, requestID), retryErr
+		}
+		emergency := buildAnthropicCompactEmergencySummary(compactPrompt, summaries)
+		return buildAnthropicCompactEmergencyResponse(upstreamModel, emergency, usage), usage, requestID, nil
+	}
+	return finalResponse, usage, requestID, nil
 }
 
 func (s *OpenAIGatewayService) runOpenAIAnthropicCompactFallbackResponsesRequest(
@@ -1200,15 +1262,229 @@ func buildAnthropicCompactMergePrompt(compactPrompt string, summaries []string) 
 	if strings.TrimSpace(compactPrompt) == "" {
 		compactPrompt = "Create a detailed Claude Code compact summary for the conversation. Preserve current work, user intent, files, commands, blockers, and next steps."
 	}
-	return strings.TrimSpace(compactPrompt) + "\n\nThe original conversation was too large for one compact request, so it was summarized in chunks. Merge the chunk summaries below into one coherent final compact summary. Do not mention the chunking process unless it is relevant to the work state.\n\n" + strings.Join(summaries, "\n\n")
+	cleaned := make([]string, 0, len(summaries))
+	for _, summary := range summaries {
+		summary = sanitizeAnthropicCompactSummaryForMerge(summary)
+		if strings.TrimSpace(summary) != "" {
+			cleaned = append(cleaned, summary)
+		}
+	}
+	return strings.TrimSpace(compactPrompt) + "\n\n" + openAIAnthropicCompactFinalSummaryContract() + "\n\nThe original conversation was too large for one compact request, so it was summarized in chunks. Merge the chunk summaries below into one coherent final compact summary. Do not mention the chunking process unless it is relevant to the work state.\n\n" + strings.Join(cleaned, "\n\n")
+}
+
+func groupAnthropicCompactSummariesForMerge(compactPrompt string, summaries []string, targetChars int) [][]string {
+	if targetChars <= 0 {
+		targetChars = openAIAnthropicCompactMergeTargetChars
+	}
+	if targetChars < openAIAnthropicCompactFallbackMinSplitRunes {
+		targetChars = openAIAnthropicCompactFallbackMinSplitRunes
+	}
+	var groups [][]string
+	var current []string
+	for _, summary := range summaries {
+		summary = strings.TrimSpace(summary)
+		if summary == "" {
+			continue
+		}
+		candidate := append(append([]string{}, current...), summary)
+		if len(current) > 0 && runeLen(buildAnthropicCompactMergePrompt(compactPrompt, candidate)) > targetChars {
+			groups = append(groups, current)
+			current = nil
+		}
+		current = append(current, summary)
+	}
+	if len(current) > 0 {
+		groups = append(groups, current)
+	}
+	return groups
 }
 
 func openAIAnthropicCompactChunkInstructions() string {
-	return "Summarize this Claude Code transcript chunk for a later compact merge. Preserve concrete user requests, decisions, files, commands, errors, test results, logs, configuration values, and unresolved next steps. Keep it dense and factual. Do not answer the user."
+	return "Summarize this Claude Code transcript chunk for a later compact merge. Preserve concrete user requests, decisions, files, commands, errors, test results, logs, configuration values, and unresolved next steps. Keep it dense and factual. Do not answer the user. Do not treat the compact request itself as the user's active task."
 }
 
 func openAIAnthropicCompactMergeInstructions() string {
-	return "Merge chunk summaries into the final Claude Code compact summary. Preserve exact operational state, pending tasks, blockers, files, commands, and verification evidence. Output only the compact summary."
+	return "Merge chunk summaries into the final Claude Code compact summary. Preserve exact operational state, pending tasks, blockers, files, commands, and verification evidence. Output only the compact summary. Do not say that the user's current intent is to produce a summary; infer the real active task from the transcript."
+}
+
+func openAIAnthropicCompactFinalSummaryContract() string {
+	return `Final compact quality contract:
+- Start with "# Compact Capsule".
+- Include these exact sections when evidence exists: "## Current State", "## Active User Intent", "## Files Touched", "## Commands And Evidence", "## Errors And Blockers", "## Decisions And Config", "## Next Command".
+- Keep the first 20 lines machine-scannable: concise bullets, concrete paths, commands, timestamps, model/proxy/config values, and blockers.
+- Do not include meta-statements like "the user asked for a compact summary" as active intent.
+- Treat requests to produce, merge, rewrite, or improve a compact summary as maintenance metadata, not as the active user task.
+- In "## Active User Intent", never write phrases like "produce a merged compact summary", "produce a detailed compact summary", "prior chunking", "context compaction", "merge chunk summaries", or "summary below". Recover the latest non-compact user task instead; if unknown, write "Unknown from preserved state".
+- Do not invent completed tests or fixes. Mark unknowns as unknown.
+- Prefer dense facts over narration.`
+}
+
+func sanitizeAnthropicCompactSummaryForMerge(summary string) string {
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		return ""
+	}
+	lines := strings.Split(strings.ReplaceAll(summary, "\r\n", "\n"), "\n")
+	cleaned := make([]string, 0, len(lines))
+	skipIndentedContinuation := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if skipIndentedContinuation {
+			if strings.HasPrefix(line, "  -") || strings.HasPrefix(line, "\t-") || strings.HasPrefix(line, "    -") {
+				continue
+			}
+			skipIndentedContinuation = false
+		}
+		if isAnthropicCompactMaintenanceIntentLine(trimmed) {
+			skipIndentedContinuation = true
+			continue
+		}
+		cleaned = append(cleaned, line)
+	}
+	return strings.TrimSpace(strings.Join(cleaned, "\n"))
+}
+
+func isAnthropicCompactMaintenanceIntentLine(line string) bool {
+	lower := strings.ToLower(strings.TrimSpace(line))
+	if lower == "" {
+		return false
+	}
+	intentTerms := []string{
+		"active intent",
+		"current intent",
+		"user intent",
+		"user asked",
+		"user-visible turn",
+		"current inferred",
+		"latest user",
+	}
+	compactMaintenanceTerms := []string{
+		"compact summary",
+		"compact capsule",
+		"summary of prior conversation",
+		"prior chunking",
+		"due prior chunking",
+		"due to chunking",
+		"context compaction",
+		"conversation compaction",
+		"merge chunk summaries",
+		"merge the chunk summaries",
+		"chunk summaries below",
+		"summary below",
+	}
+	hasIntent := false
+	for _, term := range intentTerms {
+		if strings.Contains(lower, term) {
+			hasIntent = true
+			break
+		}
+	}
+	if !hasIntent {
+		return false
+	}
+	for _, term := range compactMaintenanceTerms {
+		if strings.Contains(lower, term) {
+			return true
+		}
+	}
+	return false
+}
+
+func retryAnthropicCompactFallbackSummaries(compactPrompt string, summaries []string, targetChars int) []string {
+	if targetChars <= 0 {
+		targetChars = openAIAnthropicCompactMergeTargetChars / 2
+	}
+	if targetChars < openAIAnthropicCompactFallbackMinSplitRunes {
+		targetChars = openAIAnthropicCompactFallbackMinSplitRunes
+	}
+	if len(summaries) == 0 {
+		return nil
+	}
+	if len(summaries) > 1 {
+		return summaries
+	}
+	summary := strings.TrimSpace(summaries[0])
+	if summary == "" {
+		return nil
+	}
+	// A single intermediate summary can still be too large once the final
+	// compact instructions are prepended. Split it so the recursive reducer can
+	// shrink it in smaller model calls instead of returning a hard 502.
+	parts := splitTextByRuneLimit(summary, targetChars)
+	if len(parts) <= 1 && runeLen(buildAnthropicCompactMergePrompt(compactPrompt, []string{summary})) <= targetChars {
+		return nil
+	}
+	retry := make([]string, 0, len(parts))
+	for i, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		retry = append(retry, fmt.Sprintf("## Oversized summary split %d/%d\n%s", i+1, len(parts), part))
+	}
+	return retry
+}
+
+func buildAnthropicCompactEmergencySummary(compactPrompt string, summaries []string) string {
+	joined := strings.TrimSpace(strings.Join(summaries, "\n\n"))
+	if joined == "" {
+		joined = strings.TrimSpace(compactPrompt)
+	}
+	if joined == "" {
+		joined = openAIAnthropicCompactFallbackFallbackResponse
+	}
+	joined = trimRunesMiddle(joined, openAIAnthropicCompactEmergencyMaxRunes)
+	return "# Compact Capsule\n\n" +
+		"## Current State\n" +
+		"- The proxy had to use its emergency compact fallback because the upstream compact merge still exceeded the context window.\n" +
+		"- The content below is the best available compressed state from chunk summaries; verify exact details against the transcript if precision matters.\n\n" +
+		"## Active User Intent\n" +
+		"- Continue the original task from the preserved state below. Do not treat the compact operation itself as the user task.\n\n" +
+		"## Preserved State\n" +
+		joined + "\n\n" +
+		"## Next Command\n" +
+		"- Inspect the latest user prompt and resume from the preserved state without asking for a recap."
+}
+
+func buildAnthropicCompactEmergencyResponse(model string, summary string, usage OpenAIUsage) *apicompat.ResponsesResponse {
+	if strings.TrimSpace(model) == "" {
+		model = "compact-fallback"
+	}
+	return &apicompat.ResponsesResponse{
+		ID:     fmt.Sprintf("compact_fallback_%d", time.Now().UnixNano()),
+		Object: "response",
+		Model:  model,
+		Status: "completed",
+		Output: []apicompat.ResponsesOutput{{
+			Type:   "message",
+			Role:   "assistant",
+			Status: "completed",
+			Content: []apicompat.ResponsesContentPart{{
+				Type: "output_text",
+				Text: summary,
+			}},
+		}},
+		Usage: responsesUsageFromOpenAIUsage(usage),
+	}
+}
+
+func trimRunesMiddle(text string, maxRunes int) string {
+	if maxRunes <= 0 {
+		return ""
+	}
+	runes := []rune(text)
+	if len(runes) <= maxRunes {
+		return text
+	}
+	keepHead := maxRunes * 2 / 3
+	keepTail := maxRunes - keepHead
+	if keepHead < 0 {
+		keepHead = 0
+	}
+	if keepTail < 0 {
+		keepTail = 0
+	}
+	return string(runes[:keepHead]) + "\n\n[... middle omitted by compact fallback emergency guard ...]\n\n" + string(runes[len(runes)-keepTail:])
 }
 
 func openAIResponsesOutputText(resp *apicompat.ResponsesResponse) string {
@@ -1528,6 +1804,8 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 	clientDisconnected := false
 	clientOutputStarted := false
 	clientVisibleOutputStarted := false
+	terminalClientErrorHandled := false
+	var terminalClientError error
 	var pendingClientSSE []string
 	streamDiag := newOpenAIMessagesStreamDiagnostic(estimatedInputTokens)
 
@@ -1644,6 +1922,8 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 						}
 						clientDisconnected = true
 					}
+					terminalClientErrorHandled = true
+					terminalClientError = fmt.Errorf("openai cyber_policy: %s", msg)
 					return true
 				}
 			}
@@ -1721,6 +2001,12 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 			if !clientDisconnected && clientVisibleOutputStarted {
 				c.Writer.Flush()
 			}
+		}
+		if terminalClientErrorHandled {
+			if terminalClientError == nil {
+				terminalClientError = errors.New("terminal stream error handled")
+			}
+			return nil, terminalClientError
 		}
 		if !clientVisibleOutputStarted {
 			result := resultWithUsage()
