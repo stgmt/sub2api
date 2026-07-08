@@ -22,6 +22,17 @@ import (
 	"go.uber.org/zap"
 )
 
+var openAIAnthropicCompactChunkTargetChars = 300_000
+
+const (
+	openAIAnthropicCompactFallbackMaxChunks        = 40
+	openAIAnthropicCompactChunkMaxOutputTokens     = 6_000
+	openAIAnthropicCompactMergeMaxOutputTokens     = 12_000
+	openAIAnthropicCompactFallbackMinSplitRunes    = 4_000
+	openAIAnthropicCompactFallbackChunkReasoning   = "low"
+	openAIAnthropicCompactFallbackFallbackResponse = "Claude Code compact fallback failed before producing a summary"
+)
+
 // ForwardAsAnthropic accepts an Anthropic Messages request body, converts it
 // to OpenAI Responses API format, forwards to the OpenAI upstream, and converts
 // the response back to Anthropic Messages format. This enables Claude Code
@@ -393,7 +404,9 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	// Upstream is always streaming; choose response format based on client preference.
 	var result *OpenAIForwardResult
 	var handleErr error
-	if clientStream {
+	if anthropicCompactRequest && anthropicCompactModelMapped {
+		result, handleErr = s.handleAnthropicCompactMappedStreamingResponse(ctx, c, account, resp, originalModel, billingModel, upstreamModel, startTime, &anthropicReq, token, clientStream)
+	} else if clientStream {
 		result, handleErr = s.handleAnthropicStreamingResponse(resp, c, account, originalModel, billingModel, upstreamModel, startTime, estimatedInputTokens)
 	} else {
 		// Client wants JSON: buffer the streaming response and assemble a JSON reply.
@@ -464,6 +477,73 @@ func (s *OpenAIGatewayService) handleAnthropicErrorResponse(
 	return s.handleCompatErrorResponse(resp, c, account, writeAnthropicError, requestedModel...)
 }
 
+// handleAnthropicCompactMappedStreamingResponse keeps compact reroutes
+// buffered until we know whether the fast compact model can handle the full
+// transcript. If it cannot, it summarizes transcript chunks and merges those
+// summaries into the compact response Claude Code expects.
+func (s *OpenAIGatewayService) handleAnthropicCompactMappedStreamingResponse(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	resp *http.Response,
+	originalModel string,
+	billingModel string,
+	upstreamModel string,
+	startTime time.Time,
+	anthropicReq *apicompat.AnthropicRequest,
+	token string,
+	clientStream bool,
+) (*OpenAIForwardResult, error) {
+	requestID := resp.Header.Get("x-request-id")
+
+	finalResponse, usage, acc, err := s.readOpenAICompatBufferedTerminal(resp, "openai messages compact buffered", requestID)
+	if err != nil {
+		return nil, err
+	}
+	if finalResponse == nil {
+		writeAnthropicError(c, http.StatusBadGateway, "api_error", "Upstream stream ended without a terminal response event")
+		return nil, fmt.Errorf("upstream stream ended without terminal event")
+	}
+
+	if isOpenAIResponsesContextLengthExceeded(finalResponse) {
+		logger.L().Warn("openai_messages.compact_context_length_fallback",
+			zap.String("request_id", requestID),
+			zap.Int64("account_id", account.ID),
+			zap.String("model", originalModel),
+			zap.String("upstream_model", upstreamModel),
+			zap.Int("initial_input_tokens", usage.InputTokens),
+		)
+		result, fallbackErr := s.runAnthropicCompactChunkFallback(ctx, c, account, anthropicReq, token, originalModel, billingModel, upstreamModel, startTime, usage, clientStream, requestID)
+		if fallbackErr != nil && !c.Writer.Written() {
+			writeAnthropicError(c, http.StatusBadGateway, "api_error", openAIAnthropicCompactFallbackFallbackResponse)
+		}
+		return result, fallbackErr
+	}
+
+	if strings.TrimSpace(finalResponse.Status) == "failed" {
+		payload, _ := json.Marshal(gin.H{"type": "response.failed", "response": finalResponse})
+		if hit, code, msg := detectOpenAICyberPolicy(payload); hit {
+			MarkOpsCyberPolicy(c, CyberPolicyMark{
+				Code:           code,
+				Message:        msg,
+				Body:           truncateString(string(payload), 4096),
+				UpstreamStatus: http.StatusOK,
+				UpstreamInTok:  usage.InputTokens,
+				UpstreamOutTok: usage.OutputTokens,
+			})
+			clientMsg := msg
+			if clientMsg == "" {
+				clientMsg = "Request blocked by upstream cyber-security policy"
+			}
+			writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", clientMsg)
+			return nil, fmt.Errorf("openai cyber_policy: %s", msg)
+		}
+	}
+
+	acc.SupplementResponseOutput(finalResponse)
+	return s.writeAnthropicBufferedFinalResponse(c, account, resp.Header, finalResponse, usage, originalModel, billingModel, upstreamModel, startTime, clientStream, requestID)
+}
+
 // handleAnthropicBufferedStreamingResponse reads all Responses SSE events from
 // the upstream streaming response, finds the terminal event (response.completed
 // / response.incomplete / response.failed), converts the complete response to
@@ -517,6 +597,22 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 	// accumulated delta events so the client receives the full content.
 	acc.SupplementResponseOutput(finalResponse)
 
+	return s.writeAnthropicBufferedFinalResponse(c, account, resp.Header, finalResponse, usage, originalModel, billingModel, upstreamModel, startTime, false, requestID)
+}
+
+func (s *OpenAIGatewayService) writeAnthropicBufferedFinalResponse(
+	c *gin.Context,
+	account *Account,
+	upstreamHeaders http.Header,
+	finalResponse *apicompat.ResponsesResponse,
+	usage OpenAIUsage,
+	originalModel string,
+	billingModel string,
+	upstreamModel string,
+	startTime time.Time,
+	clientStream bool,
+	requestID string,
+) (*OpenAIForwardResult, error) {
 	anthropicResp := apicompat.ResponsesToAnthropic(finalResponse, originalModel)
 	if !anthropicResponseHasVisibleOutput(anthropicResp) {
 		result := &OpenAIForwardResult{
@@ -526,17 +622,23 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 			Model:         originalModel,
 			BillingModel:  billingModel,
 			UpstreamModel: upstreamModel,
-			Stream:        false,
+			Stream:        clientStream,
 			Duration:      time.Since(startTime),
 		}
 		message := "OpenAI messages buffered response completed without assistant content or tool output"
 		return result, s.newOpenAIStreamFailoverError(c, account, false, requestID, nil, message)
 	}
 
-	if s.responseHeaderFilter != nil {
-		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
+	if s.responseHeaderFilter != nil && upstreamHeaders != nil {
+		responseheaders.WriteFilteredHeaders(c.Writer.Header(), upstreamHeaders, s.responseHeaderFilter)
 	}
-	c.JSON(http.StatusOK, anthropicResp)
+	if clientStream {
+		if err := writeAnthropicResponseAsSSE(c, anthropicResp); err != nil {
+			return nil, err
+		}
+	} else {
+		c.JSON(http.StatusOK, anthropicResp)
+	}
 
 	return &OpenAIForwardResult{
 		RequestID:     requestID,
@@ -545,9 +647,630 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 		Model:         originalModel,
 		BillingModel:  billingModel,
 		UpstreamModel: upstreamModel,
-		Stream:        false,
+		Stream:        clientStream,
 		Duration:      time.Since(startTime),
 	}, nil
+}
+
+func isOpenAIResponsesContextLengthExceeded(resp *apicompat.ResponsesResponse) bool {
+	if resp == nil || resp.Error == nil {
+		return false
+	}
+	code := strings.TrimSpace(resp.Error.Code)
+	if code == "context_length_exceeded" {
+		return true
+	}
+	message := strings.ToLower(strings.TrimSpace(resp.Error.Message))
+	return strings.Contains(message, "context window") && strings.Contains(message, "exceed")
+}
+
+func writeAnthropicResponseAsSSE(c *gin.Context, resp *apicompat.AnthropicResponse) error {
+	if resp == nil {
+		return errors.New("anthropic response is nil")
+	}
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Status(http.StatusOK)
+
+	start := *resp
+	start.Content = []apicompat.AnthropicContentBlock{}
+	start.StopReason = ""
+	start.StopSequence = nil
+	start.Usage.OutputTokens = 0
+	events := []apicompat.AnthropicStreamEvent{{
+		Type:    "message_start",
+		Message: &start,
+	}}
+
+	for i, block := range resp.Content {
+		idx := i
+		startBlock := block
+		switch strings.TrimSpace(startBlock.Type) {
+		case "text":
+			startBlock.Text = ""
+		case "thinking":
+			startBlock.Thinking = ""
+		}
+		events = append(events, apicompat.AnthropicStreamEvent{
+			Type:         "content_block_start",
+			Index:        &idx,
+			ContentBlock: &startBlock,
+		})
+		switch strings.TrimSpace(block.Type) {
+		case "text":
+			if block.Text != "" {
+				events = append(events, apicompat.AnthropicStreamEvent{
+					Type:  "content_block_delta",
+					Index: &idx,
+					Delta: &apicompat.AnthropicDelta{
+						Type: "text_delta",
+						Text: block.Text,
+					},
+				})
+			}
+		case "thinking":
+			if block.Thinking != "" {
+				events = append(events, apicompat.AnthropicStreamEvent{
+					Type:  "content_block_delta",
+					Index: &idx,
+					Delta: &apicompat.AnthropicDelta{
+						Type:     "thinking_delta",
+						Thinking: block.Thinking,
+					},
+				})
+			}
+		}
+		events = append(events, apicompat.AnthropicStreamEvent{
+			Type:  "content_block_stop",
+			Index: &idx,
+		})
+	}
+
+	stopReason := strings.TrimSpace(resp.StopReason)
+	if stopReason == "" {
+		stopReason = "end_turn"
+	}
+	events = append(events,
+		apicompat.AnthropicStreamEvent{
+			Type: "message_delta",
+			Delta: &apicompat.AnthropicDelta{
+				StopReason:   stopReason,
+				StopSequence: resp.StopSequence,
+			},
+			Usage: &resp.Usage,
+		},
+		apicompat.AnthropicStreamEvent{Type: "message_stop"},
+	)
+
+	for _, evt := range events {
+		sse, err := apicompat.ResponsesAnthropicEventToSSE(evt)
+		if err != nil {
+			return err
+		}
+		if _, err := fmt.Fprint(c.Writer, sse); err != nil {
+			return err
+		}
+	}
+	c.Writer.Flush()
+	return nil
+}
+
+func (s *OpenAIGatewayService) runAnthropicCompactChunkFallback(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	anthropicReq *apicompat.AnthropicRequest,
+	token string,
+	originalModel string,
+	billingModel string,
+	upstreamModel string,
+	startTime time.Time,
+	initialUsage OpenAIUsage,
+	clientStream bool,
+	initialRequestID string,
+) (*OpenAIForwardResult, error) {
+	compactPrompt, transcript := buildAnthropicCompactFallbackTranscript(anthropicReq)
+	chunks := splitAnthropicCompactTranscriptChunks(transcript, openAIAnthropicCompactChunkTargetChars, openAIAnthropicCompactFallbackMaxChunks)
+	if len(chunks) == 0 {
+		return nil, errors.New("compact fallback transcript is empty")
+	}
+
+	totalUsage := initialUsage
+	summaries := make([]string, 0, len(chunks))
+	for i, chunk := range chunks {
+		prompt := fmt.Sprintf("Chunk %d of %d from a Claude Code conversation transcript:\n\n%s", i+1, len(chunks), chunk)
+		finalResponse, usage, requestID, err := s.runOpenAIAnthropicCompactFallbackResponsesRequest(ctx, c, account, token, upstreamModel, openAIAnthropicCompactChunkInstructions(), prompt, openAIAnthropicCompactChunkMaxOutputTokens)
+		totalUsage = addOpenAIUsage(totalUsage, usage)
+		if err != nil {
+			return &OpenAIForwardResult{
+				RequestID:     firstNonEmpty(requestID, initialRequestID),
+				Usage:         totalUsage,
+				Model:         originalModel,
+				BillingModel:  billingModel,
+				UpstreamModel: upstreamModel,
+				Stream:        clientStream,
+				Duration:      time.Since(startTime),
+			}, err
+		}
+		if isOpenAIResponsesContextLengthExceeded(finalResponse) {
+			return &OpenAIForwardResult{
+				RequestID:     firstNonEmpty(requestID, initialRequestID),
+				ResponseID:    finalResponse.ID,
+				Usage:         totalUsage,
+				Model:         originalModel,
+				BillingModel:  billingModel,
+				UpstreamModel: upstreamModel,
+				Stream:        clientStream,
+				Duration:      time.Since(startTime),
+			}, fmt.Errorf("compact fallback chunk %d exceeded context window", i+1)
+		}
+		if strings.TrimSpace(finalResponse.Status) == "failed" {
+			return &OpenAIForwardResult{
+				RequestID:     firstNonEmpty(requestID, initialRequestID),
+				ResponseID:    finalResponse.ID,
+				Usage:         totalUsage,
+				Model:         originalModel,
+				BillingModel:  billingModel,
+				UpstreamModel: upstreamModel,
+				Stream:        clientStream,
+				Duration:      time.Since(startTime),
+			}, fmt.Errorf("compact fallback chunk %d failed: %s", i+1, openAIResponsesErrorMessage(finalResponse))
+		}
+		summary := strings.TrimSpace(openAIResponsesOutputText(finalResponse))
+		if summary == "" {
+			return &OpenAIForwardResult{
+				RequestID:     firstNonEmpty(requestID, initialRequestID),
+				ResponseID:    finalResponse.ID,
+				Usage:         totalUsage,
+				Model:         originalModel,
+				BillingModel:  billingModel,
+				UpstreamModel: upstreamModel,
+				Stream:        clientStream,
+				Duration:      time.Since(startTime),
+			}, fmt.Errorf("compact fallback chunk %d produced empty summary", i+1)
+		}
+		summaries = append(summaries, fmt.Sprintf("## Chunk %d/%d\n%s", i+1, len(chunks), summary))
+	}
+
+	mergePrompt := buildAnthropicCompactMergePrompt(compactPrompt, summaries)
+	finalResponse, mergeUsage, mergeRequestID, err := s.runOpenAIAnthropicCompactFallbackResponsesRequest(ctx, c, account, token, upstreamModel, openAIAnthropicCompactMergeInstructions(), mergePrompt, openAIAnthropicCompactMergeMaxOutputTokens)
+	totalUsage = addOpenAIUsage(totalUsage, mergeUsage)
+	if err != nil {
+		return &OpenAIForwardResult{
+			RequestID:     firstNonEmpty(mergeRequestID, initialRequestID),
+			Usage:         totalUsage,
+			Model:         originalModel,
+			BillingModel:  billingModel,
+			UpstreamModel: upstreamModel,
+			Stream:        clientStream,
+			Duration:      time.Since(startTime),
+		}, err
+	}
+	if finalResponse == nil {
+		return nil, errors.New("compact fallback merge response is nil")
+	}
+	if isOpenAIResponsesContextLengthExceeded(finalResponse) {
+		return &OpenAIForwardResult{
+			RequestID:     firstNonEmpty(mergeRequestID, initialRequestID),
+			ResponseID:    finalResponse.ID,
+			Usage:         totalUsage,
+			Model:         originalModel,
+			BillingModel:  billingModel,
+			UpstreamModel: upstreamModel,
+			Stream:        clientStream,
+			Duration:      time.Since(startTime),
+		}, errors.New("compact fallback merge exceeded context window")
+	}
+	if strings.TrimSpace(finalResponse.Status) == "failed" {
+		return &OpenAIForwardResult{
+			RequestID:     firstNonEmpty(mergeRequestID, initialRequestID),
+			ResponseID:    finalResponse.ID,
+			Usage:         totalUsage,
+			Model:         originalModel,
+			BillingModel:  billingModel,
+			UpstreamModel: upstreamModel,
+			Stream:        clientStream,
+			Duration:      time.Since(startTime),
+		}, fmt.Errorf("compact fallback merge failed: %s", openAIResponsesErrorMessage(finalResponse))
+	}
+
+	finalResponse.Usage = responsesUsageFromOpenAIUsage(totalUsage)
+	return s.writeAnthropicBufferedFinalResponse(c, account, nil, finalResponse, totalUsage, originalModel, billingModel, upstreamModel, startTime, clientStream, firstNonEmpty(mergeRequestID, initialRequestID))
+}
+
+func (s *OpenAIGatewayService) runOpenAIAnthropicCompactFallbackResponsesRequest(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	token string,
+	upstreamModel string,
+	instructions string,
+	userText string,
+	maxOutputTokens int,
+) (*apicompat.ResponsesResponse, OpenAIUsage, string, error) {
+	body, requestModel, err := s.buildOpenAIAnthropicCompactFallbackResponsesBody(account, upstreamModel, instructions, userText, maxOutputTokens)
+	if err != nil {
+		return nil, OpenAIUsage{}, "", err
+	}
+
+	updatedBody, policyErr := s.applyOpenAIFastPolicyToBody(ctx, account, requestModel, body)
+	if policyErr != nil {
+		var blocked *OpenAIFastBlockedError
+		if errors.As(policyErr, &blocked) {
+			MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalPolicyDenied)
+			writeAnthropicError(c, http.StatusForbidden, "forbidden_error", blocked.Message)
+		}
+		return nil, OpenAIUsage{}, "", policyErr
+	}
+	body = updatedBody
+	if account.Platform == PlatformGrok {
+		patchedBody, patchErr := patchGrokResponsesBody(body, requestModel)
+		if patchErr != nil {
+			return nil, OpenAIUsage{}, "", patchErr
+		}
+		body = patchedBody
+	}
+
+	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
+	var req *http.Request
+	if account.Platform == PlatformGrok {
+		req, err = buildGrokResponsesRequest(upstreamCtx, c, account, body, token)
+	} else {
+		req, err = s.buildUpstreamRequest(upstreamCtx, c, account, body, token, true, "", false)
+	}
+	releaseUpstreamCtx()
+	if err != nil {
+		return nil, OpenAIUsage{}, "", err
+	}
+	if account.Type == AccountTypeOAuth && account.Platform != PlatformGrok {
+		req.Header.Del("OpenAI-Beta")
+		req.Header.Del("originator")
+		req.Header.Del("conversation_id")
+		req.Header.Del("session_id")
+	}
+
+	proxyURL := ""
+	if account.Proxy != nil {
+		proxyURL = account.Proxy.URL()
+	}
+	resp, err := s.httpUpstream.Do(req, proxyURL, account.ID, account.Concurrency)
+	if err != nil {
+		safeErr := sanitizeUpstreamErrorMessage(err.Error())
+		setOpsUpstreamError(c, 0, safeErr, "")
+		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+			Platform:           account.Platform,
+			AccountID:          account.ID,
+			AccountName:        account.Name,
+			UpstreamStatusCode: 0,
+			Kind:               "compact_fallback_request_error",
+			Message:            safeErr,
+		})
+		return nil, OpenAIUsage{}, "", fmt.Errorf("compact fallback upstream request failed: %s", safeErr)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	requestID := resp.Header.Get("x-request-id")
+	if resp.StatusCode >= 400 {
+		respBody := s.readUpstreamErrorBody(resp)
+		s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, requestModel)
+		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
+		if upstreamMsg == "" {
+			upstreamMsg = http.StatusText(resp.StatusCode)
+		}
+		return nil, OpenAIUsage{}, requestID, fmt.Errorf("compact fallback upstream status %d: %s", resp.StatusCode, sanitizeUpstreamErrorMessage(upstreamMsg))
+	}
+
+	finalResponse, usage, acc, err := s.readOpenAICompatBufferedTerminal(resp, "openai messages compact fallback", requestID)
+	if err != nil {
+		return nil, usage, requestID, err
+	}
+	if finalResponse == nil {
+		return nil, usage, requestID, errors.New("compact fallback stream ended without terminal response")
+	}
+	acc.SupplementResponseOutput(finalResponse)
+	return finalResponse, usage, requestID, nil
+}
+
+func (s *OpenAIGatewayService) buildOpenAIAnthropicCompactFallbackResponsesBody(
+	account *Account,
+	upstreamModel string,
+	instructions string,
+	userText string,
+	maxOutputTokens int,
+) ([]byte, string, error) {
+	content, err := json.Marshal([]apicompat.ResponsesContentPart{{
+		Type: "input_text",
+		Text: userText,
+	}})
+	if err != nil {
+		return nil, upstreamModel, err
+	}
+	input, err := json.Marshal([]apicompat.ResponsesInputItem{{
+		Role:    "user",
+		Content: content,
+	}})
+	if err != nil {
+		return nil, upstreamModel, err
+	}
+	store := false
+	req := apicompat.ResponsesRequest{
+		Model:           upstreamModel,
+		Instructions:    instructions,
+		Input:           input,
+		MaxOutputTokens: &maxOutputTokens,
+		Stream:          true,
+		Store:           &store,
+		Reasoning: &apicompat.ResponsesReasoning{
+			Effort: openAIAnthropicCompactFallbackChunkReasoning,
+		},
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, upstreamModel, err
+	}
+
+	requestModel := upstreamModel
+	if account.Type == AccountTypeOAuth && account.Platform != PlatformGrok {
+		var reqBody map[string]any
+		if err := json.Unmarshal(body, &reqBody); err != nil {
+			return nil, requestModel, err
+		}
+		codexResult := applyCodexOAuthTransformWithOptions(reqBody, codexOAuthTransformOptions{
+			SkipDefaultInstructions: true,
+			PreserveToolCallIDs:     true,
+		})
+		if codexResult.NormalizedModel != "" {
+			requestModel = codexResult.NormalizedModel
+		}
+		ensureCodexOAuthInstructionsField(reqBody)
+		delete(reqBody, "prompt_cache_key")
+		body, err = json.Marshal(reqBody)
+		if err != nil {
+			return nil, requestModel, err
+		}
+	}
+	return body, requestModel, nil
+}
+
+func buildAnthropicCompactFallbackTranscript(req *apicompat.AnthropicRequest) (string, string) {
+	if req == nil {
+		return "", ""
+	}
+	compactIdx := -1
+	compactPrompt := ""
+	for i := len(req.Messages) - 1; i >= 0; i-- {
+		msg := req.Messages[i]
+		if strings.TrimSpace(msg.Role) != "user" {
+			continue
+		}
+		text := anthropicContentTextForCompactFallback(msg.Content)
+		if looksLikeClaudeCodeCompactPrompt(text) {
+			compactIdx = i
+			compactPrompt = text
+			break
+		}
+	}
+
+	var parts []string
+	if systemText := anthropicContentTextForCompactFallback(req.System); strings.TrimSpace(systemText) != "" {
+		parts = append(parts, "### System\n"+strings.TrimSpace(systemText))
+	}
+	for i, msg := range req.Messages {
+		if i == compactIdx {
+			continue
+		}
+		text := strings.TrimSpace(anthropicContentTextForCompactFallback(msg.Content))
+		if text == "" {
+			continue
+		}
+		role := strings.TrimSpace(msg.Role)
+		if role == "" {
+			role = "message"
+		}
+		parts = append(parts, fmt.Sprintf("### Message %d (%s)\n%s", i+1, role, text))
+	}
+	return compactPrompt, strings.Join(parts, "\n\n")
+}
+
+func anthropicContentTextForCompactFallback(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
+	}
+	var blocks []apicompat.AnthropicContentBlock
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return strings.TrimSpace(string(raw))
+	}
+	var parts []string
+	for _, block := range blocks {
+		switch strings.TrimSpace(block.Type) {
+		case "text":
+			if block.Text != "" {
+				parts = append(parts, block.Text)
+			}
+		case "thinking":
+			if block.Thinking != "" {
+				parts = append(parts, "[thinking]\n"+block.Thinking)
+			}
+		case "tool_use", "server_tool_use":
+			input := strings.TrimSpace(string(block.Input))
+			if input == "" {
+				input = "{}"
+			}
+			parts = append(parts, fmt.Sprintf("[tool_use id=%s name=%s]\n%s", block.ID, block.Name, input))
+		case "tool_result", "web_search_tool_result":
+			content := anthropicContentTextForCompactFallback(block.Content)
+			if content == "" {
+				content = strings.TrimSpace(string(block.Content))
+			}
+			prefix := fmt.Sprintf("[tool_result tool_use_id=%s]", block.ToolUseID)
+			if block.IsError {
+				prefix += " [error]"
+			}
+			parts = append(parts, prefix+"\n"+content)
+		case "image":
+			parts = append(parts, "[image omitted]")
+		default:
+			if encoded, err := json.Marshal(block); err == nil {
+				parts = append(parts, string(encoded))
+			}
+		}
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func splitAnthropicCompactTranscriptChunks(text string, targetChars int, maxChunks int) []string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+	if targetChars <= 0 {
+		targetChars = openAIAnthropicCompactChunkTargetChars
+	}
+	if maxChunks <= 0 {
+		maxChunks = openAIAnthropicCompactFallbackMaxChunks
+	}
+
+	sections := strings.Split(text, "\n\n### ")
+	var chunks []string
+	current := ""
+	for i, section := range sections {
+		if i > 0 {
+			section = "### " + section
+		}
+		section = strings.TrimSpace(section)
+		if section == "" {
+			continue
+		}
+		if runeLen(section) > targetChars {
+			if strings.TrimSpace(current) != "" {
+				chunks = append(chunks, strings.TrimSpace(current))
+				current = ""
+			}
+			chunks = append(chunks, splitTextByRuneLimit(section, targetChars)...)
+			continue
+		}
+		candidate := section
+		if current != "" {
+			candidate = current + "\n\n" + section
+		}
+		if runeLen(candidate) > targetChars && strings.TrimSpace(current) != "" {
+			chunks = append(chunks, strings.TrimSpace(current))
+			current = section
+			continue
+		}
+		current = candidate
+	}
+	if strings.TrimSpace(current) != "" {
+		chunks = append(chunks, strings.TrimSpace(current))
+	}
+	if len(chunks) <= maxChunks {
+		return chunks
+	}
+	return splitTextByRuneLimit(text, ceilDiv(runeLen(text), maxChunks))
+}
+
+func splitTextByRuneLimit(text string, targetChars int) []string {
+	if targetChars < openAIAnthropicCompactFallbackMinSplitRunes {
+		targetChars = openAIAnthropicCompactFallbackMinSplitRunes
+	}
+	runes := []rune(text)
+	if len(runes) <= targetChars {
+		return []string{strings.TrimSpace(text)}
+	}
+	var chunks []string
+	for start := 0; start < len(runes); start += targetChars {
+		end := start + targetChars
+		if end > len(runes) {
+			end = len(runes)
+		}
+		chunk := strings.TrimSpace(string(runes[start:end]))
+		if chunk != "" {
+			chunks = append(chunks, chunk)
+		}
+	}
+	return chunks
+}
+
+func buildAnthropicCompactMergePrompt(compactPrompt string, summaries []string) string {
+	if strings.TrimSpace(compactPrompt) == "" {
+		compactPrompt = "Create a detailed Claude Code compact summary for the conversation. Preserve current work, user intent, files, commands, blockers, and next steps."
+	}
+	return strings.TrimSpace(compactPrompt) + "\n\nThe original conversation was too large for one compact request, so it was summarized in chunks. Merge the chunk summaries below into one coherent final compact summary. Do not mention the chunking process unless it is relevant to the work state.\n\n" + strings.Join(summaries, "\n\n")
+}
+
+func openAIAnthropicCompactChunkInstructions() string {
+	return "Summarize this Claude Code transcript chunk for a later compact merge. Preserve concrete user requests, decisions, files, commands, errors, test results, logs, configuration values, and unresolved next steps. Keep it dense and factual. Do not answer the user."
+}
+
+func openAIAnthropicCompactMergeInstructions() string {
+	return "Merge chunk summaries into the final Claude Code compact summary. Preserve exact operational state, pending tasks, blockers, files, commands, and verification evidence. Output only the compact summary."
+}
+
+func openAIResponsesOutputText(resp *apicompat.ResponsesResponse) string {
+	if resp == nil {
+		return ""
+	}
+	var parts []string
+	for _, item := range resp.Output {
+		if strings.TrimSpace(item.Type) != "message" {
+			continue
+		}
+		for _, part := range item.Content {
+			if strings.TrimSpace(part.Type) == "output_text" && part.Text != "" {
+				parts = append(parts, part.Text)
+			}
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+func openAIResponsesErrorMessage(resp *apicompat.ResponsesResponse) string {
+	if resp == nil || resp.Error == nil {
+		return ""
+	}
+	if strings.TrimSpace(resp.Error.Message) != "" {
+		return strings.TrimSpace(resp.Error.Message)
+	}
+	return strings.TrimSpace(resp.Error.Code)
+}
+
+func responsesUsageFromOpenAIUsage(usage OpenAIUsage) *apicompat.ResponsesUsage {
+	result := &apicompat.ResponsesUsage{
+		InputTokens:  usage.InputTokens,
+		OutputTokens: usage.OutputTokens,
+		TotalTokens:  usage.InputTokens + usage.OutputTokens,
+	}
+	if usage.CacheReadInputTokens > 0 {
+		result.InputTokensDetails = &apicompat.ResponsesInputTokensDetails{CachedTokens: usage.CacheReadInputTokens}
+	}
+	return result
+}
+
+func addOpenAIUsage(a OpenAIUsage, b OpenAIUsage) OpenAIUsage {
+	return OpenAIUsage{
+		InputTokens:              a.InputTokens + b.InputTokens,
+		ImageInputTokens:         a.ImageInputTokens + b.ImageInputTokens,
+		OutputTokens:             a.OutputTokens + b.OutputTokens,
+		CacheCreationInputTokens: a.CacheCreationInputTokens + b.CacheCreationInputTokens,
+		CacheReadInputTokens:     a.CacheReadInputTokens + b.CacheReadInputTokens,
+		ImageOutputTokens:        a.ImageOutputTokens + b.ImageOutputTokens,
+	}
+}
+
+func runeLen(s string) int {
+	return len([]rune(s))
+}
+
+func ceilDiv(a, b int) int {
+	if b <= 0 {
+		return 0
+	}
+	return (a + b - 1) / b
 }
 
 func isOpenAICompatResponsesTerminalEvent(eventType string) bool {

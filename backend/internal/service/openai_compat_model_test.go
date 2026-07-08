@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -260,6 +261,124 @@ func TestForwardAsAnthropic_ClaudeCodeCompactUsesCompactModelMapping(t *testing.
 	require.Equal(t, "gpt-5.3-codex-spark", result.BillingModel)
 	require.Equal(t, "gpt-5.3-codex-spark", result.UpstreamModel)
 	require.Equal(t, "gpt-5.3-codex-spark", gjson.GetBytes(upstream.lastBody, "model").String())
+}
+
+func TestForwardAsAnthropic_ClaudeCodeCompactChunksWhenCompactModelContextExceeded(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	oldTarget := openAIAnthropicCompactChunkTargetChars
+	openAIAnthropicCompactChunkTargetChars = 80
+	defer func() { openAIAnthropicCompactChunkTargetChars = oldTarget }()
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(fmt.Sprintf(`{"model":"gpt-5.5","max_tokens":16,"messages":[{"role":"user","content":%q},{"role":"assistant","content":%q},{"role":"user","content":[{"type":"text","text":%q}]}],"stream":true}`,
+		strings.Repeat("alpha file command error ", 20),
+		strings.Repeat("beta verification blocker ", 20),
+		testClaudeCodeCompactPrompt(),
+	))
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	var anthropicReq apicompat.AnthropicRequest
+	require.NoError(t, json.Unmarshal(body, &anthropicReq))
+	_, transcript := buildAnthropicCompactFallbackTranscript(&anthropicReq)
+	chunks := splitAnthropicCompactTranscriptChunks(transcript, openAIAnthropicCompactChunkTargetChars, openAIAnthropicCompactFallbackMaxChunks)
+	require.GreaterOrEqual(t, len(chunks), 2)
+
+	responses := []*http.Response{
+		testOpenAICompatSSEFailedContextResponse("resp_full_too_big", "gpt-5.3-codex-spark", 210_000),
+	}
+	for i := range chunks {
+		responses = append(responses, testOpenAICompatSSECompletedResponse(
+			fmt.Sprintf("resp_chunk_%d", i+1),
+			"gpt-5.3-codex-spark",
+			fmt.Sprintf("chunk %d summary", i+1),
+			100+i,
+			10+i,
+		))
+	}
+	responses = append(responses, testOpenAICompatSSECompletedResponse(
+		"resp_merge",
+		"gpt-5.3-codex-spark",
+		"merged compact summary",
+		300,
+		30,
+	))
+	upstream := &httpUpstreamRecorder{responses: responses}
+
+	svc := &OpenAIGatewayService{
+		httpUpstream: upstream,
+		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
+	}
+	account := &Account{
+		ID:          1,
+		Name:        "openai-oauth",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"access_token":       "oauth-token",
+			"chatgpt_account_id": "chatgpt-acc",
+			"model_mapping": map[string]any{
+				"gpt-5.5": "gpt-5.5",
+			},
+			"compact_model_mapping": map[string]any{
+				"gpt-5.5": "gpt-5.3-codex-spark",
+			},
+		},
+	}
+
+	result, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "gpt-5.5")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), "merged compact summary")
+	require.Equal(t, "resp_merge", result.ResponseID)
+	require.Equal(t, "gpt-5.5", result.Model)
+	require.Equal(t, "gpt-5.3-codex-spark", result.BillingModel)
+	require.Equal(t, "gpt-5.3-codex-spark", result.UpstreamModel)
+	require.True(t, result.Stream)
+	require.Greater(t, result.Usage.InputTokens, 210_000)
+	require.Len(t, upstream.bodies, len(chunks)+2)
+	for _, upstreamBody := range upstream.bodies {
+		require.Equal(t, "gpt-5.3-codex-spark", gjson.GetBytes(upstreamBody, "model").String())
+		require.False(t, gjson.GetBytes(upstreamBody, "previous_response_id").Exists())
+	}
+	require.Contains(t, string(upstream.bodies[len(upstream.bodies)-1]), "chunk 1 summary")
+}
+
+func testOpenAICompatSSEFailedContextResponse(id, model string, inputTokens int) *http.Response {
+	body := fmt.Sprintf(
+		"data: {\"type\":\"response.failed\",\"response\":{\"id\":%q,\"object\":\"response\",\"model\":%q,\"status\":\"failed\",\"output\":[],\"error\":{\"code\":\"context_length_exceeded\",\"message\":\"Your input exceeds the context window of this model. Please adjust your input and try again.\"},\"usage\":{\"input_tokens\":%d,\"output_tokens\":0,\"total_tokens\":%d}}}\n\ndata: [DONE]\n\n",
+		id,
+		model,
+		inputTokens,
+		inputTokens,
+	)
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"rid_" + id}},
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+}
+
+func testOpenAICompatSSECompletedResponse(id, model, text string, inputTokens, outputTokens int) *http.Response {
+	body := fmt.Sprintf(
+		"data: {\"type\":\"response.completed\",\"response\":{\"id\":%q,\"object\":\"response\",\"model\":%q,\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"id\":\"msg_%s\",\"role\":\"assistant\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"text\":%q}]}],\"usage\":{\"input_tokens\":%d,\"output_tokens\":%d,\"total_tokens\":%d}}}\n\ndata: [DONE]\n\n",
+		id,
+		model,
+		id,
+		text,
+		inputTokens,
+		outputTokens,
+		inputTokens+outputTokens,
+	)
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"rid_" + id}},
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
 }
 
 func TestForwardAsAnthropic_MappedClaudeModelAcceptsChatUsageShape(t *testing.T) {
