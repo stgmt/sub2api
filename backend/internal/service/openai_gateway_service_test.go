@@ -523,6 +523,57 @@ func TestOpenAISelectAccountWithLoadAwareness_ImageRateLimitSkipsOnlyImageReques
 	}
 }
 
+func TestOpenAISelectAccountWithLoadAwareness_SparkRateLimitDoesNotBlockGPT55(t *testing.T) {
+	future := time.Now().Add(10 * time.Minute).Format(time.RFC3339)
+	groupID := int64(1)
+
+	sparkLimited := Account{
+		ID:          1,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
+		Concurrency: 1,
+		Priority:    0,
+		Extra: map[string]any{
+			modelRateLimitsKey: map[string]any{
+				"gpt-5.3-codex-spark": map[string]any{
+					"rate_limit_reset_at": future,
+				},
+			},
+		},
+	}
+	available := Account{
+		ID:          2,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
+		Concurrency: 1,
+		Priority:    1,
+	}
+	svc := &OpenAIGatewayService{
+		accountRepo:        stubOpenAIAccountRepo{accounts: []Account{sparkLimited, available}},
+		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}),
+	}
+
+	sparkSelection, err := svc.SelectAccountWithLoadAwareness(context.Background(), &groupID, "", "gpt-5.3-codex-spark", nil)
+	require.NoError(t, err)
+	require.NotNil(t, sparkSelection)
+	require.Equal(t, available.ID, sparkSelection.Account.ID)
+	if sparkSelection.ReleaseFunc != nil {
+		sparkSelection.ReleaseFunc()
+	}
+
+	gpt55Selection, err := svc.SelectAccountWithLoadAwareness(context.Background(), &groupID, "", "gpt-5.5", nil)
+	require.NoError(t, err)
+	require.NotNil(t, gpt55Selection)
+	require.Equal(t, sparkLimited.ID, gpt55Selection.Account.ID)
+	if gpt55Selection.ReleaseFunc != nil {
+		gpt55Selection.ReleaseFunc()
+	}
+}
+
 func TestOpenAISelectAccountWithLoadAwareness_FiltersUnschedulableWhenNoConcurrencyService(t *testing.T) {
 	now := time.Now()
 	resetAt := now.Add(10 * time.Minute)
