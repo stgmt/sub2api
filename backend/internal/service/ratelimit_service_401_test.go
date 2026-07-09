@@ -32,6 +32,7 @@ type rateLimitAccountRepoStub struct {
 	lastRateLimitedID      int64
 	lastModelRateID        int64
 	lastModelRateResetAt   time.Time
+	tempErr                error
 }
 
 func (r *rateLimitAccountRepoStub) SetError(ctx context.Context, id int64, errorMsg string) error {
@@ -45,7 +46,7 @@ func (r *rateLimitAccountRepoStub) SetTempUnschedulable(ctx context.Context, id 
 	r.tempCalls++
 	r.lastTempID = id
 	r.lastTempReason = reason
-	return nil
+	return r.tempErr
 }
 
 func (r *rateLimitAccountRepoStub) SetRateLimited(ctx context.Context, id int64, resetAt time.Time) error {
