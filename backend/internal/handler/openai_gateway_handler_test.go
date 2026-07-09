@@ -480,18 +480,21 @@ func TestResolveOpenAIMessagesDispatchFallbackModels(t *testing.T) {
 				HaikuMappedModel: "gpt-5.3-codex-spark",
 				ModelFallbacks: map[string][]string{
 					"gpt-5.3-codex-spark": []string{"gpt-5.6-luna", "gpt-5.4-mini"},
+					"gpt-5.6-luna":        []string{"gpt-5.3-codex-spark", "gpt-5.4-mini"},
 				},
 			},
 		},
 	}
 
 	require.Equal(t, []string{"gpt-5.6-luna", "gpt-5.4-mini"}, resolveOpenAIMessagesDispatchFallbackModels(apiKey, "claude-haiku-4-5", "gpt-5.3-codex-spark"))
+	require.Equal(t, []string{"gpt-5.3-codex-spark", "gpt-5.4-mini"}, resolveOpenAIMessagesDispatchFallbackModels(apiKey, "gpt-5.6-luna", "gpt-5.6-luna"))
 	require.Empty(t, resolveOpenAIMessagesDispatchFallbackModels(apiKey, "claude-opus-4-8", "gpt-5.6-sol"))
 }
 
 func TestShouldTryOpenAIMessagesModelFallback(t *testing.T) {
 	require.True(t, shouldTryOpenAIMessagesModelFallback(http.StatusServiceUnavailable, "Service temporarily unavailable", nil))
 	require.True(t, shouldTryOpenAIMessagesModelFallback(http.StatusBadRequest, "Unknown model gpt-5.6-luna", nil))
+	require.True(t, shouldTryOpenAIMessagesModelFallback(http.StatusNotFound, "Model not found gpt-5.6-luna", []byte(`{"error":{"type":"invalid_request_error","message":"Model not found gpt-5.6-luna"}}`)))
 	require.False(t, shouldTryOpenAIMessagesModelFallback(http.StatusBadRequest, "context window exceeded", []byte(`{"error":{"code":"context_length_exceeded"}}`)))
 }
 

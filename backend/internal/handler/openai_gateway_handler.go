@@ -982,7 +982,12 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 						h.handleAnthropicFailoverExhausted(c, failoverErr, true)
 						return
 					}
+					upstreamMsg := strings.TrimSpace(gjson.GetBytes(failoverErr.ResponseBody, "error.message").String())
 					if h.isAnthropicClientFailoverError(failoverErr) {
+						if shouldTryOpenAIMessagesModelFallback(failoverErr.StatusCode, upstreamMsg, failoverErr.ResponseBody) &&
+							tryNextModelFallback("upstream_client_error", failoverErr.StatusCode, upstreamMsg) {
+							continue
+						}
 						h.handleAnthropicFailoverExhausted(c, failoverErr, streamStarted)
 						return
 					}
@@ -992,7 +997,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 							zap.Int("writer_size_before", writerSizeBeforeForward),
 							zap.Int("writer_size_after", writerSizeAfterForward),
 							zap.Bool("retryable_on_same_account", failoverErr.RetryableOnSameAccount),
-							zap.String("failover_message", strings.TrimSpace(gjson.GetBytes(failoverErr.ResponseBody, "error.message").String())),
+							zap.String("failover_message", upstreamMsg),
 							zap.Error(err),
 						)
 					}
@@ -1005,7 +1010,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 							reqLog.Warn("openai_messages.pool_mode_same_account_retry",
 								zap.Int64("account_id", account.ID),
 								zap.Int("upstream_status", failoverErr.StatusCode),
-								zap.String("failover_message", strings.TrimSpace(gjson.GetBytes(failoverErr.ResponseBody, "error.message").String())),
+								zap.String("failover_message", upstreamMsg),
 								zap.Int("retry_limit", retryLimit),
 								zap.Int("retry_count", sameAccountRetryCount[account.ID]),
 							)
@@ -1017,7 +1022,6 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 							continue
 						}
 					}
-					upstreamMsg := strings.TrimSpace(gjson.GetBytes(failoverErr.ResponseBody, "error.message").String())
 					if shouldTryOpenAIMessagesModelFallback(failoverErr.StatusCode, upstreamMsg, failoverErr.ResponseBody) &&
 						tryNextModelFallback("upstream_failover", failoverErr.StatusCode, upstreamMsg) {
 						continue
