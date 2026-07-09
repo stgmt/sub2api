@@ -48,6 +48,68 @@ func resolveOpenAIMessagesDispatchMappedModel(apiKey *service.APIKey, requestedM
 	return strings.TrimSpace(apiKey.Group.ResolveMessagesDispatchModel(requestedModel))
 }
 
+func resolveOpenAIMessagesDispatchFallbackModels(apiKey *service.APIKey, requestedModel, mappedModel string) []string {
+	if apiKey == nil || apiKey.Group == nil {
+		return nil
+	}
+	return apiKey.Group.ResolveMessagesDispatchFallbackModels(requestedModel, mappedModel)
+}
+
+func shouldTryOpenAIMessagesModelFallback(statusCode int, message string, responseBody []byte) bool {
+	if isOpenAIMessagesContextWindowError(message, responseBody) {
+		return false
+	}
+	switch statusCode {
+	case http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout, 529:
+		return true
+	}
+	if statusCode >= http.StatusInternalServerError {
+		return true
+	}
+	return openAIMessagesModelFallbackText(message + " " + string(responseBody))
+}
+
+func isOpenAIMessagesContextWindowError(message string, responseBody []byte) bool {
+	code := strings.ToLower(strings.TrimSpace(gjson.GetBytes(responseBody, "error.code").String()))
+	if code == "context_length_exceeded" {
+		return true
+	}
+	lower := strings.ToLower(strings.TrimSpace(message + " " + string(responseBody)))
+	return strings.Contains(lower, "context") && (strings.Contains(lower, "exceed") || strings.Contains(lower, "too long"))
+}
+
+func openAIMessagesModelFallbackText(text string) bool {
+	lower := strings.ToLower(strings.TrimSpace(text))
+	if lower == "" {
+		return false
+	}
+	for _, pattern := range []string{
+		"429",
+		"529",
+		"rate_limit",
+		"rate limit",
+		"too many requests",
+		"usage limit",
+		"quota",
+		"resource exhausted",
+		"temporarily unavailable",
+		"service unavailable",
+		"no available account",
+		"no available accounts",
+		"selected model is at capacity",
+		"server is overloaded",
+		"unsupported model",
+		"unknown model",
+		"model_not_found",
+		"model not found",
+	} {
+		if strings.Contains(lower, pattern) {
+			return true
+		}
+	}
+	return strings.Contains(lower, "unavailable") && strings.Contains(lower, "model")
+}
+
 type openAIModelBodyReplaceFunc func([]byte, string) []byte
 
 func openAIModelMappedBody(body []byte, mapped bool, mappedModel string, replace openAIModelBodyReplaceFunc) []byte {
@@ -711,6 +773,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	reqModel := modelResult.String()
 	routingModel := service.NormalizeOpenAICompatRequestedModel(reqModel)
 	preferredMappedModel := resolveOpenAIMessagesDispatchMappedModel(apiKey, reqModel)
+	modelFallbackCandidates := resolveOpenAIMessagesDispatchFallbackModels(apiKey, reqModel, preferredMappedModel)
 	reqStream := gjson.GetBytes(body, "stream").Bool()
 
 	reqLog = reqLog.With(zap.String("model", reqModel), zap.Bool("stream", reqStream))
@@ -769,6 +832,35 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
 	effectiveMappedModel := preferredMappedModel
+	modelFallbackIndex := 0
+	tryNextModelFallback := func(reason string, statusCode int, detail string) bool {
+		if streamStarted || modelFallbackIndex >= len(modelFallbackCandidates) {
+			return false
+		}
+		previousMappedModel := strings.TrimSpace(effectiveMappedModel)
+		for modelFallbackIndex < len(modelFallbackCandidates) {
+			nextModel := strings.TrimSpace(modelFallbackCandidates[modelFallbackIndex])
+			modelFallbackIndex++
+			if nextModel == "" || strings.EqualFold(nextModel, previousMappedModel) {
+				continue
+			}
+			reqLog.Warn("openai_messages.model_fallback_switching",
+				zap.String("requested_model", reqModel),
+				zap.String("previous_mapped_model", previousMappedModel),
+				zap.String("fallback_model", nextModel),
+				zap.String("reason", reason),
+				zap.Int("status_code", statusCode),
+				zap.String("detail", strings.TrimSpace(detail)),
+			)
+			effectiveMappedModel = nextModel
+			failedAccountIDs = make(map[int64]struct{})
+			sameAccountRetryCount = make(map[int64]int)
+			lastFailoverErr = nil
+			switchCount = 0
+			return true
+		}
+		return false
+	}
 
 	for {
 		currentRoutingModel := routingModel
@@ -797,6 +889,9 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			if len(failedAccountIDs) == 0 {
 				if err != nil {
 					cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, currentRoutingModel, reqModel, service.PlatformOpenAI)
+					if tryNextModelFallback("account_select_failed", cls.Status, cls.Message) {
+						continue
+					}
 					if !cls.ModelNotFound {
 						markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 					}
@@ -835,8 +930,19 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		forwardStart := time.Now()
 
 		defaultMappedModel := strings.TrimSpace(effectiveMappedModel)
+		attemptMapped := channelMappingMsg.Mapped
+		attemptMappedModel := channelMappingMsg.MappedModel
+		if defaultMappedModel != "" {
+			attemptMapped = true
+			attemptMappedModel = defaultMappedModel
+		}
+		attemptChannelMapping := channelMappingMsg
+		if attemptMapped {
+			attemptChannelMapping.Mapped = true
+			attemptChannelMapping.MappedModel = attemptMappedModel
+		}
 		// 应用渠道模型映射到请求体
-		forwardBody := mappedBodyForMessages(channelMappingMsg.Mapped, channelMappingMsg.MappedModel)
+		forwardBody := mappedBodyForMessages(attemptMapped, attemptMappedModel)
 		writerSizeBeforeForward := c.Writer.Size()
 		result, err := func() (*service.OpenAIForwardResult, error) {
 			defer func() {
@@ -911,6 +1017,11 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 							continue
 						}
 					}
+					upstreamMsg := strings.TrimSpace(gjson.GetBytes(failoverErr.ResponseBody, "error.message").String())
+					if shouldTryOpenAIMessagesModelFallback(failoverErr.StatusCode, upstreamMsg, failoverErr.ResponseBody) &&
+						tryNextModelFallback("upstream_failover", failoverErr.StatusCode, upstreamMsg) {
+						continue
+					}
 					h.gatewayService.RecordOpenAIAccountSwitch()
 					failedAccountIDs[account.ID] = struct{}{}
 					lastFailoverErr = failoverErr
@@ -976,7 +1087,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 				RequestPayloadHash: requestPayloadHash,
 				APIKeyService:      h.apiKeyService,
 				QuotaPlatform:      quotaPlatform,
-				ChannelUsageFields: channelMappingMsg.ToUsageFields(reqModel, result.UpstreamModel),
+				ChannelUsageFields: attemptChannelMapping.ToUsageFields(reqModel, result.UpstreamModel),
 				CyberBlocked:       cyberBlocked,
 			}); err != nil {
 				logger.L().With(

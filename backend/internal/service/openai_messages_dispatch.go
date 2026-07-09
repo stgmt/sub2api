@@ -39,6 +39,34 @@ func normalizeOpenAIMessagesDispatchModelConfig(cfg OpenAIMessagesDispatchModelC
 		}
 	}
 
+	if len(cfg.ModelFallbacks) > 0 {
+		out.ModelFallbacks = make(map[string][]string, len(cfg.ModelFallbacks))
+		for requestedModel, fallbackModels := range cfg.ModelFallbacks {
+			requestedModel = strings.TrimSpace(requestedModel)
+			if requestedModel == "" {
+				continue
+			}
+			normalizedFallbacks := make([]string, 0, len(fallbackModels))
+			seen := make(map[string]bool, len(fallbackModels))
+			for _, fallbackModel := range fallbackModels {
+				fallbackModel = normalizeOpenAIMessagesDispatchMappedModel(fallbackModel)
+				if fallbackModel == "" {
+					continue
+				}
+				key := strings.ToLower(fallbackModel)
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				normalizedFallbacks = append(normalizedFallbacks, fallbackModel)
+			}
+			out.ModelFallbacks[requestedModel] = normalizedFallbacks
+		}
+		if len(out.ModelFallbacks) == 0 {
+			out.ModelFallbacks = nil
+		}
+	}
+
 	return out
 }
 
@@ -99,6 +127,27 @@ func (g *Group) ResolveMessagesDispatchModel(requestedModel string) string {
 	default:
 		return ""
 	}
+}
+
+func (g *Group) ResolveMessagesDispatchFallbackModels(requestedModel, mappedModel string) []string {
+	if g == nil {
+		return nil
+	}
+	cfg := normalizeOpenAIMessagesDispatchModelConfig(g.MessagesDispatchModelConfig)
+	if len(cfg.ModelFallbacks) == 0 {
+		return nil
+	}
+
+	var candidates []string
+	for _, key := range []string{strings.TrimSpace(mappedModel), strings.TrimSpace(requestedModel)} {
+		if key == "" {
+			continue
+		}
+		if models, matched := resolveRequestedModelInSliceMapping(cfg.ModelFallbacks, key); matched {
+			candidates = append(candidates, models...)
+		}
+	}
+	return compactModelFallbackCandidates(candidates, mappedModel)
 }
 
 func sanitizeGroupMessagesDispatchFields(g *Group) {

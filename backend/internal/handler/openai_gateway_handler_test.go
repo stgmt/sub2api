@@ -472,6 +472,29 @@ func TestResolveOpenAIMessagesDispatchMappedModel(t *testing.T) {
 	})
 }
 
+func TestResolveOpenAIMessagesDispatchFallbackModels(t *testing.T) {
+	apiKey := &service.APIKey{
+		Group: &service.Group{
+			Platform: service.PlatformOpenAI,
+			MessagesDispatchModelConfig: service.OpenAIMessagesDispatchModelConfig{
+				HaikuMappedModel: "gpt-5.6-luna",
+				ModelFallbacks: map[string][]string{
+					"gpt-5.6-luna": []string{"gpt-5.4-mini"},
+				},
+			},
+		},
+	}
+
+	require.Equal(t, []string{"gpt-5.4-mini"}, resolveOpenAIMessagesDispatchFallbackModels(apiKey, "claude-haiku-4-5", "gpt-5.6-luna"))
+	require.Empty(t, resolveOpenAIMessagesDispatchFallbackModels(apiKey, "claude-opus-4-8", "gpt-5.6-sol"))
+}
+
+func TestShouldTryOpenAIMessagesModelFallback(t *testing.T) {
+	require.True(t, shouldTryOpenAIMessagesModelFallback(http.StatusServiceUnavailable, "Service temporarily unavailable", nil))
+	require.True(t, shouldTryOpenAIMessagesModelFallback(http.StatusBadRequest, "Unknown model gpt-5.6-luna", nil))
+	require.False(t, shouldTryOpenAIMessagesModelFallback(http.StatusBadRequest, "context window exceeded", []byte(`{"error":{"code":"context_length_exceeded"}}`)))
+}
+
 func TestOpenAIGatewayMessagesDispatchGateAllowsGrokGroups(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
