@@ -955,7 +955,7 @@ func (s *OpenAIGatewayService) runAnthropicCompactChunkFallback(
 	for i, chunk := range chunks {
 		prompt := fmt.Sprintf("Chunk %d of %d from a Claude Code conversation transcript:\n\n%s", i+1, len(chunks), chunk)
 		finalResponse, usage, requestID, err := s.runOpenAIAnthropicCompactFallbackResponsesRequest(ctx, c, account, token, upstreamModel, openAIAnthropicCompactChunkInstructions(), prompt, openAIAnthropicCompactChunkMaxOutputTokens)
-		totalUsage = addOpenAIUsage(totalUsage, usage)
+		addOpenAIUsage(&totalUsage, usage)
 		if err != nil {
 			return &OpenAIForwardResult{
 				RequestID:     firstNonEmpty(requestID, initialRequestID),
@@ -1008,7 +1008,7 @@ func (s *OpenAIGatewayService) runAnthropicCompactChunkFallback(
 	}
 
 	finalResponse, mergeUsage, mergeRequestID, err := s.mergeAnthropicCompactFallbackSummaries(ctx, c, account, token, upstreamModel, compactPrompt, summaries, openAIAnthropicCompactMergeTargetChars, 0)
-	totalUsage = addOpenAIUsage(totalUsage, mergeUsage)
+	addOpenAIUsage(&totalUsage, mergeUsage)
 	if err != nil {
 		return &OpenAIForwardResult{
 			RequestID:     firstNonEmpty(mergeRequestID, initialRequestID),
@@ -1068,7 +1068,7 @@ func (s *OpenAIGatewayService) mergeAnthropicCompactFallbackSummaries(
 		lastRequestID := ""
 		for i, group := range groups {
 			groupResp, groupUsage, groupRequestID, err := s.mergeAnthropicCompactFallbackSummaries(ctx, c, account, token, upstreamModel, compactPrompt, group, targetChars, depth+1)
-			totalUsage = addOpenAIUsage(totalUsage, groupUsage)
+			addOpenAIUsage(&totalUsage, groupUsage)
 			lastRequestID = firstNonEmpty(groupRequestID, lastRequestID)
 			if err != nil {
 				return groupResp, totalUsage, lastRequestID, err
@@ -1083,7 +1083,7 @@ func (s *OpenAIGatewayService) mergeAnthropicCompactFallbackSummaries(
 			reduced = append(reduced, fmt.Sprintf("## Summary group %d/%d\n%s", i+1, len(groups), summary))
 		}
 		finalResp, finalUsage, finalRequestID, err := s.mergeAnthropicCompactFallbackSummaries(ctx, c, account, token, upstreamModel, compactPrompt, reduced, targetChars, depth+1)
-		totalUsage = addOpenAIUsage(totalUsage, finalUsage)
+		addOpenAIUsage(&totalUsage, finalUsage)
 		return finalResp, totalUsage, firstNonEmpty(finalRequestID, lastRequestID), err
 	}
 
@@ -1103,7 +1103,7 @@ func (s *OpenAIGatewayService) mergeAnthropicCompactFallbackSummaries(
 		retrySummaries := retryAnthropicCompactFallbackSummaries(compactPrompt, summaries, nextTarget)
 		if len(retrySummaries) > 0 && nextTarget < targetChars {
 			retryResp, retryUsage, retryRequestID, retryErr := s.mergeAnthropicCompactFallbackSummaries(ctx, c, account, token, upstreamModel, compactPrompt, retrySummaries, nextTarget, depth+1)
-			usage = addOpenAIUsage(usage, retryUsage)
+			addOpenAIUsage(&usage, retryUsage)
 			return retryResp, usage, firstNonEmpty(retryRequestID, requestID), retryErr
 		}
 		emergency := buildAnthropicCompactEmergencySummary(compactPrompt, summaries)
@@ -1696,17 +1696,6 @@ func responsesUsageFromOpenAIUsage(usage OpenAIUsage) *apicompat.ResponsesUsage 
 		result.InputTokensDetails = &apicompat.ResponsesInputTokensDetails{CachedTokens: usage.CacheReadInputTokens}
 	}
 	return result
-}
-
-func addOpenAIUsage(a OpenAIUsage, b OpenAIUsage) OpenAIUsage {
-	return OpenAIUsage{
-		InputTokens:              a.InputTokens + b.InputTokens,
-		ImageInputTokens:         a.ImageInputTokens + b.ImageInputTokens,
-		OutputTokens:             a.OutputTokens + b.OutputTokens,
-		CacheCreationInputTokens: a.CacheCreationInputTokens + b.CacheCreationInputTokens,
-		CacheReadInputTokens:     a.CacheReadInputTokens + b.CacheReadInputTokens,
-		ImageOutputTokens:        a.ImageOutputTokens + b.ImageOutputTokens,
-	}
 }
 
 func runeLen(s string) int {
