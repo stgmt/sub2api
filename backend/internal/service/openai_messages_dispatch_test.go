@@ -17,8 +17,8 @@ func TestNormalizeOpenAIMessagesDispatchModelConfig(t *testing.T) {
 			"claude-opus-4-6":              " ",
 		},
 		ModelFallbacks: map[string][]string{
-			" gpt-5.6-luna ": []string{" gpt-5.4-mini ", "gpt-5.4-mini", " "},
-			"":               []string{"gpt-5.4"},
+			" gpt-5.3-codex-spark ": []string{" gpt-5.6-luna ", "gpt-5.4-mini", "gpt-5.4-mini", " "},
+			"":                      []string{"gpt-5.4"},
 		},
 	})
 
@@ -29,7 +29,7 @@ func TestNormalizeOpenAIMessagesDispatchModelConfig(t *testing.T) {
 		"claude-sonnet-4-5-20250929": "gpt-5.2",
 	}, cfg.ExactModelMappings)
 	require.Equal(t, map[string][]string{
-		"gpt-5.6-luna": []string{"gpt-5.4-mini"},
+		"gpt-5.3-codex-spark": []string{"gpt-5.6-luna", "gpt-5.4-mini"},
 	}, cfg.ModelFallbacks)
 }
 
@@ -51,14 +51,14 @@ func TestResolveMessagesDispatchFallbackModels(t *testing.T) {
 	group := &Group{
 		Platform: PlatformOpenAI,
 		MessagesDispatchModelConfig: OpenAIMessagesDispatchModelConfig{
-			HaikuMappedModel: "gpt-5.6-luna",
+			HaikuMappedModel: "gpt-5.3-codex-spark",
 			ModelFallbacks: map[string][]string{
-				"gpt-5.6-luna":   []string{" gpt-5.4-mini ", "gpt-5.4-mini", "gpt-5.4"},
-				"claude-haiku-*": []string{"gpt-5.4"},
+				"gpt-5.3-codex-spark": []string{" gpt-5.6-luna ", "gpt-5.4-mini", "gpt-5.4-mini"},
+				"claude-haiku-*":      []string{"gpt-5.4-mini"},
 			},
 		},
 	}
 
-	got := group.ResolveMessagesDispatchFallbackModels("claude-haiku-4-5", "gpt-5.6-luna")
-	require.Equal(t, []string{"gpt-5.4-mini", "gpt-5.4"}, got)
+	got := group.ResolveMessagesDispatchFallbackModels("claude-haiku-4-5", "gpt-5.3-codex-spark")
+	require.Equal(t, []string{"gpt-5.6-luna", "gpt-5.4-mini"}, got)
 }

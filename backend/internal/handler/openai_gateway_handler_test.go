@@ -477,15 +477,15 @@ func TestResolveOpenAIMessagesDispatchFallbackModels(t *testing.T) {
 		Group: &service.Group{
 			Platform: service.PlatformOpenAI,
 			MessagesDispatchModelConfig: service.OpenAIMessagesDispatchModelConfig{
-				HaikuMappedModel: "gpt-5.6-luna",
+				HaikuMappedModel: "gpt-5.3-codex-spark",
 				ModelFallbacks: map[string][]string{
-					"gpt-5.6-luna": []string{"gpt-5.4-mini"},
+					"gpt-5.3-codex-spark": []string{"gpt-5.6-luna", "gpt-5.4-mini"},
 				},
 			},
 		},
 	}
 
-	require.Equal(t, []string{"gpt-5.4-mini"}, resolveOpenAIMessagesDispatchFallbackModels(apiKey, "claude-haiku-4-5", "gpt-5.6-luna"))
+	require.Equal(t, []string{"gpt-5.6-luna", "gpt-5.4-mini"}, resolveOpenAIMessagesDispatchFallbackModels(apiKey, "claude-haiku-4-5", "gpt-5.3-codex-spark"))
 	require.Empty(t, resolveOpenAIMessagesDispatchFallbackModels(apiKey, "claude-opus-4-8", "gpt-5.6-sol"))
 }
 
