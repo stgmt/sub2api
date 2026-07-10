@@ -1,0 +1,41 @@
+{
+  "skill_name": "sub2api-claude-code-codex",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Поставь мне sub2api в Docker/WSL, чтобы Claude Code ходил через мою Codex подписку, модель gpt-5.6 full power, и проверь /context.",
+      "expected_output": "Provides Docker/WSL install steps, configures Claude Code env, uses gpt-5.6-sol for main work and gpt-5.3-codex-spark for small-fast/Haiku work with scoped model_fallbacks to gpt-5.6-luna and then gpt-5.4-mini, keeps gpt-5.3-codex-spark as the server-side compact_model_mapping target with gpt-5.6-luna then gpt-5.4-mini in compact_model_fallbacks, sets max/xhigh effort, explains that the 400k Claude Code setting is a conservative client compact target rather than the model window, and verifies /context plus usage logs.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Claude Code показывает gpt-5.6-sol, но /context все равно 17k/200k. Почини и не путай client target с model window.",
+      "expected_output": "Explains that Claude Code's displayed denominator is controlled by CLAUDE_CODE_MAX_CONTEXT_TOKENS and CLAUDE_CODE_AUTO_COMPACT_WINDOW, while GPT-5.6's official model window is 1.05M. Sets the current conservative client target to 400000 only if live long-context proof is absent, restarts Claude Code, verifies /context, and checks logs for real context_length_exceeded before claiming an upstream ceiling.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "sub2api отвечает Unknown model claude-opus-4-8. Настрой mapping на GPT-5.6 для Claude Code.",
+      "expected_output": "Adds exact mappings for claude-opus-4-8 and family aliases to gpt-5.6-sol, maps sonnet aliases to gpt-5.6-terra, maps haiku aliases to gpt-5.3-codex-spark with model_fallbacks to gpt-5.6-luna and then gpt-5.4-mini, confirms allow_messages_dispatch and require_oauth_only, then verifies route evidence in usage_logs or response model.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "Claude Code через sub2api иногда дает пустые ответы и в usage_logs вижу 0/0 tokens. Разбери и почини full power профиль.",
+      "expected_output": "Checks Claude JSONL plus sub2api usage_logs for stream=true 0/0 ghost streams, keeps MAX_THINKING_TOKENS=8000 as a Claude Code compatibility guard, explains that Codex reasoning is controlled by effort=max mapping to xhigh rather than thinking.budget_tokens, and tells the user to restart/fork old Claude sessions.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "Claude Code пишет API Error: 503 Service temporarily unavailable, но sub2api /health живой. Отследи ошибку на прокси.",
+      "expected_output": "Checks sub2api logs for openai_messages.account_select_failed/no available accounts before status_code=503, queries ops_error_logs and accounts for upstream 429 usage limit plus rate_limited_at/rate_limit_reset_at, distinguishes this from context-window and ghost-stream failures, and recommends waiting for reset, reducing fan-out, or adding another valid OpenAI/Codex account instead of only raising concurrency.",
+      "files": []
+    },
+    {
+      "id": 6,
+      "prompt": "Сделай быструю компактизацию Claude Code через sub2api: основная модель gpt-5.6-sol, small-fast gpt-5.3-codex-spark, fallback gpt-5.6-luna, потом gpt-5.4-mini, и проверь.",
+      "expected_output": "Keeps ANTHROPIC_MODEL on gpt-5.6-sol and ANTHROPIC_SMALL_FAST_MODEL/ANTHROPIC_DEFAULT_HAIKU_MODEL on gpt-5.3-codex-spark with normal model_fallbacks to gpt-5.6-luna and then gpt-5.4-mini; direct gpt-5.6-luna falls back to gpt-5.3-codex-spark, then gpt-5.4-mini. Configures or verifies sub2api account compact_model_mapping from gpt-5.6-sol/gpt-5.6-terra/gpt-5.6-luna to gpt-5.3-codex-spark plus compact_model_fallbacks from Spark to gpt-5.6-luna and then gpt-5.4-mini, restarts the sub2api container only if needed, and confirms compact routing from usage_logs.requested_model/upstream_model.",
+      "files": []
+    }
+  ]
+}

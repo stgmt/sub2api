@@ -1,0 +1,171 @@
+{
+  "name": "sub2api-claude-code-codex-fullpower",
+  "last_updated": "2026-07-10",
+  "proxy": {
+    "base_url": "http://<wsl-primary-ip>:18081",
+    "windows_localhost_fallback": "Use http://127.0.0.1:18081 only when Windows localhost relay returns /health quickly.",
+    "docker_bind": "0.0.0.0:18081->8080 for Docker-in-WSL",
+    "docker_image": "sub2api-codex:local-token-usage",
+    "container_name": "sub2api-codex",
+    "fork": "https://github.com/stgmt/sub2api",
+    "verified_main_commit": "8049675b",
+    "account_concurrency": 32,
+    "disable_nonstreaming_fallback": true
+  },
+  "official_model_windows": {
+    "gpt-5.6-sol": {
+      "context_tokens": 1050000,
+      "max_output_tokens": 128000
+    },
+    "gpt-5.6-terra": {
+      "context_tokens": 1050000,
+      "max_output_tokens": 128000
+    },
+    "gpt-5.6-luna": {
+      "context_tokens": 1050000,
+      "max_output_tokens": 128000,
+      "default_allowed": false,
+      "note": "Use as the second fallback after gpt-5.3-codex-spark for Claude Code small-fast/Haiku; direct Luna requests fall back to gpt-5.3-codex-spark, then gpt-5.4-mini when the local OAuth route cannot schedule Luna."
+    },
+    "claude-fable-5": {
+      "context_tokens": 1000000,
+      "max_output_tokens": 128000
+    },
+    "claude-opus-4-8": {
+      "context_tokens": 1000000,
+      "max_output_tokens": 128000
+    },
+    "claude-sonnet-5": {
+      "context_tokens": 1000000,
+      "max_output_tokens": 128000
+    },
+    "claude-haiku-4-5": {
+      "context_tokens": 200000,
+      "max_output_tokens": 64000
+    }
+  },
+  "claude_code": {
+    "model": "gpt-5.6-sol",
+    "small_fast_model": "gpt-5.3-codex-spark",
+    "default_haiku_model": "gpt-5.3-codex-spark",
+    "effort": "max",
+    "max_context_tokens": 400000,
+    "auto_compact_window": 400000,
+    "context_target_kind": "conservative Claude Code client compact/display target, not a proven model window",
+    "raise_context_target_rule": "Raise toward 1050000 only after a live long-context probe succeeds through this Docker proxy and this OpenAI/Codex OAuth account.",
+    "max_output_tokens": 64000,
+    "max_thinking_tokens": 8000,
+    "disable_nonessential_traffic": true,
+    "disable_nonstreaming_fallback": true,
+    "workflow_size_guideline": "small"
+  },
+  "diagnostics": {
+    "expected_logged_effort_for_max": "xhigh",
+    "normal_thinking_guard": 8000,
+    "avoid_thinking_tokens_at_or_above": 24000,
+    "legacy_gpt55_context_observation": "Old gpt-5.5 setup failed with context_length_exceeded around 272k-278k estimated input tokens. Do not generalize this to GPT-5.6.",
+    "ghost_stream_sql_predicate": "stream = true and input_tokens = 0 and output_tokens = 0 and duration_ms between 500 and 30000",
+    "account_cooldown_sql": "select id, status, schedulable, concurrency, rate_limited_at, rate_limit_reset_at, temp_unschedulable_until, session_window_status, last_used_at, updated_at from accounts where platform='openai' order by id",
+    "recent_proxy_error_sql": "select id, created_at, status_code, upstream_status_code, error_type, left(coalesce(error_message,''),140), left(coalesce(upstream_error_message,''),140), account_id, requested_model from ops_error_logs where created_at > now() - interval '4 hours' order by id desc limit 40",
+    "notes": [
+      "Use clean gpt-5.6-sol for main work and gpt-5.3-codex-spark for Claude Code small-fast/Haiku, with fallback chain gpt-5.6-luna then gpt-5.4-mini. Legacy gpt-5.5[400k] is cosmetic only and must not be treated as the model window.",
+      "Claude Code may still report maxOutputTokens as 32000 on custom/proxy models even when CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000 is set.",
+      "On sub2api's Anthropic-to-OpenAI Responses route, thinking.budget_tokens is parsed but not forwarded as an OpenAI reasoning budget.",
+      "Codex/GPT-5.6 reasoning is controlled by output_config.effort, which maps max to OpenAI reasoning.effort=xhigh.",
+      "MAX_THINKING_TOKENS=8000 is a Claude Code compatibility guard, not the Codex reasoning control.",
+      "For a single-user local setup with multiple Claude Code windows, set accounts.concurrency=32; the default 3/12 can produce account_slot_acquire_failed under parallel subagent load.",
+      "If Claude Code reports 429 rate_limit_error or legacy 503 Service temporarily unavailable while /health is ok, check for openai_messages.account_select_failed with no available accounts.",
+      "Do not treat account cooldown 503 as a context-window, ghost-stream, or localhost routing failure.",
+      "Use gpt-5.3-codex-spark as the global ANTHROPIC_SMALL_FAST_MODEL and ANTHROPIC_DEFAULT_HAIKU_MODEL; keep main Opus/Sonnet/full-power work on gpt-5.6-sol/gpt-5.6-terra.",
+      "Use messages_dispatch_model_config.model_fallbacks for normal small-fast/Haiku fallback: gpt-5.3-codex-spark -> gpt-5.6-luna -> gpt-5.4-mini. Direct gpt-5.6-luna requests fall back to gpt-5.3-codex-spark -> gpt-5.4-mini.",
+      "Set compact_model_fallbacks so Spark compact failures caused by rate limit, quota, unknown/unsupported model, or service-unavailable class errors continue through gpt-5.6-luna, then gpt-5.4-mini.",
+      "Manual /compact may ignore ANTHROPIC_SMALL_FAST_MODEL in some Claude Code builds and use the session main model. Verify compact routing via usage_logs.requested_model/upstream_model."
+    ]
+  },
+  "sub2api_account_credentials": {
+    "compact_model_mapping": {
+      "gpt-5.6": "gpt-5.3-codex-spark",
+      "gpt-5.6-sol": "gpt-5.3-codex-spark",
+      "gpt-5.6-terra": "gpt-5.3-codex-spark",
+      "gpt-5.6-luna": "gpt-5.3-codex-spark",
+      "gpt-5.5": "gpt-5.3-codex-spark",
+      "gpt-5.5[400k]": "gpt-5.3-codex-spark",
+      "gpt-5.4": "gpt-5.3-codex-spark",
+      "gpt-5.4-mini": "gpt-5.3-codex-spark"
+    },
+    "compact_model_fallbacks": {
+      "gpt-5.3-codex-spark": [
+        "gpt-5.6-luna",
+        "gpt-5.4-mini"
+      ],
+      "gpt-5.6": [
+        "gpt-5.4-mini"
+      ],
+      "gpt-5.6-sol": [
+        "gpt-5.4-mini"
+      ],
+      "gpt-5.6-terra": [
+        "gpt-5.4-mini"
+      ],
+      "gpt-5.6-luna": [
+        "gpt-5.3-codex-spark",
+        "gpt-5.4-mini"
+      ],
+      "gpt-5.5": [
+        "gpt-5.4-mini"
+      ],
+      "gpt-5.5[400k]": [
+        "gpt-5.4-mini"
+      ]
+    }
+  },
+  "sub2api_group": {
+    "name": "codex-gpt56-claude-code",
+    "platform": "openai",
+    "allow_messages_dispatch": true,
+    "require_oauth_only": true,
+    "default_mapped_model": "gpt-5.6-sol",
+    "messages_dispatch_model_config": {
+      "opus_mapped_model": "gpt-5.6-sol",
+      "sonnet_mapped_model": "gpt-5.6-terra",
+      "haiku_mapped_model": "gpt-5.3-codex-spark",
+      "exact_model_mappings": {
+        "claude-opus-4-8": "gpt-5.6-sol",
+        "claude-opus-4-8[1m]": "gpt-5.6-sol",
+        "claude-opus-4-7": "gpt-5.6-sol",
+        "opus": "gpt-5.6-sol",
+        "claude-sonnet-5": "gpt-5.6-terra",
+        "claude-sonnet-4-6": "gpt-5.6-terra",
+        "sonnet": "gpt-5.6-terra",
+        "claude-haiku-4-5": "gpt-5.3-codex-spark",
+        "claude-haiku-4-5-20251001": "gpt-5.3-codex-spark",
+        "haiku": "gpt-5.3-codex-spark",
+        "gpt-5.3-codex-spark": "gpt-5.3-codex-spark",
+        "gpt-5.6": "gpt-5.6-sol",
+        "gpt-5.6-sol": "gpt-5.6-sol",
+        "gpt-5.6-terra": "gpt-5.6-terra",
+        "gpt-5.6-luna": "gpt-5.6-luna",
+        "gpt-5.5[400k]": "gpt-5.5",
+        "gpt-5.5": "gpt-5.5"
+      },
+      "model_fallbacks": {
+        "gpt-5.3-codex-spark": [
+          "gpt-5.6-luna",
+          "gpt-5.4-mini"
+        ],
+        "gpt-5.6-luna": [
+          "gpt-5.3-codex-spark",
+          "gpt-5.4-mini"
+        ],
+        "claude-haiku-*": [
+          "gpt-5.6-luna",
+          "gpt-5.4-mini"
+        ],
+        "haiku": [
+          "gpt-5.6-luna",
+          "gpt-5.4-mini"
+        ]
+      }
+    }
+  }
+}
