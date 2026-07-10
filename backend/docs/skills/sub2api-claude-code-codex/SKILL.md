@@ -26,11 +26,11 @@ Claude chain: Claude Code -> Headroom 127.0.0.1:8787 -> Docker DNS http://sub2ap
 Direct sub2api URL: http://127.0.0.1:18081 for admin UI, diagnostics, and non-Claude clients only
 Main model: gpt-5.6-sol
 Small-fast/compact first hop: gpt-5.3-codex-spark with normal model_fallbacks to gpt-5.6-luna, then gpt-5.4-mini
-Default Haiku and general-purpose subagent override: gpt-5.6-terra while native Spark is quota-limited; keep main work on Sol
+Default Haiku and subagent overrides: gpt-5.6-terra-high while native Spark is quota-limited, so inherited Sol/max does not leak into delegated or default-Haiku paths
 Official model windows: GPT-5.6 Sol/Terra/Luna = 1.05M; Claude Fable 5/Opus 4.8/Sonnet 5 = 1M; Claude Haiku 4.5 = 200k
 Client context target: CLAUDE_CODE_MAX_CONTEXT_TOKENS=1050000, CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000 (Claude Code client display/planning target for the 1.05M GPT-5.6 route)
 Compact model: gpt-5.3-codex-spark, fallback gpt-5.6-luna, then gpt-5.4-mini
-Reasoning: max in Claude Code, strongest supported OpenAI effort in sub2api logs
+Reasoning: main GPT-5.6 uses max; delegated Terra subagents use high unless explicitly raised
 ```
 
 Claude model mapping:
@@ -64,9 +64,9 @@ Read only the file needed for the current task:
 
 - Do not print OAuth tokens, API keys, refresh tokens, passwords, or copied auth files in chat.
 - Prefer request-time `/v1/messages` probes and `usage_logs.upstream_model` over `/v1/models` catalog output.
-- Keep Spark as Claude Code small-fast and compact first hop. While native Spark is quota-limited, keep Claude Code `ANTHROPIC_DEFAULT_HAIKU_MODEL` and `CLAUDE_CODE_SUBAGENT_MODEL` on `gpt-5.6-terra` so delegated agents do not accidentally hit Spark.
+- Keep Spark as Claude Code small-fast and compact first hop. While native Spark is quota-limited, keep Claude Code `ANTHROPIC_DEFAULT_HAIKU_MODEL` and `CLAUDE_CODE_SUBAGENT_MODEL` on `gpt-5.6-terra-high` so delegated/default-Haiku paths do not accidentally hit Spark and do not inherit parent Sol/max. Pin frequent subagents with frontmatter `model: gpt-5.6-terra-high` and `effort: high`.
 - Keep Luna as the second hop after Spark for small-fast/Haiku and compact fallbacks, with `gpt-5.4-mini` as the last-resort fallback. Direct `gpt-5.6-luna` requests fall back to `gpt-5.3-codex-spark`, then `gpt-5.4-mini`.
-- For Claude Code `general-purpose` subagents, use the user-level agent override at `%USERPROFILE%\.claude\agents\general-purpose.md` with `model: gpt-5.6-terra` while Spark is quota-limited. Verify with worker command lines and `usage_logs.model_mapping_chain`, not with the Claude UI label alone.
+- For Claude Code `general-purpose`, `Explore`, and `workflow-subagent`, use user-level overrides at `%USERPROFILE%\.claude\agents\*.md` with `model: gpt-5.6-terra-high` and `effort: high` while Spark is quota-limited. The `-high` alias is intentional: patched sub2api strips it to upstream `gpt-5.6-terra` and records `reasoning_effort=high`, overriding inherited parent `max`. Project-specific agents such as `agent-marketplace-agent` should get the same frontmatter when they fan out heavily. Verify with agent JSONL and `usage_logs.reasoning_effort`, not with the Claude UI label alone.
 - Do not install a global `PreToolUse` / `SubagentStart` / `SubagentStop` hook that blocks Agent calls unless the user explicitly asks for it. Current policy is advisory only: `workflowSizeGuideline=small` plus the `general-purpose` prompt asks for no more than 10 sibling agents and no deep chains. Do not claim Claude Code has a reliable built-in depth cap that prevents hundreds of descendants; local evidence has shown a single parent line can grow into hundreds of spawned agents.
 - Never describe `400000` as the GPT-5.6 upstream/model context limit. It was an old conservative Claude Code client target from the GPT-5.5-era instability. Current GPT-5.6 client profile is `CLAUDE_CODE_MAX_CONTEXT_TOKENS=1050000` and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000`; still verify real upstream failures from proxy logs before blaming context.
 - Treat `stale fake 429/503` as a proxy state bug first: issue #1 fixed quota-origin cooldown recovery, so stale recurrence usually means an old image, stale container, or non-quota cooldown reason.

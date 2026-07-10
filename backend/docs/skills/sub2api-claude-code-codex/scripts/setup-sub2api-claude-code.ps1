@@ -10,8 +10,9 @@ param(
   [string]$TimeZone = "Europe/Moscow",
   [string]$Model = "gpt-5.6-sol",
   [string]$SmallFastModel = "gpt-5.3-codex-spark",
-  [string]$DefaultHaikuModel = "gpt-5.6-terra",
-  [string]$SubagentModel = "gpt-5.6-terra",
+  [string]$DefaultHaikuModel = "gpt-5.6-terra-high",
+  [string]$SubagentModel = "gpt-5.6-terra-high",
+  [string]$SubagentEffort = "high",
   [int]$MaxContextTokens = 1050000,
   [int]$AutoCompactWindow = 1000000,
   [int]$MaxOutputTokens = 64000,
@@ -299,40 +300,58 @@ if (-not $SkipClaudeConfig) {
   if (-not $SkipGeneralPurposeAgent) {
     $agentsDir = Join-Path $env:USERPROFILE ".claude\agents"
     New-Item -ItemType Directory -Force -Path $agentsDir | Out-Null
-    $agentPath = Join-Path $agentsDir "general-purpose.md"
-    if (Test-Path -LiteralPath $agentPath) {
-      $agentText = Get-Content -LiteralPath $agentPath -Raw
+
+    function Set-ClaudeAgentOverride {
+      param(
+        [string]$Name,
+        [string]$Description,
+        [string]$Body
+      )
+
+      $agentPath = Join-Path $agentsDir "$Name.md"
+      if (Test-Path -LiteralPath $agentPath) {
+        $agentText = Get-Content -LiteralPath $agentPath -Raw
+      } else {
+        $agentText = @"
+---
+name: $Name
+description: $Description
+model: $SubagentModel
+effort: $SubagentEffort
+---
+
+$Body
+"@
+      }
+
       if ($agentText -match "(?ms)^---\s.*?\s---") {
         if ($agentText -match "(?m)^model:\s*.+$") {
           $agentText = $agentText -replace "(?m)^model:\s*.+$", "model: $SubagentModel"
         } else {
           $agentText = $agentText -replace "(?m)^description: .+$", "`$0`nmodel: $SubagentModel"
         }
+        if ($agentText -match "(?m)^effort:\s*.+$") {
+          $agentText = $agentText -replace "(?m)^effort:\s*.+$", "effort: $SubagentEffort"
+        } else {
+          $agentText = $agentText -replace "(?m)^model:\s*.+$", "`$0`neffort: $SubagentEffort"
+        }
       } else {
-        $agentText = "---`nname: general-purpose`ndescription: General-purpose agent for complex delegated Claude Code work.`nmodel: $SubagentModel`n---`n`n$agentText"
+        $agentText = "---`nname: $Name`ndescription: $Description`nmodel: $SubagentModel`neffort: $SubagentEffort`n---`n`n$agentText"
       }
-    } else {
-      $agentText = @"
----
-name: general-purpose
-description: General-purpose agent for complex multi-step work that needs exploration, edits, command execution, or verification. User override pins the model to GPT-5.6 Terra while Spark is quota-limited.
-model: $SubagentModel
----
-
-You are the general-purpose Claude Code subagent.
-
-Handle the delegated task end to end inside your own context. Use tools when needed, keep scope tight, and return only the result the parent needs.
-
-Delegation guardrails:
-- Treat GPT-5.6 Terra as the default model for delegated general-purpose work.
-- Do not launch more than 10 sibling subagents for one task.
-- Do not create agent chains deeper than two subagent levels below the lead session.
-- If a task needs more breadth or depth, summarize the remaining slices instead of spawning more agents.
-
-Ground investigative answers in concrete file paths, commands, logs, or test results.
-"@
+      Set-Content -LiteralPath $agentPath -Value $agentText -Encoding UTF8
     }
-    Set-Content -LiteralPath $agentPath -Value $agentText -Encoding UTF8
+
+    Set-ClaudeAgentOverride "general-purpose" `
+      "General-purpose agent for complex multi-step work that needs exploration, edits, command execution, or verification. User override pins the model to GPT-5.6 Terra with high effort while Spark is quota-limited." `
+      "You are the general-purpose Claude Code subagent.`n`nHandle the delegated task end to end inside your own context. Use tools when needed, keep scope tight, and return only the result the parent needs.`n`nDelegation guardrails:`n- Treat GPT-5.6 Terra high effort as the default model profile for delegated general-purpose work.`n- Do not launch more than 10 sibling subagents for one task.`n- Do not create agent chains deeper than two subagent levels below the lead session.`n- If a task needs more breadth or depth, summarize the remaining slices instead of spawning more agents.`n`nGround investigative answers in concrete file paths, commands, logs, or test results."
+
+    Set-ClaudeAgentOverride "Explore" `
+      "Exploration subagent for repository, log, transcript, and design-space investigation. User override pins this built-in workflow agent to GPT-5.6 Terra high effort." `
+      "You are the Explore Claude Code subagent.`n`nInvestigate the delegated question in your own context and return only the evidence and conclusion the parent needs. Prefer concrete proof from files, logs, transcripts, commands, and observed runtime state over broad narrative.`n`nUse tools when they materially improve the answer, but keep the scope bounded. When the task is too broad for one pass, summarize the most important findings and name the exact remaining slices instead of recursively expanding the work."
+
+    Set-ClaudeAgentOverride "workflow-subagent" `
+      "Claude Code workflow subagent override. Pins generated workflow worker agents to GPT-5.6 Terra high effort on the local proxy profile." `
+      "You are the workflow-subagent Claude Code worker.`n`nExecute the delegated workflow slice in your own context and return only the specific result the parent workflow needs. Keep the scope bounded, prefer concrete evidence from files, commands, logs, and tests, and avoid expanding a small slice into a broad investigation."
   }
 }
 
@@ -347,7 +366,7 @@ Write-Host "Headroom image: headroom-sub2api:$HeadroomVersion"
 Write-Host "model: $Model"
 Write-Host "small-fast model: $SmallFastModel"
 Write-Host "default Haiku model: $DefaultHaikuModel"
-Write-Host "general-purpose subagent model: $SubagentModel"
+Write-Host "subagent model/effort: $SubagentModel / $SubagentEffort"
 Write-Host "max context: $MaxContextTokens"
 Write-Host "auto compact: $AutoCompactWindow"
 Write-Host "admin email: $AdminEmail"

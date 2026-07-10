@@ -55,7 +55,7 @@ Expected:
 ```text
 requested_model = gpt-5.6-sol, gpt-5.3-codex-spark, legacy gpt-5.5[400k], or claude-opus/sonnet/haiku aliases for normal work
 upstream/response model = gpt-5.6-sol for main work, gpt-5.6-terra for Sonnet, gpt-5.3-codex-spark for small-fast/Haiku when schedulable, gpt-5.6-luna when Spark fallback takes over, or gpt-5.4-mini when both Spark and Luna are unavailable
-reasoning_effort = xhigh for GPT-5.6 max requests on the current Codex/OpenAI Responses route; clamp logs should include requested_effort=max and upstream_effort=xhigh
+reasoning_effort = max for GPT-5.6 max requests on the current Codex/OpenAI Responses route; a clamp log with upstream_effort=xhigh means the running image or docs are stale
 model_mapping_chain includes -> gpt-5.6-sol, -> gpt-5.6-terra, -> gpt-5.3-codex-spark, -> gpt-5.6-luna for Spark fallback, and -> gpt-5.4-mini for final fallback
 ```
 
@@ -70,9 +70,9 @@ wsl.exe -- docker exec sub2api-codex-postgres psql -U sub2api -d sub2api -F " | 
 Expected for the current advisory subagent profile:
 
 ```text
-general-purpose.md frontmatter model: gpt-5.6-terra
-worker/Claude command line includes -Model "gpt-5.6-terra" or --model gpt-5.6-terra
-usage_logs rows show gpt-5.6-terra -> gpt-5.6-terra
+general-purpose.md / Explore.md / workflow-subagent.md frontmatter model: gpt-5.6-terra-high and effort: high
+worker/Claude command line includes -Model "gpt-5.6-terra-high" or --model gpt-5.6-terra-high
+usage_logs rows show requested_model=gpt-5.6-terra-high, upstream_model=gpt-5.6-terra, reasoning_effort=high
 no global Agent-blocking PreToolUse/SubagentStart/SubagentStop hook is installed unless the user explicitly requested a hard cap
 ```
 
@@ -119,7 +119,7 @@ For the current sub2api source path:
 
 ```text
 Anthropic max_tokens -> OpenAI max_output_tokens
-Anthropic output_config.effort=max -> OpenAI reasoning.effort=xhigh on the current Codex/OpenAI Responses route; structured logs record requested_effort=max and upstream_effort=xhigh
+Anthropic output_config.effort=max -> OpenAI reasoning.effort=max for GPT-5.6; legacy models without max support still downgrade max to xhigh
 Anthropic thinking.budget_tokens -> parsed but ignored by the Responses converter
 ```
 

@@ -405,18 +405,30 @@ func extractAnthropicTextFromBlocks(blocks []AnthropicContentBlock) string {
 // OpenAI Responses API effort levels.
 //
 // Both APIs default to "high". The mapping is 1:1 for shared levels. Anthropic
-// "max" is a client-side intent; OpenAI/Codex Responses rejects max on this
-// route and accepts xhigh as the strongest wire-level effort.
+// "max" is a client-side intent; GPT-5.6 exposes it on the Codex/OpenAI
+// Responses route, while older Codex models still use xhigh as the strongest
+// accepted wire-level effort.
 //
 //	low    → low
 //	medium → medium
 //	high   → high
-//	max    → xhigh
+//	max    → max for GPT-5.6, otherwise xhigh
 func mapAnthropicEffortToResponses(model, effort string) string {
 	if effort == "max" {
+		if supportsResponsesMaxReasoningEffort(model) {
+			return "max"
+		}
 		return "xhigh"
 	}
 	return effort // low→low, medium→medium, high→high, unknown→passthrough
+}
+
+func supportsResponsesMaxReasoningEffort(model string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(model))
+	if idx := strings.LastIndex(normalized, "/"); idx >= 0 {
+		normalized = normalized[idx+1:]
+	}
+	return normalized == "gpt-5.6" || strings.HasPrefix(normalized, "gpt-5.6-")
 }
 
 // convertAnthropicToolsToResponses maps Anthropic tool definitions to
