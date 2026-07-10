@@ -10,6 +10,8 @@ param(
   [string]$TimeZone = "Europe/Moscow",
   [string]$Model = "gpt-5.6-sol",
   [string]$SmallFastModel = "gpt-5.3-codex-spark",
+  [string]$DefaultHaikuModel = "gpt-5.6-terra",
+  [string]$SubagentModel = "gpt-5.6-terra",
   [int]$MaxContextTokens = 1050000,
   [int]$AutoCompactWindow = 1000000,
   [int]$MaxOutputTokens = 64000,
@@ -20,7 +22,8 @@ param(
   [string]$ApiKey = "",
   [switch]$ForceRegenerateSecrets,
   [switch]$SkipDockerUp,
-  [switch]$SkipClaudeConfig
+  [switch]$SkipClaudeConfig,
+  [switch]$SkipGeneralPurposeAgent
 )
 
 $ErrorActionPreference = "Stop"
@@ -258,8 +261,9 @@ if (-not $SkipClaudeConfig) {
   Set-ObjectProperty $settings "effortLevel" "max"
   Set-ObjectProperty $settings.env "ANTHROPIC_BASE_URL" $ClaudeBaseUrl
   Set-ObjectProperty $settings.env "ANTHROPIC_MODEL" $Model
-  Set-ObjectProperty $settings.env "ANTHROPIC_DEFAULT_HAIKU_MODEL" $SmallFastModel
+  Set-ObjectProperty $settings.env "ANTHROPIC_DEFAULT_HAIKU_MODEL" $DefaultHaikuModel
   Set-ObjectProperty $settings.env "ANTHROPIC_SMALL_FAST_MODEL" $SmallFastModel
+  Set-ObjectProperty $settings.env "CLAUDE_CODE_SUBAGENT_MODEL" $SubagentModel
   Set-ObjectProperty $settings.env "CLAUDE_CODE_MAX_CONTEXT_TOKENS" ([string]$MaxContextTokens)
   Set-ObjectProperty $settings.env "CLAUDE_CODE_AUTO_COMPACT_WINDOW" ([string]$AutoCompactWindow)
   Set-ObjectProperty $settings.env "CLAUDE_CODE_MAX_OUTPUT_TOKENS" ([string]$MaxOutputTokens)
@@ -270,8 +274,9 @@ if (-not $SkipClaudeConfig) {
 
   [Environment]::SetEnvironmentVariable("ANTHROPIC_BASE_URL", $ClaudeBaseUrl, "User")
   [Environment]::SetEnvironmentVariable("ANTHROPIC_MODEL", $Model, "User")
-  [Environment]::SetEnvironmentVariable("ANTHROPIC_DEFAULT_HAIKU_MODEL", $SmallFastModel, "User")
+  [Environment]::SetEnvironmentVariable("ANTHROPIC_DEFAULT_HAIKU_MODEL", $DefaultHaikuModel, "User")
   [Environment]::SetEnvironmentVariable("ANTHROPIC_SMALL_FAST_MODEL", $SmallFastModel, "User")
+  [Environment]::SetEnvironmentVariable("CLAUDE_CODE_SUBAGENT_MODEL", $SubagentModel, "User")
   [Environment]::SetEnvironmentVariable("CLAUDE_CODE_MAX_CONTEXT_TOKENS", [string]$MaxContextTokens, "User")
   [Environment]::SetEnvironmentVariable("CLAUDE_CODE_AUTO_COMPACT_WINDOW", [string]$AutoCompactWindow, "User")
   [Environment]::SetEnvironmentVariable("CLAUDE_CODE_MAX_OUTPUT_TOKENS", [string]$MaxOutputTokens, "User")
@@ -290,6 +295,45 @@ if (-not $SkipClaudeConfig) {
       Write-Warning "Could not update $globalConfigPath as JSON: $($_.Exception.Message)"
     }
   }
+
+  if (-not $SkipGeneralPurposeAgent) {
+    $agentsDir = Join-Path $env:USERPROFILE ".claude\agents"
+    New-Item -ItemType Directory -Force -Path $agentsDir | Out-Null
+    $agentPath = Join-Path $agentsDir "general-purpose.md"
+    if (Test-Path -LiteralPath $agentPath) {
+      $agentText = Get-Content -LiteralPath $agentPath -Raw
+      if ($agentText -match "(?ms)^---\s.*?\s---") {
+        if ($agentText -match "(?m)^model:\s*.+$") {
+          $agentText = $agentText -replace "(?m)^model:\s*.+$", "model: $SubagentModel"
+        } else {
+          $agentText = $agentText -replace "(?m)^description: .+$", "`$0`nmodel: $SubagentModel"
+        }
+      } else {
+        $agentText = "---`nname: general-purpose`ndescription: General-purpose agent for complex delegated Claude Code work.`nmodel: $SubagentModel`n---`n`n$agentText"
+      }
+    } else {
+      $agentText = @"
+---
+name: general-purpose
+description: General-purpose agent for complex multi-step work that needs exploration, edits, command execution, or verification. User override pins the model to GPT-5.6 Terra while Spark is quota-limited.
+model: $SubagentModel
+---
+
+You are the general-purpose Claude Code subagent.
+
+Handle the delegated task end to end inside your own context. Use tools when needed, keep scope tight, and return only the result the parent needs.
+
+Delegation guardrails:
+- Treat GPT-5.6 Terra as the default model for delegated general-purpose work.
+- Do not launch more than 10 sibling subagents for one task.
+- Do not create agent chains deeper than two subagent levels below the lead session.
+- If a task needs more breadth or depth, summarize the remaining slices instead of spawning more agents.
+
+Ground investigative answers in concrete file paths, commands, logs, or test results.
+"@
+    }
+    Set-Content -LiteralPath $agentPath -Value $agentText -Encoding UTF8
+  }
 }
 
 Write-Host "repo root: $resolvedRepoRoot"
@@ -302,6 +346,8 @@ Write-Host "sub2api image: $Sub2apiImage"
 Write-Host "Headroom image: headroom-sub2api:$HeadroomVersion"
 Write-Host "model: $Model"
 Write-Host "small-fast model: $SmallFastModel"
+Write-Host "default Haiku model: $DefaultHaikuModel"
+Write-Host "general-purpose subagent model: $SubagentModel"
 Write-Host "max context: $MaxContextTokens"
 Write-Host "auto compact: $AutoCompactWindow"
 Write-Host "admin email: $AdminEmail"

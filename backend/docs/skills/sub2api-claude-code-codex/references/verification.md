@@ -55,8 +55,25 @@ Expected:
 ```text
 requested_model = gpt-5.6-sol, gpt-5.3-codex-spark, legacy gpt-5.5[400k], or claude-opus/sonnet/haiku aliases for normal work
 upstream/response model = gpt-5.6-sol for main work, gpt-5.6-terra for Sonnet, gpt-5.3-codex-spark for small-fast/Haiku when schedulable, gpt-5.6-luna when Spark fallback takes over, or gpt-5.4-mini when both Spark and Luna are unavailable
-reasoning_effort = xhigh
+reasoning_effort = max for GPT-5.6 max requests; xhigh only for legacy max fallback
 model_mapping_chain includes -> gpt-5.6-sol, -> gpt-5.6-terra, -> gpt-5.3-codex-spark, -> gpt-5.6-luna for Spark fallback, and -> gpt-5.4-mini for final fallback
+```
+
+For `general-purpose` subagent model checks:
+
+```powershell
+Get-Content "$env:USERPROFILE\.claude\agents\general-purpose.md"
+Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*run-claude-pipe-status-worker.ps1*' } | Select-Object ProcessId,CommandLine
+wsl.exe -- docker exec sub2api-codex-postgres psql -U sub2api -d sub2api -F " | " -Atc "select requested_model, model_mapping_chain, count(*), sum(input_tokens), sum(output_tokens) from usage_logs where created_at > now() - interval '30 minutes' group by requested_model, model_mapping_chain order by 1,2;"
+```
+
+Expected for the current advisory subagent profile:
+
+```text
+general-purpose.md frontmatter model: gpt-5.6-terra
+worker/Claude command line includes -Model "gpt-5.6-terra" or --model gpt-5.6-terra
+usage_logs rows show gpt-5.6-terra -> gpt-5.6-terra
+no global Agent-blocking PreToolUse/SubagentStart/SubagentStop hook is installed unless the user explicitly requested a hard cap
 ```
 
 For manual `/compact`, do not trust Claude Code's `modelUsage` display. Verify the proxy reroute with:
@@ -102,7 +119,7 @@ For the current sub2api source path:
 
 ```text
 Anthropic max_tokens -> OpenAI max_output_tokens
-Anthropic output_config.effort=max -> OpenAI reasoning.effort=xhigh
+Anthropic output_config.effort=max -> OpenAI reasoning.effort=max for GPT-5.6, xhigh for legacy fallback models
 Anthropic thinking.budget_tokens -> parsed but ignored by the Responses converter
 ```
 

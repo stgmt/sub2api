@@ -22,6 +22,8 @@ Docker-in-WSL fallback: if Windows cannot reach 127.0.0.1:8787 but WSL/Docker ca
 Upstream platform: OpenAI/Codex OAuth
 Claude Code model: gpt-5.6-sol
 Claude Code small-fast model: gpt-5.3-codex-spark with normal model_fallbacks to gpt-5.6-luna, then gpt-5.4-mini
+Claude Code default Haiku model: gpt-5.6-terra while native Spark is quota-limited
+Claude Code general-purpose subagent override: gpt-5.6-terra while native Spark is quota-limited
 Upstream main model: gpt-5.6-sol
 Claude Opus mapping: gpt-5.6-sol
 Claude Sonnet mapping: gpt-5.6-terra
@@ -33,7 +35,7 @@ Large compact fallback: if the mapped compact model returns context_length_excee
 Compact quality guard: final compact prompt requires a `# Compact Capsule` with Current State, Active User Intent, Files Touched, Commands And Evidence, Errors And Blockers, Decisions And Config, and Next Command
 Compact meta-intent sanitizer: before final merge, patched sub2api strips intermediate summary lines that misclassify compact maintenance as the active task, such as "produce a merged/detailed compact summary", "prior chunking", "context compaction", or "merge chunk summaries"
 Compact recovery hook: optional Claude Code PreCompact/PostCompact/UserPromptSubmit hook writes a small recovery state and injects it once after compaction so the agent does not treat the compact request as the real user task
-Reasoning: max in Claude Code, xhigh in sub2api logs
+Reasoning: max in Claude Code, max in sub2api logs for GPT-5.6; xhigh only for legacy max fallback
 Official GPT-5.6 context window: 1,050,000 tokens with 128,000 max output for Sol/Terra/Luna.
 Official Claude context windows: Fable 5, Opus 4.8, and Sonnet 5 are 1M; Haiku 4.5 is 200k.
 Official context docs checked on 2026-07-10: OpenAI https://developers.openai.com/api/docs/models and Anthropic https://platform.claude.com/docs/en/about-claude/models/overview
@@ -44,17 +46,29 @@ Output guard: CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
 Thinking guard: MAX_THINKING_TOKENS=8000
 Non-streaming fallback: CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK=1
 Account concurrency: 32 for one local Codex OAuth account with multiple Claude Code windows/subagents
-Dynamic workflow size: workflowSizeGuideline=small in ~/.claude.json
+Dynamic workflow size: workflowSizeGuideline=small in ~/.claude.json; this is advisory, not a hard cap
 Rate-limit scope: upstream 429 for a specific OpenAI/Codex model must be stored in `accounts.extra.model_rate_limits`, not in global `accounts.rate_limited_at/rate_limit_reset_at`. A Spark/Codex 5.3 cooldown must not block normal `gpt-5.6-sol` or `gpt-5.6-terra` work.
 Stale fake limit recovery: issue #1 is fixed in the fork. When fresh Codex usage snapshots show quota headroom, the proxy clears only quota-origin `openai_model_rate_limited` entries from `accounts.extra.model_rate_limits` and preserves non-quota reasons such as `upstream_404_model_not_found`.
 OpenAI OAuth 403 scope: the patched image treats OpenAI/Codex OAuth `403 Access forbidden` as a temporary cooldown, including repeated/threshold 403s. It must not set `accounts.status='error'` or `schedulable=false` for OAuth 403 HTML/Cloudflare edge blocks.
 Model availability: trust request-time probes over `/v1/models`. On 2026-07-10, the local proxy returned 200 for `gpt-5.6-sol` and `gpt-5.6-terra`. The current small-fast/Haiku chain is `gpt-5.3-codex-spark -> gpt-5.6-luna -> gpt-5.4-mini`; direct `gpt-5.6-luna` requests fall back to `gpt-5.3-codex-spark`, then `gpt-5.4-mini` when Luna is unavailable.
 ```
 
+Subagent fan-out profile:
+
+- User-level override path: `%USERPROFILE%\.claude\agents\general-purpose.md`.
+- Current override: `model: gpt-5.6-terra`. Keep this while native `gpt-5.3-codex-spark` is quota-limited; do not switch all subagents to Sol unless the user explicitly wants maximum quality over quota safety.
+- Current User env pairing: `ANTHROPIC_SMALL_FAST_MODEL=gpt-5.3-codex-spark`, `ANTHROPIC_DEFAULT_HAIKU_MODEL=gpt-5.6-terra`, and `CLAUDE_CODE_SUBAGENT_MODEL=gpt-5.6-terra`. This keeps compact/small-fast on Spark fallback logic but prevents subagents/default-Haiku paths from hitting Spark quota.
+- Advisory prompt guardrails in that file: no more than 10 sibling subagents for one task, and no agent chains deeper than two subagent levels below the lead session.
+- Do not install a global `PreToolUse` / `SubagentStart` / `SubagentStop` hook that blocks Agent calls unless the user explicitly asks for a hard guard. The current machine policy is non-blocking/advisory.
+- Official Claude Code dynamic workflows still have their own runtime limits: up to 16 concurrent agents and 1000 total agents per workflow run. `workflowSizeGuideline=small` only tells Claude to aim smaller; it is not an enforced concurrency or depth limit. Do not rely on any claimed built-in depth cap as protection against runaway fan-out: local sessions have shown one parent task line reaching hundreds of spawned descendants.
+- Live Terra c10 replay on 2026-07-10 through Headroom/sub2api: 10 historical `general-purpose` prompts launched at concurrency 10, 9 completed successfully, 1 hit the local 900s timeout, and there were 0 Terra API errors. Postgres evidence for the run: 238 `gpt-5.6-terra -> gpt-5.6-terra` rows, about 2.26M input tokens and 108.4k output tokens, with aggregate per-request output throughput about 41 tok/s and wall-effective output throughput about 120 tok/s.
+- A failed earlier "Terra" attempt was invalid because the worker still hardcoded `gpt-5.3-codex-spark`. The bench harness was patched to pass `-Model` into every worker and to read worker status files before computing ok/error totals.
+- Fresh Luna probe after the prior cooldown reset on 2026-07-10 returned HTTP 200 but routed `gpt-5.6-luna -> gpt-5.4-mini`; `ops_error_logs` recorded a recovered upstream 429 "The usage limit has been reached" for Luna. Treat Luna as unavailable until a request-time probe shows `model_mapping_chain` ending in `gpt-5.6-luna`.
+
 Fast compact profile:
 
 - Keep the main Claude Code model on `gpt-5.6-sol` for full-power work.
-- Keep `ANTHROPIC_DEFAULT_HAIKU_MODEL=gpt-5.3-codex-spark` and `ANTHROPIC_SMALL_FAST_MODEL=gpt-5.3-codex-spark` for normal Claude Code small-fast/Haiku work, with group `model_fallbacks` from `gpt-5.3-codex-spark` to `gpt-5.6-luna`, then `gpt-5.4-mini`. Do not route main Opus/Sonnet/full-power work to Spark.
+- Keep `ANTHROPIC_SMALL_FAST_MODEL=gpt-5.3-codex-spark` for compact/small-fast work, with group `model_fallbacks` from `gpt-5.3-codex-spark` to `gpt-5.6-luna`, then `gpt-5.4-mini`. While native Spark is quota-limited, keep `ANTHROPIC_DEFAULT_HAIKU_MODEL=gpt-5.6-terra` and `CLAUDE_CODE_SUBAGENT_MODEL=gpt-5.6-terra` for delegated agents. Do not route main Opus/full-power work to Spark.
 - In Claude Code 2.1.202, manual `/compact` still uses the session main model (`context.options.mainLoopModel`) and ignores `ANTHROPIC_SMALL_FAST_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `CLAUDE_CODE_SUBAGENT_MODEL`, and the reverse-engineered `CLAUDE_CONTEXT_COLLAPSE_MODEL` for the legacy compact path.
 - Use the patched local sub2api image plus the OpenAI account `compact_model_mapping` to reroute Claude Code compact prompts server-side. The verified 5.5-era live result was `requested_model=gpt-5.5`, `upstream_model=gpt-5.3-codex-spark`, `input_tokens=105453`, `output_tokens=4876`, `duration_ms=9427`; before the patch the same controlled compact used the main model for about `141652 ms`. For the 5.6 profile, add `gpt-5.6-sol` and `gpt-5.6-terra` to the compact mapping as aliases to Spark.
 - Current fork behavior for oversized compacts: first try the compact prompt as one request on the mapped compact model. If upstream returns `response.failed` with `context_length_exceeded`, the proxy logs `openai_messages.compact_context_length_fallback`, splits the transcript into large chunks, summarizes each chunk with `gpt-5.3-codex-spark`, recursively merges the summaries, strips compact-maintenance meta-intent before final merge, retries with smaller merge groups when merge overflows, splits a single oversized intermediate summary if needed, and emits a normal Anthropic Messages response. If Spark is rate-limited/unavailable/unknown/unsupported, either before chunking or during chunk/merge fallback, the proxy logs `openai_messages.compact_model_unavailable_fallback` or `openai_messages.compact_chunk_model_unavailable_switching` and continues compacting on `gpt-5.6-luna`, then `gpt-5.4-mini`. If the upstream still refuses the final merge at the minimum safe group size, it emits a deterministic emergency `# Compact Capsule` instead of surfacing a 502. Live verification on 2026-07-08: usage row `4646` had `requested_model=gpt-5.5`, `upstream_model=gpt-5.3-codex-spark`, `input_tokens=225195`, `output_tokens=12864`, `duration_ms=42177`, `model_mapping_chain=gpt-5.5→gpt-5.3-codex-spark`; later row `4996` after recursive fallback had `requested_model=gpt-5.5`, `upstream_model=gpt-5.3-codex-spark`, `input_tokens=206778`, `output_tokens=8819`, `duration_ms=18792`.
@@ -97,4 +111,4 @@ Why output and thinking guards matter:
 - `MAX_THINKING_TOKENS=0` disables or omits the thinking parameter depending on provider behavior; use it only when the proxy/upstream rejects thinking fields or for fast/simple work.
 - Set `CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK=1` for this proxy profile. The streaming path is patched locally; leaving fallback enabled can make Claude Code retry a large turn through `stream=false` with about a 1 MB body and surface `API Error: Upstream service temporarily unavailable` from a proxy 502.
 - Use the patched local image. The upstream image can turn an empty OpenAI Responses stream into a successful Anthropic `message_stop`; the local patch buffers stream start until real text/tool output and converts empty streams into retryable upstream failures.
-- Keep Claude Code dynamic workflows small. `/deep-research` and generated workflows can fan out many subagents; on this proxy profile, that can surface as synthetic `API Error: Upstream service temporarily unavailable` even when sub2api is returning HTTP 200. Set `workflowSizeGuideline=small` in `~/.claude.json` so new workflows aim for fewer than 5 agents.
+- Treat `workflowSizeGuideline=small` as a weak hint and warning-threshold tweak only. It did not prevent observed local fan-out into hundreds of descendants. `/deep-research` and generated workflows can still spawn very large agent trees; on this proxy profile, that can surface as synthetic `API Error: Upstream service temporarily unavailable` even when sub2api is returning HTTP 200. Without an explicit hard-blocking hook, real controls are: do not launch broad workflows, stop them from `/workflows`, disable workflows for a session/profile when needed, or ask for a narrow deterministic slice.

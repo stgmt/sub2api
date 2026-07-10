@@ -4,6 +4,8 @@ param(
   [string]$ApiKey = [Environment]::GetEnvironmentVariable("ANTHROPIC_AUTH_TOKEN", "User"),
   [string]$Model = [Environment]::GetEnvironmentVariable("ANTHROPIC_MODEL", "User"),
   [string]$SmallFastModel = [Environment]::GetEnvironmentVariable("ANTHROPIC_SMALL_FAST_MODEL", "User"),
+  [string]$DefaultHaikuModel = [Environment]::GetEnvironmentVariable("ANTHROPIC_DEFAULT_HAIKU_MODEL", "User"),
+  [string]$SubagentModel = [Environment]::GetEnvironmentVariable("CLAUDE_CODE_SUBAGENT_MODEL", "User"),
   [string]$ExpectedUpstream = "gpt-5.6-sol",
   [string]$ProjectName = "sub2api-codex",
   [switch]$SkipApiProbe,
@@ -57,11 +59,15 @@ $BaseUrl = Normalize-Url $BaseUrl "http://127.0.0.1:8787"
 $Sub2apiBaseUrl = Normalize-Url $Sub2apiBaseUrl "http://127.0.0.1:18081"
 if (-not $Model) { $Model = "gpt-5.6-sol" }
 if (-not $SmallFastModel) { $SmallFastModel = "gpt-5.3-codex-spark" }
+if (-not $DefaultHaikuModel) { $DefaultHaikuModel = "gpt-5.6-terra" }
+if (-not $SubagentModel) { $SubagentModel = "gpt-5.6-terra" }
 
 Write-Host "Claude/Headroom base URL: $BaseUrl"
 Write-Host "sub2api admin/diagnostic URL: $Sub2apiBaseUrl"
 Write-Host "Model: $Model"
 Write-Host "Small-fast model: $SmallFastModel"
+Write-Host "Default Haiku model: $DefaultHaikuModel"
+Write-Host "Subagent model: $SubagentModel"
 Write-Host "Has API token: $([bool]$ApiKey)"
 
 Show-Health "Headroom" $BaseUrl
@@ -106,8 +112,9 @@ if (-not $SkipClaudeProbe) {
     $env:ANTHROPIC_BASE_URL = $BaseUrl
     $env:ANTHROPIC_AUTH_TOKEN = $ApiKey
     $env:ANTHROPIC_MODEL = $Model
-    $env:ANTHROPIC_DEFAULT_HAIKU_MODEL = $SmallFastModel
+    $env:ANTHROPIC_DEFAULT_HAIKU_MODEL = $DefaultHaikuModel
     $env:ANTHROPIC_SMALL_FAST_MODEL = $SmallFastModel
+    $env:CLAUDE_CODE_SUBAGENT_MODEL = $SubagentModel
     $env:CLAUDE_CODE_MAX_CONTEXT_TOKENS = [Environment]::GetEnvironmentVariable("CLAUDE_CODE_MAX_CONTEXT_TOKENS", "User")
     $env:CLAUDE_CODE_AUTO_COMPACT_WINDOW = [Environment]::GetEnvironmentVariable("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "User")
     $env:CLAUDE_CODE_MAX_OUTPUT_TOKENS = [Environment]::GetEnvironmentVariable("CLAUDE_CODE_MAX_OUTPUT_TOKENS", "User")
@@ -179,3 +186,4 @@ if (-not $SkipDockerLogs) {
 Write-Host "`nExpected Headroom upstream: http://sub2api:8080"
 Write-Host "Expected main model in usage_logs: $ExpectedUpstream"
 Write-Host "Expected small-fast requested_model in usage_logs: $SmallFastModel"
+Write-Host "Expected default-Haiku/subagent model for delegated agents: $DefaultHaikuModel / $SubagentModel"
