@@ -58,8 +58,8 @@ func AnthropicToResponses(req *AnthropicRequest) (*ResponsesRequest, error) {
 	// Determine reasoning effort: only output_config.effort controls the
 	// level; thinking.type is ignored. Default follows Codex CLI / airgate's
 	// Anthropic bridge shape, which uses medium when unset.
-	// Anthropic levels map 1:1 to OpenAI for shared levels. GPT-5.6 supports
-	// OpenAI's native "max" effort; older OpenAI models fall back max→xhigh.
+	// Anthropic levels map 1:1 to OpenAI for shared levels. OpenAI/Codex
+	// Responses currently caps Anthropic max at xhigh.
 	effort := "medium"
 	if req.OutputConfig != nil && req.OutputConfig.Effort != "" {
 		effort = req.OutputConfig.Effort
@@ -404,32 +404,19 @@ func extractAnthropicTextFromBlocks(blocks []AnthropicContentBlock) string {
 // mapAnthropicEffortToResponses converts Anthropic reasoning effort levels to
 // OpenAI Responses API effort levels.
 //
-// Both APIs default to "high". The mapping is 1:1 for shared levels.
-// GPT-5.6 models also support OpenAI's native "max" effort, so preserve it.
-// Older OpenAI reasoning models do not universally support "max"; keep the
-// legacy max→xhigh fallback for those models.
+// Both APIs default to "high". The mapping is 1:1 for shared levels. Anthropic
+// "max" is a client-side intent; OpenAI/Codex Responses rejects max on this
+// route and accepts xhigh as the strongest wire-level effort.
 //
 //	low    → low
 //	medium → medium
 //	high   → high
-//	max    → max   (GPT-5.6)
-//	max    → xhigh (legacy fallback)
+//	max    → xhigh
 func mapAnthropicEffortToResponses(model, effort string) string {
 	if effort == "max" {
-		if responsesModelSupportsMaxReasoning(model) {
-			return "max"
-		}
 		return "xhigh"
 	}
 	return effort // low→low, medium→medium, high→high, unknown→passthrough
-}
-
-func responsesModelSupportsMaxReasoning(model string) bool {
-	model = strings.ToLower(strings.TrimSpace(model))
-	if idx := strings.LastIndex(model, "/"); idx >= 0 {
-		model = strings.TrimSpace(model[idx+1:])
-	}
-	return model == "gpt-5.6" || strings.HasPrefix(model, "gpt-5.6-")
 }
 
 // convertAnthropicToolsToResponses maps Anthropic tool definitions to

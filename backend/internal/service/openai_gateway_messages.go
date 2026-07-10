@@ -187,6 +187,29 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	if compatTurnState != "" {
 		logFields = append(logFields, zap.Bool("compat_turn_state_attached", true))
 	}
+	requestedReasoningEffort := ""
+	if anthropicReq.OutputConfig != nil {
+		requestedReasoningEffort = strings.TrimSpace(anthropicReq.OutputConfig.Effort)
+	}
+	upstreamReasoningEffort := ""
+	if responsesReq.Reasoning != nil {
+		upstreamReasoningEffort = strings.TrimSpace(responsesReq.Reasoning.Effort)
+	}
+	if requestedReasoningEffort != "" && upstreamReasoningEffort != "" && requestedReasoningEffort != upstreamReasoningEffort {
+		logger.L().Info("openai_messages.reasoning_effort_clamped",
+			zap.Int64("account_id", account.ID),
+			zap.String("original_model", originalModel),
+			zap.String("normalized_model", normalizedModel),
+			zap.String("billing_model", billingModel),
+			zap.String("upstream_model", upstreamModel),
+			zap.String("requested_effort", requestedReasoningEffort),
+			zap.String("upstream_effort", upstreamReasoningEffort),
+		)
+		logFields = append(logFields,
+			zap.String("requested_effort", requestedReasoningEffort),
+			zap.String("upstream_effort", upstreamReasoningEffort),
+		)
+	}
 	logger.L().Debug("openai messages: model mapping applied", logFields...)
 
 	// 4. Marshal Responses request body, then apply OAuth codex transform

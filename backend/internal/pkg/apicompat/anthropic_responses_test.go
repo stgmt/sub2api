@@ -1187,12 +1187,12 @@ func TestAnthropicToResponses_OutputConfigMax(t *testing.T) {
 		model string
 		want  string
 	}{
-		{name: "legacy model falls back to xhigh", model: "gpt-5.2", want: "xhigh"},
-		{name: "gpt 5.6 alias preserves max", model: "gpt-5.6", want: "max"},
-		{name: "gpt 5.6 sol preserves max", model: "gpt-5.6-sol", want: "max"},
-		{name: "gpt 5.6 terra preserves max", model: "gpt-5.6-terra", want: "max"},
-		{name: "gpt 5.6 luna preserves max", model: "gpt-5.6-luna", want: "max"},
-		{name: "provider-prefixed gpt 5.6 preserves max", model: "openai/gpt-5.6-sol", want: "max"},
+		{name: "legacy model clamps to xhigh", model: "gpt-5.2", want: "xhigh"},
+		{name: "gpt 5.6 alias clamps to xhigh", model: "gpt-5.6", want: "xhigh"},
+		{name: "gpt 5.6 sol clamps to xhigh", model: "gpt-5.6-sol", want: "xhigh"},
+		{name: "gpt 5.6 terra clamps to xhigh", model: "gpt-5.6-terra", want: "xhigh"},
+		{name: "gpt 5.6 luna clamps to xhigh", model: "gpt-5.6-luna", want: "xhigh"},
+		{name: "provider-prefixed gpt 5.6 clamps to xhigh", model: "openai/gpt-5.6-sol", want: "xhigh"},
 	}
 
 	for _, tt := range tests {

@@ -55,7 +55,7 @@ Expected:
 ```text
 requested_model = gpt-5.6-sol, gpt-5.3-codex-spark, legacy gpt-5.5[400k], or claude-opus/sonnet/haiku aliases for normal work
 upstream/response model = gpt-5.6-sol for main work, gpt-5.6-terra for Sonnet, gpt-5.3-codex-spark for small-fast/Haiku when schedulable, gpt-5.6-luna when Spark fallback takes over, or gpt-5.4-mini when both Spark and Luna are unavailable
-reasoning_effort = max for GPT-5.6 max requests; xhigh only for legacy max fallback
+reasoning_effort = xhigh for GPT-5.6 max requests on the current Codex/OpenAI Responses route; clamp logs should include requested_effort=max and upstream_effort=xhigh
 model_mapping_chain includes -> gpt-5.6-sol, -> gpt-5.6-terra, -> gpt-5.3-codex-spark, -> gpt-5.6-luna for Spark fallback, and -> gpt-5.4-mini for final fallback
 ```
 
@@ -119,7 +119,7 @@ For the current sub2api source path:
 
 ```text
 Anthropic max_tokens -> OpenAI max_output_tokens
-Anthropic output_config.effort=max -> OpenAI reasoning.effort=max for GPT-5.6, xhigh for legacy fallback models
+Anthropic output_config.effort=max -> OpenAI reasoning.effort=xhigh on the current Codex/OpenAI Responses route; structured logs record requested_effort=max and upstream_effort=xhigh
 Anthropic thinking.budget_tokens -> parsed but ignored by the Responses converter
 ```
 

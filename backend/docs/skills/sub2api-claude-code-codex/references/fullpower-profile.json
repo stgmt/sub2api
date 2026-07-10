@@ -73,7 +73,7 @@
     "workflow_size_guideline": "small"
   },
   "diagnostics": {
-    "expected_logged_effort_for_max": "max",
+    "expected_logged_effort_for_max": "xhigh",
     "normal_thinking_guard": 8000,
     "avoid_thinking_tokens_at_or_above": 24000,
     "legacy_gpt55_context_observation": "Old gpt-5.5 setup failed with context_length_exceeded around 272k-278k estimated input tokens. Do not generalize this to GPT-5.6.",
@@ -84,7 +84,7 @@
       "Use clean gpt-5.6-sol for main work and gpt-5.3-codex-spark for Claude Code small-fast/Haiku, with fallback chain gpt-5.6-luna then gpt-5.4-mini. Legacy gpt-5.5[400k] is cosmetic only and must not be treated as the model window.",
       "Claude Code may still report maxOutputTokens as 32000 on custom/proxy models even when CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000 is set.",
       "On sub2api's Anthropic-to-OpenAI Responses route, thinking.budget_tokens is parsed but not forwarded as an OpenAI reasoning budget.",
-      "Codex/GPT-5.6 reasoning is controlled by output_config.effort, which preserves max as OpenAI reasoning.effort=max; older models still fall back max to xhigh.",
+      "Codex/GPT-5.6 reasoning is requested with output_config.effort=max, but the current OpenAI/Codex Responses route clamps the upstream payload to reasoning.effort=xhigh and logs requested_effort=max plus upstream_effort=xhigh.",
       "MAX_THINKING_TOKENS=8000 is a Claude Code compatibility guard, not the Codex reasoning control.",
       "For a single-user local setup with multiple Claude Code windows, set accounts.concurrency=32; the default 3/12 can produce account_slot_acquire_failed under parallel subagent load.",
       "If Claude Code reports 429 rate_limit_error or legacy 503 Service temporarily unavailable while /health is ok, check for openai_messages.account_select_failed with no available accounts.",

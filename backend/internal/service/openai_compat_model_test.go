@@ -230,7 +230,7 @@ func TestForwardAsAnthropic_NormalizesRoutingAndEffortForGpt54XHigh(t *testing.T
 	t.Logf("response body: %s", rec.Body.String())
 }
 
-func TestForwardAsAnthropic_PreservesMaxEffortForGpt56(t *testing.T) {
+func TestForwardAsAnthropic_ClampsMaxEffortForCodexGpt56(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
 
@@ -276,10 +276,10 @@ func TestForwardAsAnthropic_PreservesMaxEffortForGpt56(t *testing.T) {
 	require.NotNil(t, result)
 	require.Equal(t, "gpt-5.6-sol", result.UpstreamModel)
 	require.NotNil(t, result.ReasoningEffort)
-	require.Equal(t, "max", *result.ReasoningEffort)
+	require.Equal(t, "xhigh", *result.ReasoningEffort)
 
 	require.Equal(t, "gpt-5.6-sol", gjson.GetBytes(upstream.lastBody, "model").String())
-	require.Equal(t, "max", gjson.GetBytes(upstream.lastBody, "reasoning.effort").String())
+	require.Equal(t, "xhigh", gjson.GetBytes(upstream.lastBody, "reasoning.effort").String())
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 

@@ -35,7 +35,7 @@ Large compact fallback: if the mapped compact model returns context_length_excee
 Compact quality guard: final compact prompt requires a `# Compact Capsule` with Current State, Active User Intent, Files Touched, Commands And Evidence, Errors And Blockers, Decisions And Config, and Next Command
 Compact meta-intent sanitizer: before final merge, patched sub2api strips intermediate summary lines that misclassify compact maintenance as the active task, such as "produce a merged/detailed compact summary", "prior chunking", "context compaction", or "merge chunk summaries"
 Compact recovery hook: optional Claude Code PreCompact/PostCompact/UserPromptSubmit hook writes a small recovery state and injects it once after compaction so the agent does not treat the compact request as the real user task
-Reasoning: max in Claude Code, max in sub2api logs for GPT-5.6; xhigh only for legacy max fallback
+Reasoning: max in Claude Code, upstream/usage xhigh for GPT-5.6 on the current Codex/OpenAI Responses route; clamp logs record requested_effort=max and upstream_effort=xhigh
 Official GPT-5.6 context window: 1,050,000 tokens with 128,000 max output for Sol/Terra/Luna.
 Official Claude context windows: Fable 5, Opus 4.8, and Sonnet 5 are 1M; Haiku 4.5 is 200k.
 Official context docs checked on 2026-07-10: OpenAI https://developers.openai.com/api/docs/models and Anthropic https://platform.claude.com/docs/en/about-claude/models/overview
@@ -107,7 +107,7 @@ Why output and thinking guards matter:
 - Claude Code may still report `maxOutputTokens: 32000` for custom/proxy models even when `CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000` is set.
 - On the sub2api OpenAI/Codex route, `MAX_THINKING_TOKENS` is not the upstream Codex reasoning control. sub2api's Anthropic-to-Responses converter maps `output_config.effort` to OpenAI `reasoning.effort` and ignores `thinking.budget_tokens`.
 - Keep `MAX_THINKING_TOKENS=8000` as the normal compatibility guard for Claude Code's Anthropic-compatible client behavior. Use `12000` or `16000` only for experiments. Avoid `24000+` unless explicitly testing.
-- For Codex/GPT-5.6 capability, rely on `effortLevel=max` / `--effort max`, which sub2api maps to the strongest supported OpenAI reasoning effort on this route.
+- For Codex/GPT-5.6 capability, use `effortLevel=max` / `--effort max` as the client intent. sub2api clamps it to the strongest currently accepted OpenAI/Codex Responses effort on this route: upstream `reasoning.effort=xhigh`, with `requested_effort=max` and `upstream_effort=xhigh` in structured logs.
 - `MAX_THINKING_TOKENS=0` disables or omits the thinking parameter depending on provider behavior; use it only when the proxy/upstream rejects thinking fields or for fast/simple work.
 - Set `CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK=1` for this proxy profile. The streaming path is patched locally; leaving fallback enabled can make Claude Code retry a large turn through `stream=false` with about a 1 MB body and surface `API Error: Upstream service temporarily unavailable` from a proxy 502.
 - Use the patched local image. The upstream image can turn an empty OpenAI Responses stream into a successful Anthropic `message_stop`; the local patch buffers stream start until real text/tool output and converts empty streams into retryable upstream failures.
