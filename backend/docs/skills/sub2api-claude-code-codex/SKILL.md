@@ -1,12 +1,12 @@
 ---
 name: sub2api-claude-code-codex
 description: >-
-  Use this skill for Claude Code through an Anthropic-compatible local proxy backed by an OpenAI/Codex/ChatGPT subscription: sub2api, Docker/WSL Docker, Codex OAuth, GPT-5.6 Sol/Terra/Luna, GPT-5.3 Codex Spark compact acceleration, Claude Opus/Sonnet/Haiku mapping, max reasoning, context window fixes, empty/0-token ghost streams, stale fake 429/503 no-available-accounts cooldowns, and model_rate_limits self-heal debugging. Triggers include "Claude Code через Codex подписку", "sub2api Docker", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5[400k]", "быстрая компактизация", "gpt-5.3-codex-spark", "usage 0/0", "503 Service temporarily unavailable", "429 rate_limit_error", and "no available accounts".
+  Use this skill for Claude Code through a Headroom-first Anthropic-compatible local proxy chain backed by an OpenAI/Codex/ChatGPT subscription: Headroom context optimization, sub2api, Docker/WSL Docker, Codex OAuth, GPT-5.6 Sol/Terra/Luna, GPT-5.3 Codex Spark compact acceleration, Claude Opus/Sonnet/Haiku mapping, max reasoning, context window fixes, empty/0-token ghost streams, stale fake 429/503 no-available-accounts cooldowns, and model_rate_limits self-heal debugging. Triggers include "Claude Code через Codex подписку", "Headroom sub2api", "sub2api Docker", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5[400k]", "быстрая компактизация", "gpt-5.3-codex-spark", "usage 0/0", "503 Service temporarily unavailable", "429 rate_limit_error", and "no available accounts".
 ---
 
 # sub2api Claude Code Codex
 
-This skill is the short entrypoint for running Claude Code through the local `sub2api` Anthropic-compatible proxy backed by the user's OpenAI/Codex/ChatGPT subscription. Keep this file lean; load the reference files only when the task needs those details.
+This skill is the short entrypoint for running Claude Code through a local Headroom + `sub2api` Anthropic-compatible proxy chain backed by the user's OpenAI/Codex/ChatGPT subscription. Keep this file lean; load the reference files only when the task needs those details.
 
 ## Current Profile
 
@@ -18,9 +18,12 @@ Branch: main
 Verified main commit: 8049675b fix: fall back on Anthropic messages model-not-found
 Fixed issue: https://github.com/stgmt/sub2api/issues/1
 Image: sub2api-codex:local-token-usage
+Headroom image: headroom-sub2api:0.31.0 built from headroom-ai[proxy] on PyPI
 Docker compose project: sub2api-codex
-Default bind: 0.0.0.0:18081 -> container 8080
-Claude base URL: http://<wsl-primary-ip>:18081 when Windows localhost relay is unreliable
+Deploy profile: deploy/claude-code-codex-headroom
+Claude base URL: http://127.0.0.1:8787
+Claude chain: Claude Code -> Headroom 127.0.0.1:8787 -> Docker DNS http://sub2api:8080
+Direct sub2api URL: http://127.0.0.1:18081 for admin UI, diagnostics, and non-Claude clients only
 Main model: gpt-5.6-sol
 Small/Haiku model: gpt-5.3-codex-spark with normal model_fallbacks to gpt-5.6-luna, then gpt-5.4-mini
 Official model windows: GPT-5.6 Sol/Terra/Luna = 1.05M; Claude Fable 5/Opus 4.8/Sonnet 5 = 1M; Claude Haiku 4.5 = 200k
@@ -64,8 +67,8 @@ Read only the file needed for the current task:
 - Keep Luna as the second hop after Spark for small-fast/Haiku and compact fallbacks, with `gpt-5.4-mini` as the last-resort fallback. Direct `gpt-5.6-luna` requests fall back to `gpt-5.3-codex-spark`, then `gpt-5.4-mini`.
 - Never describe `400000` as the GPT-5.6 upstream/model context limit. It was an old conservative Claude Code client target from the GPT-5.5-era instability. Current GPT-5.6 client profile is `CLAUDE_CODE_MAX_CONTEXT_TOKENS=1050000` and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000`; still verify real upstream failures from proxy logs before blaming context.
 - Treat `stale fake 429/503` as a proxy state bug first: issue #1 fixed quota-origin cooldown recovery, so stale recurrence usually means an old image, stale container, or non-quota cooldown reason.
-- For Docker-in-WSL, verify both container health and Windows route. If `127.0.0.1:18081` hangs but WSL IP works, set Claude Code to `http://<wsl-primary-ip>:18081`.
-- After code changes, rebuild `sub2api-codex:local-token-usage`, recreate only the `sub2api` service, then re-run live probes.
+- For Docker-in-WSL, verify both Headroom and sub2api health plus the Windows route. If Windows cannot reach `127.0.0.1:8787` but WSL/Docker can, publish Headroom on `0.0.0.0` and use the WSL eth0 IP on port `8787`; do not point Claude Code directly at sub2api `18081` except as a temporary diagnostic bypass.
+- After code changes, rebuild `sub2api-codex:local-token-usage` or the compose profile, recreate affected services under project `sub2api-codex`, then re-run live probes through Headroom.
 
 ## Workflow
 
@@ -73,13 +76,13 @@ Read only the file needed for the current task:
 2. If installing or repairing Docker/Claude config, read `references/install-and-claude-config.md` and use the bundled setup script.
 3. If changing models or compact routing, read `references/group-and-compact-routing.md` and patch both `groups.messages_dispatch_model_config` and `accounts.credentials`.
 4. If debugging limits or errors, read `references/troubleshooting.md` before changing DB state. Preserve non-quota reasons such as `upstream_404_model_not_found` unless deliberately re-probing that model.
-5. Verify with `references/verification.md`: health, direct GPT-5.6 probes, Claude alias probes, and `usage_logs` mapping evidence.
+5. Verify with `references/verification.md`: Headroom health/upstream, sub2api health, GPT-5.6 probes through Headroom, Claude alias probes, and `usage_logs` mapping evidence.
 6. Update this skill only after live verification when a model lineup, context window, or proxy behavior changes.
 
 ## Bundled Scripts
 
-- `scripts/setup-sub2api-claude-code.ps1`: create/update the local Docker runtime and Claude Code settings. Defaults to `gpt-5.6-sol`, `gpt-5.3-codex-spark`, `CLAUDE_CODE_MAX_CONTEXT_TOKENS=1050000`, and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000`.
-- `scripts/verify-claude-code-sub2api.ps1`: verify health, Claude Code settings, and expected upstream model behavior.
+- `scripts/setup-sub2api-claude-code.ps1`: create/update `deploy/claude-code-codex-headroom/.env`, start the Headroom + sub2api compose project, and configure Claude Code settings. Defaults to `gpt-5.6-sol`, `gpt-5.3-codex-spark`, `CLAUDE_CODE_MAX_CONTEXT_TOKENS=1050000`, and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000`.
+- `scripts/verify-claude-code-sub2api.ps1`: verify Headroom health/upstream, sub2api health, Claude Code settings, and expected upstream model behavior.
 - `scripts/install-claude-compact-recovery.ps1`: install Claude Code compact recovery hooks.
 - `scripts/compact-recovery.mjs`: lightweight compact recovery hook implementation.
 
@@ -87,8 +90,9 @@ Read only the file needed for the current task:
 
 For install/config/debug tasks, do not call it done until these are true or explicitly blocked:
 
-- `sub2api-codex` container is healthy.
-- A tiny `/v1/messages` request succeeds for `gpt-5.6-sol` and for Haiku/small-fast through `gpt-5.3-codex-spark` or the configured `gpt-5.6-luna -> gpt-5.4-mini` fallback chain.
+- `headroom-sub2api` and `sub2api-codex` containers are healthy.
+- Headroom `/health` reports ready and upstream `http://sub2api:8080`.
+- A tiny `/v1/messages` request through `http://127.0.0.1:8787` succeeds for `gpt-5.6-sol` and for Haiku/small-fast through `gpt-5.3-codex-spark` or the configured `gpt-5.6-luna -> gpt-5.4-mini` fallback chain, or a current upstream quota/cooldown blocker is proven as `429`.
 - Claude aliases route as expected in `usage_logs` or response/model mapping evidence: Opus -> Sol, Sonnet -> Terra, Haiku -> Spark -> Luna -> mini.
 - `~/.claude/settings.json` and User env agree on main/small models and Claude Code client context target.
 - Any GitHub issue or fork change the user asked for is pushed and linked.

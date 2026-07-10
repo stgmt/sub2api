@@ -1,0 +1,172 @@
+services:
+  # Claude Code talks to Headroom first:
+  #   Claude Code -> http://127.0.0.1:8787 -> headroom -> http://sub2api:8080
+  # Headroom handles context optimization and caching before forwarding the
+  # Anthropic-compatible request to sub2api inside the Docker network.
+  headroom:
+    build:
+      context: .
+      dockerfile: Dockerfile.headroom
+      args:
+        HEADROOM_VERSION: ${HEADROOM_VERSION:-0.31.0}
+        HEADROOM_PYTHON_VERSION: ${HEADROOM_PYTHON_VERSION:-3.12}
+    image: headroom-sub2api:${HEADROOM_VERSION:-0.31.0}
+    container_name: headroom-sub2api
+    restart: unless-stopped
+    depends_on:
+      sub2api:
+        condition: service_healthy
+    ports:
+      - "${HEADROOM_BIND_HOST:-127.0.0.1}:${HEADROOM_PORT:-8787}:8787"
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8787"
+      - --anthropic-api-url
+      - http://sub2api:8080
+      - --no-subscription-tracking
+      - --log-file
+      - /root/.headroom/logs/proxy-requests.jsonl
+    environment:
+      HEADROOM_TELEMETRY: ${HEADROOM_TELEMETRY:-off}
+    volumes:
+      - headroom-data:/root/.headroom
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "python - <<'PY'\nimport json, urllib.request\nr=urllib.request.urlopen('http://127.0.0.1:8787/health', timeout=5)\nraise SystemExit(0 if json.load(r).get('ready') else 1)\nPY"
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    networks:
+      - sub2api-network
+
+  sub2api:
+    build:
+      context: ${SUB2API_BUILD_CONTEXT:-../..}
+      dockerfile: ${SUB2API_DOCKERFILE:-Dockerfile}
+    image: ${SUB2API_IMAGE:-sub2api-codex:local-token-usage}
+    container_name: sub2api-codex
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Keep the direct port available for admin UI, diagnostics, and non-Claude
+    # clients. Claude Code should use Headroom on HEADROOM_PORT instead.
+    ports:
+      - "${SUB2API_BIND_HOST:-127.0.0.1}:${SUB2API_PORT:-18081}:8080"
+    environment:
+      AUTO_SETUP: "true"
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: 8080
+      SERVER_MODE: ${SERVER_MODE:-release}
+      RUN_MODE: ${RUN_MODE:-simple}
+      SIMPLE_MODE_CONFIRM: ${SIMPLE_MODE_CONFIRM:-true}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      TZ: ${TZ:-UTC}
+      DATA_DIR: ${DATA_DIR:-/app/data}
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_USER: ${POSTGRES_USER:-sub2api}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      DATABASE_DBNAME: ${POSTGRES_DB:-sub2api}
+      DATABASE_SSLMODE: disable
+      DATABASE_MAX_OPEN_CONNS: ${DATABASE_MAX_OPEN_CONNS:-50}
+      DATABASE_MAX_IDLE_CONNS: ${DATABASE_MAX_IDLE_CONNS:-10}
+      DATABASE_CONN_MAX_LIFETIME_MINUTES: ${DATABASE_CONN_MAX_LIFETIME_MINUTES:-30}
+      DATABASE_CONN_MAX_IDLE_TIME_MINUTES: ${DATABASE_CONN_MAX_IDLE_TIME_MINUTES:-5}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_DB: ${REDIS_DB:-0}
+      REDIS_POOL_SIZE: ${REDIS_POOL_SIZE:-256}
+      REDIS_MIN_IDLE_CONNS: ${REDIS_MIN_IDLE_CONNS:-10}
+      REDIS_ENABLE_TLS: ${REDIS_ENABLE_TLS:-false}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      JWT_EXPIRE_HOUR: ${JWT_EXPIRE_HOUR:-24}
+      TOTP_ENCRYPTION_KEY: ${TOTP_ENCRYPTION_KEY:?set TOTP_ENCRYPTION_KEY in .env}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.local}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
+      SECURITY_URL_ALLOWLIST_ENABLED: ${SECURITY_URL_ALLOWLIST_ENABLED:-false}
+      SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP: ${SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP:-true}
+      SECURITY_URL_ALLOWLIST_ALLOW_PRIVATE_HOSTS: ${SECURITY_URL_ALLOWLIST_ALLOW_PRIVATE_HOSTS:-true}
+    volumes:
+      - sub2api-data:/app/data
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - -q
+        - -T
+        - "5"
+        - -O
+        - /dev/null
+        - http://localhost:8080/health
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 45s
+    networks:
+      - sub2api-network
+
+  postgres:
+    image: postgres:18-alpine
+    container_name: sub2api-codex-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sub2api}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-sub2api}
+      PGDATA: /var/lib/postgresql/data
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "pg_isready -U ${POSTGRES_USER:-sub2api} -d ${POSTGRES_DB:-sub2api}"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - sub2api-network
+
+  redis:
+    image: redis:8-alpine
+    container_name: sub2api-codex-redis
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - redis-cli
+        - ping
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - sub2api-network
+
+networks:
+  sub2api-network:
+    driver: bridge
+
+volumes:
+  headroom-data:
+  sub2api-data:
+  postgres-data:
+  redis-data:

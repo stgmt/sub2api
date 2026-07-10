@@ -1,0 +1,19 @@
+ARG HEADROOM_PYTHON_VERSION=3.12
+FROM python:${HEADROOM_PYTHON_VERSION}-slim
+
+ARG HEADROOM_VERSION=0.31.0
+
+ENV PIP_NO_CACHE_DIR=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    HEADROOM_TELEMETRY=off
+
+# Use the PyPI package with the proxy extra. The public GHCR image can lag behind
+# current releases, and plain headroom-ai misses runtime proxy dependencies.
+RUN python -m pip install --upgrade pip \
+    && python -m pip install "headroom-ai[proxy]==${HEADROOM_VERSION}"
+
+WORKDIR /home/headroom
+
+ENTRYPOINT ["headroom", "proxy"]
+CMD ["--host", "0.0.0.0", "--port", "8787"]

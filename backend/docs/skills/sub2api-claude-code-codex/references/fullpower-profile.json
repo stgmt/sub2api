@@ -2,10 +2,22 @@
   "name": "sub2api-claude-code-codex-fullpower",
   "last_updated": "2026-07-10",
   "proxy": {
-    "base_url": "http://<wsl-primary-ip>:18081",
-    "windows_localhost_fallback": "Use http://127.0.0.1:18081 only when Windows localhost relay returns /health quickly.",
-    "docker_bind": "0.0.0.0:18081->8080 for Docker-in-WSL",
-    "docker_image": "sub2api-codex:local-token-usage",
+    "base_url": "http://127.0.0.1:8787",
+    "chain": "Claude Code -> Headroom 127.0.0.1:8787 -> Docker DNS http://sub2api:8080 -> sub2api",
+    "deploy_profile": "deploy/claude-code-codex-headroom",
+    "windows_localhost_fallback": "If Windows cannot reach 127.0.0.1:8787 but WSL/Docker can, publish Headroom on 0.0.0.0 and use http://<wsl-primary-ip>:8787. Do not use :18081 as the normal Claude Code endpoint.",
+    "headroom": {
+      "docker_image": "headroom-sub2api:0.31.0",
+      "package": "headroom-ai[proxy]==0.31.0",
+      "docker_bind": "127.0.0.1:8787->8787",
+      "upstream": "http://sub2api:8080"
+    },
+    "sub2api": {
+      "direct_base_url": "http://127.0.0.1:18081",
+      "direct_port_use": "admin UI, diagnostics, and non-Claude clients only",
+      "docker_bind": "127.0.0.1:18081->8080",
+      "docker_image": "sub2api-codex:local-token-usage"
+    },
     "container_name": "sub2api-codex",
     "fork": "https://github.com/stgmt/sub2api",
     "verified_main_commit": "8049675b",

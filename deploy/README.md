@@ -15,6 +15,7 @@ This directory contains files for deploying Sub2API on Linux servers.
 |------|-------------|
 | `docker-compose.yml` | Docker Compose configuration (named volumes) |
 | `docker-compose.local.yml` | Docker Compose configuration (local directories, easy migration) |
+| `claude-code-codex-headroom/` | Headroom-first local profile for Claude Code through a Codex/OpenAI subscription |
 | `docker-deploy.sh` | **One-click Docker deployment script (recommended)** |
 | `.env.example` | Docker environment variables template |
 | `DOCKER.md` | Docker Hub documentation |
@@ -24,6 +25,24 @@ This directory contains files for deploying Sub2API on Linux servers.
 | `sub2api-datamanagementd.service` | datamanagementd systemd service unit file |
 | `DATAMANAGEMENTD_CN.md` | datamanagementd 部署与联动说明（中文） |
 | `config.example.yaml` | Example configuration file |
+
+---
+
+## Claude Code + Codex Subscription Profile
+
+Use `claude-code-codex-headroom/` when Claude Code should talk to Headroom first and then to sub2api:
+
+```text
+Claude Code -> http://127.0.0.1:8787 -> Headroom -> http://sub2api:8080 -> sub2api
+```
+
+Quick start from the repository root:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File backend\docs\skills\sub2api-claude-code-codex\scripts\setup-sub2api-claude-code.ps1
+```
+
+The direct sub2api port `http://127.0.0.1:18081` remains available for the admin UI, diagnostics, and non-Claude clients. Claude Code should use Headroom on `http://127.0.0.1:8787`.
 
 ---
 

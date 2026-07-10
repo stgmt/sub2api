@@ -4,7 +4,7 @@
     {
       "id": 1,
       "prompt": "Поставь мне sub2api в Docker/WSL, чтобы Claude Code ходил через мою Codex подписку, модель gpt-5.6 full power, и проверь /context.",
-      "expected_output": "Provides Docker/WSL install steps, configures Claude Code env, uses gpt-5.6-sol for main work and gpt-5.3-codex-spark for small-fast/Haiku work with scoped model_fallbacks to gpt-5.6-luna and then gpt-5.4-mini, keeps gpt-5.3-codex-spark as the server-side compact_model_mapping target with gpt-5.6-luna then gpt-5.4-mini in compact_model_fallbacks, sets max/xhigh effort, sets CLAUDE_CODE_MAX_CONTEXT_TOKENS=1050000 and CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000 for the GPT-5.6 client profile, and verifies /context plus usage logs.",
+      "expected_output": "Provides Docker/WSL install steps for the Headroom-first compose chain, builds/uses headroom-sub2api:0.31.0 in front of sub2api, configures Claude Code ANTHROPIC_BASE_URL to http://127.0.0.1:8787 while keeping sub2api :18081 for admin/diagnostics only, uses gpt-5.6-sol for main work and gpt-5.3-codex-spark for small-fast/Haiku work with scoped model_fallbacks to gpt-5.6-luna and then gpt-5.4-mini, keeps gpt-5.3-codex-spark as the server-side compact_model_mapping target with gpt-5.6-luna then gpt-5.4-mini in compact_model_fallbacks, sets max/xhigh effort, sets CLAUDE_CODE_MAX_CONTEXT_TOKENS=1050000 and CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000 for the GPT-5.6 client profile, and verifies Headroom health/upstream, sub2api health, /context, and usage logs.",
       "files": []
     },
     {
@@ -28,7 +28,7 @@
     {
       "id": 5,
       "prompt": "Claude Code пишет API Error: 503 Service temporarily unavailable, но sub2api /health живой. Отследи ошибку на прокси.",
-      "expected_output": "Checks sub2api logs for openai_messages.account_select_failed/no available accounts before status_code=503, queries ops_error_logs and accounts for upstream 429 usage limit plus rate_limited_at/rate_limit_reset_at, distinguishes this from context-window and ghost-stream failures, and recommends waiting for reset, reducing fan-out, or adding another valid OpenAI/Codex account instead of only raising concurrency.",
+      "expected_output": "Checks Headroom health/upstream first, then sub2api logs for openai_messages.account_select_failed/no available accounts before status_code=503 or 429, queries ops_error_logs and accounts for upstream usage limit plus rate_limited_at/rate_limit_reset_at, distinguishes this from context-window, ghost-stream, and Headroom routing failures, and recommends waiting for reset, reducing fan-out, or adding another valid OpenAI/Codex account instead of only raising concurrency.",
       "files": []
     },
     {

@@ -21,14 +21,21 @@ If requests do not hit sub2api:
   $env:ANTHROPIC_BASE_URL
   [Environment]::GetEnvironmentVariable("ANTHROPIC_BASE_URL", "User")
   ```
-- Old shells may still point at a previous proxy such as `http://127.0.0.1:8787`.
+- Claude Code should point at Headroom: `http://127.0.0.1:8787`. Old shells may still point directly at sub2api such as `http://127.0.0.1:18081`; that bypasses Headroom optimization.
+- Check both Headroom and sub2api health before changing model mapping:
+  ```powershell
+  curl.exe --max-time 5 http://127.0.0.1:8787/health
+  curl.exe --max-time 5 http://127.0.0.1:18081/health
+  curl.exe --max-time 5 http://127.0.0.1:8787/stats
+  ```
 - Start Claude Code only after setting current shell env or after opening a new terminal.
-- On Docker-in-WSL, check Windows routing separately. A stuck `wslrelay.exe` can accept TCP on `127.0.0.1:18081` and never forward the HTTP response. Symptoms: Claude Code thinks for 40-120 seconds, no new `usage_logs` rows appear, `wsl.exe -- curl http://127.0.0.1:18081/health` works, but Windows `curl.exe http://127.0.0.1:18081/health` hangs.
-- In that case, set runtime `.env` `BIND_HOST=0.0.0.0`, recreate the `sub2api` service, and set `ANTHROPIC_BASE_URL` to the current WSL eth0 IP:
+- On Docker-in-WSL, check Windows routing separately. A stuck `wslrelay.exe` can accept TCP on `127.0.0.1:8787` and never forward the HTTP response. Symptoms: Claude Code thinks for 40-120 seconds, no new `usage_logs` rows appear, `wsl.exe -- curl http://127.0.0.1:8787/health` works, but Windows `curl.exe http://127.0.0.1:8787/health` hangs.
+- In that case, set `deploy/claude-code-codex-headroom/.env` `HEADROOM_BIND_HOST=0.0.0.0`, recreate the `headroom` service, and set `ANTHROPIC_BASE_URL` to the current WSL eth0 IP on port `8787`:
   ```powershell
   $wslIp = (wsl.exe -- bash -lc "ip -4 addr show eth0 | sed -n 's/.*inet \([0-9.]*\).*/\1/p' | head -n1").Trim()
-  [Environment]::SetEnvironmentVariable("ANTHROPIC_BASE_URL", "http://$wslIp:18081", "User")
+  [Environment]::SetEnvironmentVariable("ANTHROPIC_BASE_URL", "http://$wslIp:8787", "User")
   ```
+- Use `http://127.0.0.1:18081` only as a temporary direct sub2api diagnostic bypass when Headroom is suspect.
 
 If sub2api returns unknown model:
 
@@ -75,8 +82,7 @@ If Claude Code reports `API Error: 503 Service temporarily unavailable` or `API 
   ```
 - Check for the proven rate-limit/cooldown pattern. The key signature is `openai_messages.account_select_failed` with `error="no available accounts"` immediately before an access log `status_code=429` or legacy `status_code=503` on `/v1/messages`:
   ```powershell
-  $log = "C:\Users\stigm\Documents\Codex\2026-07-07\new-chat\work\sub2api-runtime\data\logs\sub2api.log"
-  Select-String -Path $log -Pattern "account_select_failed|status_code.*503|usage limit|rate_limit|no available accounts" -Context 2,2 | Select-Object -Last 80
+  docker logs --since 30m sub2api-codex 2>&1 | Select-String -Pattern "account_select_failed|status_code.*503|status_code.*429|usage limit|rate_limit|no available accounts" -Context 2,2 | Select-Object -Last 80
   ```
 - Check Postgres account state and recent errors:
   ```powershell
@@ -93,9 +99,8 @@ If Claude Code reports `API Error: 503 Service temporarily unavailable` or `API 
   The 2026-07-09 bug was the old behavior: repeated 403s hit the threshold and wrote `account_disabled_auth_error`, leaving `accounts.status='error'` and `schedulable=false`; all later main-model requests failed as `account_select_failed` / `no available accounts` / 503. Current fork behavior: OpenAI OAuth 403 never uses `SetError`; it uses `SetTempUnschedulable` even when the 403 counter reaches threshold or the counter cache fails. Covered by focused tests `TestRateLimitService_HandleUpstreamError_OpenAI403ThresholdStaysTemporaryForOAuth`, `TestRateLimitService_HandleUpstreamError_OpenAI403TempWriteFailureDoesNotDisableOAuth`, and the preserved non-OAuth disable test.
 - If logs still show `account_disabled_auth_error` for OpenAI OAuth 403, first suspect a stale image. Rebuild/recreate `sub2api-codex:local-token-usage`, then verify with a tiny `gpt-5.6-sol` probe:
   ```powershell
-  cd C:\Users\stigm\Documents\Codex\2026-07-07\new-chat\work\repo-comparison\sub2api\backend
-  wsl.exe -- bash -lc "cd /mnt/c/Users/stigm/Documents/Codex/2026-07-07/new-chat/work/repo-comparison/sub2api/backend && docker build -t sub2api-codex:local-token-usage ."
-  wsl.exe -- bash -lc "cd /mnt/c/Users/stigm/Documents/Codex/2026-07-07/new-chat/work/sub2api-runtime && docker compose -p sub2api-codex up -d --force-recreate --no-deps sub2api"
+  cd <sub2api repo root>
+  docker compose --env-file deploy\claude-code-codex-headroom\.env -f deploy\claude-code-codex-headroom\docker-compose.yml -p sub2api-codex up -d --build --force-recreate sub2api
   ```
 - Use the manual DB reset only to recover state already poisoned by the old image. Do not keep doing this if the patched image immediately receives fresh upstream 403s:
   ```powershell

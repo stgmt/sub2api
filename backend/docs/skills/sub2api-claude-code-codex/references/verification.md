@@ -26,6 +26,9 @@ $env:CLAUDE_CODE_AUTO_COMPACT_WINDOW = [Environment]::GetEnvironmentVariable("CL
 $env:CLAUDE_CODE_MAX_OUTPUT_TOKENS = [Environment]::GetEnvironmentVariable("CLAUDE_CODE_MAX_OUTPUT_TOKENS", "User")
 $env:MAX_THINKING_TOKENS = [Environment]::GetEnvironmentVariable("MAX_THINKING_TOKENS", "User")
 
+Invoke-RestMethod "http://127.0.0.1:8787/health"
+Invoke-RestMethod "http://127.0.0.1:18081/health"
+
 claude --model $env:ANTHROPIC_MODEL --effort max --print --no-session-persistence "/context"
 claude --model $env:ANTHROPIC_MODEL --effort max --print --output-format json --no-session-persistence "Reply exactly: OK_SUB2API"
 ```
@@ -34,9 +37,11 @@ Expected for the safe profile:
 
 ```text
 Model: gpt-5.6-sol
-Tokens: ... / 260k
+Tokens: ... / 1m
 JSON modelUsage contextWindow: 1050000 and `/context` displays `/1m` for the current GPT-5.6 client profile; this is the Claude Code client window hint, while upstream context failures must still be verified from proxy logs
 JSON modelUsage may still show maxOutputTokens: 32000
+Headroom health reports ready and upstream http://sub2api:8080
+sub2api health reports ok on the direct diagnostic/admin port
 ```
 
 Check sub2api logs or Postgres:
@@ -101,7 +106,7 @@ Anthropic output_config.effort=max -> OpenAI reasoning.effort=xhigh
 Anthropic thinking.budget_tokens -> parsed but ignored by the Responses converter
 ```
 
-Direct `/v1/messages` probes through sub2api can accept `max_tokens=64000` plus `thinking.budget_tokens=63999`, but Claude Code CLI probes may still report `modelUsage.maxOutputTokens=32000`. Treat that as a Claude Code client/model-metadata cap, not a sub2api cap.
+`/v1/messages` probes should normally go through Headroom at `ANTHROPIC_BASE_URL=http://127.0.0.1:8787`. Direct sub2api probes on `http://127.0.0.1:18081` are useful only to isolate Headroom from sub2api. The route can accept `max_tokens=64000` plus `thinking.budget_tokens=63999`, but Claude Code CLI probes may still report `modelUsage.maxOutputTokens=32000`. Treat that as a Claude Code client/model-metadata cap, not a sub2api cap.
 
 Audit empty/ghost streams:
 

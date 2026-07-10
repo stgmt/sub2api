@@ -7,14 +7,18 @@ Source-of-truth profile, GPT-5.6 defaults, compact profile, and context-window c
 Prefer this profile unless the user explicitly asks for a different model or port:
 
 ```text
-Proxy: sub2api
+Proxy chain: Headroom -> sub2api
 Source fork: https://github.com/stgmt/sub2api
 Source branch: main
 Verified fork commit: 8049675b fix: fall back on Anthropic messages model-not-found
 Fixed issue: https://github.com/stgmt/sub2api/issues/1
-Proxy image: sub2api-codex:local-token-usage
-Docker bind: 0.0.0.0:18081 -> container 8080 for Docker-in-WSL when Windows `wslrelay.exe` is unreliable
-Claude base URL: http://<wsl-primary-ip>:18081 in that Docker-in-WSL profile
+Headroom image: headroom-sub2api:0.31.0 built from headroom-ai[proxy] on PyPI
+sub2api image: sub2api-codex:local-token-usage
+Deploy profile: deploy/claude-code-codex-headroom
+Claude base URL: http://127.0.0.1:8787
+Headroom upstream: http://sub2api:8080 inside the Docker network
+Direct sub2api URL: http://127.0.0.1:18081 for admin UI, diagnostics, and non-Claude clients only
+Docker-in-WSL fallback: if Windows cannot reach 127.0.0.1:8787 but WSL/Docker can, publish Headroom on 0.0.0.0 and point Claude Code to http://<wsl-primary-ip>:8787; do not use :18081 as the normal Claude Code endpoint
 Upstream platform: OpenAI/Codex OAuth
 Claude Code model: gpt-5.6-sol
 Claude Code small-fast model: gpt-5.3-codex-spark with normal model_fallbacks to gpt-5.6-luna, then gpt-5.4-mini

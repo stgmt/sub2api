@@ -385,6 +385,7 @@ docker compose -f docker-compose.local.yml logs -f sub2api
 |---------|-------------|-----------|----------|
 | **docker-compose.local.yml** | Local directories | ✅ Easy (tar entire directory) | Production, frequent backups |
 | **docker-compose.yml** | Named volumes | ⚠️ Requires docker commands | Simple setup |
+| **deploy/claude-code-codex-headroom/** | Named volumes | ⚠️ Requires docker commands | Local Claude Code via Headroom + Codex/OpenAI subscription |
 
 **Recommendation:** Use `docker-compose.local.yml` (deployed by script) for easier data management.
 
@@ -730,6 +731,7 @@ sub2api/
 │
 └── deploy/                   # Deployment files
     ├── docker-compose.yml    # Docker Compose configuration
+    ├── claude-code-codex-headroom/ # Headroom-first Claude Code + Codex profile
     ├── .env.example          # Environment variables for Docker Compose
     ├── config.example.yaml   # Full config file for binary deployment
     └── install.sh            # One-click installation script

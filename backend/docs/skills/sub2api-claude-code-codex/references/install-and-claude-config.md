@@ -4,13 +4,13 @@ Docker/WSL install, OAuth import, Claude Code config, dynamic MCP loading, and p
 
 ## Workflow
 
-1. Confirm the user has Docker available. On Windows with Docker-in-WSL, prefer `BIND_HOST=0.0.0.0` plus `ANTHROPIC_BASE_URL=http://<wsl-primary-ip>:18081` if Windows `127.0.0.1:18081` hangs or is owned by a stuck `wslrelay.exe`.
-2. Install or repair sub2api using `scripts/setup-sub2api-claude-code.ps1`.
+1. Confirm the user has Docker available. The default Claude Code endpoint is Headroom at `http://127.0.0.1:8787`; sub2api's direct `http://127.0.0.1:18081` port is for the admin UI and diagnostics.
+2. Install or repair the Headroom + sub2api compose profile using `scripts/setup-sub2api-claude-code.ps1`.
 3. Import an OpenAI/Codex OAuth account into sub2api.
 4. Configure a sub2api OpenAI group for `/v1/messages` dispatch.
 5. Create a sub2api API key for Claude Code.
 6. Configure Claude Code env/settings.
-7. Verify with `/context`, a real Claude Code request, and sub2api usage logs.
+7. Verify Headroom `/health`, sub2api `/health`, `/context`, a real Claude Code request through Headroom, and sub2api usage logs.
 
 ## Docker Install
 
@@ -20,9 +20,9 @@ Use the bundled setup script from PowerShell:
 powershell -ExecutionPolicy Bypass -File .\scripts\setup-sub2api-claude-code.ps1
 ```
 
-The script writes a Docker Compose runtime, starts sub2api, and configures Claude Code environment values. It intentionally does not embed anyone's real OAuth refresh token or sub2api API key.
+The script writes `deploy/claude-code-codex-headroom/.env`, starts the compose project `sub2api-codex`, and configures Claude Code environment values. It intentionally does not embed anyone's real OAuth refresh token or sub2api API key.
 
-If running from a copied skill folder, first `cd` into that folder.
+Run it from a cloned `stgmt/sub2api` checkout, or pass `-RepoRoot` so it can find `deploy/claude-code-codex-headroom/docker-compose.yml`.
 
 ### WSL Docker Notes
 
@@ -36,13 +36,13 @@ wsl.exe -- bash -lc "docker ps"
 
 If that works, use WSL Docker for `docker compose up -d`.
 
-For Docker-in-WSL, verify both the container-side port and the Windows route:
+For Docker-in-WSL, verify Headroom first, then the direct sub2api diagnostic port:
 
 ```powershell
 $wslIp = (wsl.exe -- bash -lc "ip -4 addr show eth0 | sed -n 's/.*inet \([0-9.]*\).*/\1/p' | head -n1").Trim()
-wsl.exe -- bash -lc "curl -sS -m 5 http://127.0.0.1:18081/health"
-curl.exe --max-time 5 "http://$wslIp:18081/health"
+wsl.exe -- bash -lc "curl -sS -m 5 http://127.0.0.1:8787/health"
+curl.exe --max-time 5 "http://127.0.0.1:8787/health"
+curl.exe --max-time 5 "http://127.0.0.1:18081/health"
 ```
 
-If `curl.exe http://127.0.0.1:18081/health` hangs but `curl.exe http://$wslIp:18081/health` returns `{"status":"ok"}`, do not chase model mapping first. The Windows localhost relay is the failing layer. Use `BIND_HOST=0.0.0.0` in the runtime `.env`, recreate `sub2api`, and set Claude Code `ANTHROPIC_BASE_URL` to `http://$wslIp:18081`.
-
+If Windows cannot reach `127.0.0.1:8787` but WSL/Docker can, do not chase model mapping first. The Windows localhost relay or bind is the failing layer. Set `HEADROOM_BIND_HOST=0.0.0.0` in `deploy/claude-code-codex-headroom/.env`, recreate the `headroom` service, and set Claude Code `ANTHROPIC_BASE_URL` to `http://$wslIp:8787`. Keep `:18081` as a direct sub2api admin/diagnostic bypass only.

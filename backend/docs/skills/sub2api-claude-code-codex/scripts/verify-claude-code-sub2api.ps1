@@ -1,29 +1,102 @@
 param(
   [string]$BaseUrl = [Environment]::GetEnvironmentVariable("ANTHROPIC_BASE_URL", "User"),
+  [string]$Sub2apiBaseUrl = "http://127.0.0.1:18081",
   [string]$ApiKey = [Environment]::GetEnvironmentVariable("ANTHROPIC_AUTH_TOKEN", "User"),
   [string]$Model = [Environment]::GetEnvironmentVariable("ANTHROPIC_MODEL", "User"),
   [string]$SmallFastModel = [Environment]::GetEnvironmentVariable("ANTHROPIC_SMALL_FAST_MODEL", "User"),
   [string]$ExpectedUpstream = "gpt-5.6-sol",
+  [string]$ProjectName = "sub2api-codex",
+  [switch]$SkipApiProbe,
   [switch]$SkipClaudeProbe,
   [switch]$SkipDockerLogs
 )
 
 $ErrorActionPreference = "Stop"
 
-if (-not $BaseUrl) { $BaseUrl = "http://127.0.0.1:18081" }
+function Normalize-Url([string]$Url, [string]$Fallback) {
+  if ($Url -and $Url.Trim()) { return $Url.Trim().TrimEnd("/") }
+  return $Fallback
+}
+
+function Show-Health([string]$Label, [string]$Url) {
+  try {
+    $response = Invoke-WebRequest -UseBasicParsing "$Url/health" -TimeoutSec 10
+    Write-Host "$Label health: $($response.StatusCode)"
+    try {
+      $json = $response.Content | ConvertFrom-Json
+      if ($Label -eq "Headroom") {
+        $version = $json.version
+        if (-not $version) { $version = $json.components.version }
+        $upstream = $json.upstream_url
+        if (-not $upstream) { $upstream = $json.upstreamUrl }
+        if (-not $upstream -and $json.components) { $upstream = $json.components.upstream_url }
+        if (-not $upstream -and $json.checks -and $json.checks.upstream) { $upstream = $json.checks.upstream.url }
+        Write-Host "Headroom ready: $($json.ready)"
+        Write-Host "Headroom version: $version"
+        Write-Host "Headroom upstream: $upstream"
+      } else {
+        Write-Host "$Label body: $($response.Content)"
+      }
+    } catch {
+      Write-Host "$Label body: $($response.Content)"
+    }
+  } catch {
+    Write-Warning "$Label health failed at $Url/health: $($_.Exception.Message)"
+  }
+}
+
+function Get-ErrorStatus([object]$ErrorRecord) {
+  $response = $ErrorRecord.Exception.Response
+  if ($response -and $response.StatusCode) {
+    try { return [int]$response.StatusCode } catch { return [string]$response.StatusCode }
+  }
+  return $null
+}
+
+$BaseUrl = Normalize-Url $BaseUrl "http://127.0.0.1:8787"
+$Sub2apiBaseUrl = Normalize-Url $Sub2apiBaseUrl "http://127.0.0.1:18081"
 if (-not $Model) { $Model = "gpt-5.6-sol" }
 if (-not $SmallFastModel) { $SmallFastModel = "gpt-5.3-codex-spark" }
 
-Write-Host "Base URL: $BaseUrl"
+Write-Host "Claude/Headroom base URL: $BaseUrl"
+Write-Host "sub2api admin/diagnostic URL: $Sub2apiBaseUrl"
 Write-Host "Model: $Model"
 Write-Host "Small-fast model: $SmallFastModel"
 Write-Host "Has API token: $([bool]$ApiKey)"
 
-try {
-  $health = Invoke-WebRequest -UseBasicParsing "$BaseUrl/health" -TimeoutSec 10
-  Write-Host "Health: $($health.StatusCode) $($health.Content)"
-} catch {
-  Write-Warning "Health check failed: $($_.Exception.Message)"
+Show-Health "Headroom" $BaseUrl
+Show-Health "sub2api" $Sub2apiBaseUrl
+
+if (-not $SkipApiProbe) {
+  if (-not $ApiKey) {
+    Write-Warning "ANTHROPIC_AUTH_TOKEN is empty; skipping direct /v1/messages probe."
+  } else {
+    $headers = @{
+      "x-api-key" = $ApiKey
+      "anthropic-version" = "2023-06-01"
+      "content-type" = "application/json"
+    }
+    $body = @{
+      model = $Model
+      max_tokens = 1
+      messages = @(@{ role = "user"; content = "Reply exactly OK_SUB2API_VERIFY" })
+    } | ConvertTo-Json -Depth 10 -Compress
+    try {
+      $probe = Invoke-WebRequest -UseBasicParsing -Method Post -Uri "$BaseUrl/v1/messages" -Headers $headers -Body $body -TimeoutSec 60
+      Write-Host "Headroom /v1/messages probe: $($probe.StatusCode)"
+    } catch {
+      $status = Get-ErrorStatus $_
+      if ($status -eq 429) {
+        Write-Warning "Headroom /v1/messages returned 429. Route and API key reached sub2api; fix account quota/cooldown/no-available-accounts next."
+      } elseif ($status -eq 401 -or $status -eq 403) {
+        Write-Warning "Headroom /v1/messages returned $status. The sub2api API key is missing, wrong, or not authorized for the group."
+      } elseif ($status) {
+        Write-Warning "Headroom /v1/messages returned HTTP ${status}: $($_.Exception.Message)"
+      } else {
+        Write-Warning "Headroom /v1/messages probe failed: $($_.Exception.Message)"
+      }
+    }
+  }
 }
 
 if (-not $SkipClaudeProbe) {
@@ -39,11 +112,11 @@ if (-not $SkipClaudeProbe) {
     $env:CLAUDE_CODE_AUTO_COMPACT_WINDOW = [Environment]::GetEnvironmentVariable("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "User")
     $env:CLAUDE_CODE_MAX_OUTPUT_TOKENS = [Environment]::GetEnvironmentVariable("CLAUDE_CODE_MAX_OUTPUT_TOKENS", "User")
     $env:MAX_THINKING_TOKENS = [Environment]::GetEnvironmentVariable("MAX_THINKING_TOKENS", "User")
-    # Claude Code falls back to 200k for custom/proxy models unless these are explicit.
     if (-not $env:CLAUDE_CODE_MAX_CONTEXT_TOKENS) { $env:CLAUDE_CODE_MAX_CONTEXT_TOKENS = "1050000" }
     if (-not $env:CLAUDE_CODE_AUTO_COMPACT_WINDOW) { $env:CLAUDE_CODE_AUTO_COMPACT_WINDOW = "1000000" }
     if (-not $env:CLAUDE_CODE_MAX_OUTPUT_TOKENS) { $env:CLAUDE_CODE_MAX_OUTPUT_TOKENS = "64000" }
     if (-not $env:MAX_THINKING_TOKENS) { $env:MAX_THINKING_TOKENS = "8000" }
+
     Write-Host "Output guard: $env:CLAUDE_CODE_MAX_OUTPUT_TOKENS"
     Write-Host "Thinking guard: $env:MAX_THINKING_TOKENS"
 
@@ -74,11 +147,24 @@ if (-not $SkipClaudeProbe) {
 }
 
 if (-not $SkipDockerLogs) {
-  if (Get-Command wsl.exe -ErrorAction SilentlyContinue) {
+  if (Get-Command docker -ErrorAction SilentlyContinue) {
+    Write-Host "`nCompose services:"
+    docker compose -p $ProjectName ps
+
+    Write-Host "`nRecent usage logs:"
+    $recentUsageSql = "select id, requested_model, upstream_model, reasoning_effort, model_mapping_chain, input_tokens, created_at from usage_logs order by id desc limit 5;"
+    docker exec sub2api-codex-postgres psql -U sub2api -d sub2api -F "," -Atc $recentUsageSql
+
+    Write-Host "`n0/0 ghost-stream audit:"
+    $ghostStreamSql = "select requested_model, reasoning_effort, count(*) filter (where input_tokens=0 and output_tokens=0 and stream=true and duration_ms between 500 and 30000) as zero_streams, count(*) as total from usage_logs where created_at > now() - interval '90 minutes' and inbound_endpoint='/v1/messages' group by requested_model, reasoning_effort order by zero_streams desc, total desc;"
+    docker exec sub2api-codex-postgres psql -U sub2api -d sub2api -F "," -Atc $ghostStreamSql
+  } elseif (Get-Command wsl.exe -ErrorAction SilentlyContinue) {
     function Quote-BashSingle([string]$Value) {
       return "'" + $Value.Replace("'", "'\''") + "'"
     }
 
+    Write-Host "`nCompose services:"
+    wsl.exe -- bash -lc "docker compose -p '$ProjectName' ps"
     Write-Host "`nRecent usage logs:"
     $recentUsageSql = "select id, requested_model, upstream_model, reasoning_effort, model_mapping_chain, input_tokens, created_at from usage_logs order by id desc limit 5;"
     wsl.exe -- bash -lc "docker exec sub2api-codex-postgres psql -U sub2api -d sub2api -F ',' -Atc $(Quote-BashSingle $recentUsageSql)"
@@ -86,9 +172,10 @@ if (-not $SkipDockerLogs) {
     $ghostStreamSql = "select requested_model, reasoning_effort, count(*) filter (where input_tokens=0 and output_tokens=0 and stream=true and duration_ms between 500 and 30000) as zero_streams, count(*) as total from usage_logs where created_at > now() - interval '90 minutes' and inbound_endpoint='/v1/messages' group by requested_model, reasoning_effort order by zero_streams desc, total desc;"
     wsl.exe -- bash -lc "docker exec sub2api-codex-postgres psql -U sub2api -d sub2api -F ',' -Atc $(Quote-BashSingle $ghostStreamSql)"
   } else {
-    Write-Warning "wsl.exe not found; skipping Postgres usage log check."
+    Write-Warning "docker and wsl.exe not found; skipping Docker/Postgres checks."
   }
 }
 
-Write-Host "`nExpected main model in usage_logs: $ExpectedUpstream"
+Write-Host "`nExpected Headroom upstream: http://sub2api:8080"
+Write-Host "Expected main model in usage_logs: $ExpectedUpstream"
 Write-Host "Expected small-fast requested_model in usage_logs: $SmallFastModel"
