@@ -139,6 +139,30 @@ func TestIsClaudeCodeCompactAnthropicRequest(t *testing.T) {
 
 	require.True(t, isClaudeCodeCompactAnthropicRequest(req))
 
+	compactWithLaterUser := &apicompat.AnthropicRequest{
+		Messages: []apicompat.AnthropicMessage{
+			{Role: "user", Content: []byte(fmt.Sprintf(`[{"type":"text","text":%q}]`, compactPrompt))},
+			{Role: "assistant", Content: []byte(`"ok"`)},
+			{Role: "user", Content: []byte(`"follow-up attachment after compact prompt"`)},
+		},
+	}
+	require.True(t, isClaudeCodeCompactAnthropicRequest(compactWithLaterUser))
+
+	modernCompact := &apicompat.AnthropicRequest{
+		Messages: []apicompat.AnthropicMessage{
+			{Role: "user", Content: []byte(fmt.Sprintf(`[{"type":"text","text":%q}]`, testClaudeCodeModernCompactPrompt()))},
+		},
+	}
+	require.True(t, isClaudeCodeCompactAnthropicRequest(modernCompact))
+
+	postCompactSummary := &apicompat.AnthropicRequest{
+		Messages: []apicompat.AnthropicMessage{
+			{Role: "user", Content: []byte(`"This session is being continued from a previous conversation that ran out of context. Summary:\nPending Tasks:\nCurrent Work:\nContinue from where you left off."`)},
+			{Role: "user", Content: []byte(`"go on"`)},
+		},
+	}
+	require.False(t, isClaudeCodeCompactAnthropicRequest(postCompactSummary))
+
 	notCompact := &apicompat.AnthropicRequest{
 		Messages: []apicompat.AnthropicMessage{
 			{Role: "user", Content: []byte(`"please compact this code but do not summarize a Claude Code transcript"`)},
@@ -316,7 +340,7 @@ func TestForwardAsAnthropic_ClaudeCodeCompactUsesCompactModelMapping(t *testing.
 	require.Equal(t, "gpt-5.3-codex-spark", gjson.GetBytes(upstream.lastBody, "model").String())
 }
 
-func TestForwardAsAnthropic_ClaudeCodeCompactFallsBackToMiniWhenSparkRateLimited(t *testing.T) {
+func TestForwardAsAnthropic_ClaudeCodeCompactFallsBackToLunaWhenSparkRateLimited(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	rec := httptest.NewRecorder()
@@ -327,6 +351,56 @@ func TestForwardAsAnthropic_ClaudeCodeCompactFallsBackToMiniWhenSparkRateLimited
 
 	upstream := &httpUpstreamRecorder{responses: []*http.Response{
 		testOpenAICompatJSONErrorResponse(http.StatusTooManyRequests, "rate_limit_error", "The usage limit has been reached for gpt-5.3-codex-spark.", "rid_spark_rate_limited"),
+		testOpenAICompatSSECompletedResponse("resp_luna_chunk_1", "gpt-5.6-luna", "luna chunk summary", 120, 12),
+		testOpenAICompatSSECompletedResponse("resp_luna_merge", "gpt-5.6-luna", "luna merged compact summary", 180, 18),
+	}}
+
+	svc := &OpenAIGatewayService{
+		httpUpstream: upstream,
+		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
+	}
+	account := &Account{
+		ID:          1,
+		Name:        "openai-oauth",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"access_token":       "oauth-token",
+			"chatgpt_account_id": "chatgpt-acc",
+			"compact_model_mapping": map[string]any{
+				"gpt-5.5": "gpt-5.3-codex-spark",
+			},
+		},
+	}
+
+	result, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "gpt-5.5")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), "luna merged compact summary")
+	require.Equal(t, "resp_luna_merge", result.ResponseID)
+	require.Equal(t, "gpt-5.5", result.Model)
+	require.Equal(t, "gpt-5.6-luna", result.BillingModel)
+	require.Equal(t, "gpt-5.6-luna", result.UpstreamModel)
+	require.Len(t, upstream.bodies, 3)
+	require.Equal(t, "gpt-5.3-codex-spark", gjson.GetBytes(upstream.bodies[0], "model").String())
+	require.Equal(t, "gpt-5.6-luna", gjson.GetBytes(upstream.bodies[1], "model").String())
+	require.Equal(t, "gpt-5.6-luna", gjson.GetBytes(upstream.bodies[2], "model").String())
+}
+
+func TestForwardAsAnthropic_ClaudeCodeCompactFallsBackToMiniWhenSparkAndLunaRateLimited(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(fmt.Sprintf(`{"model":"gpt-5.5","max_tokens":16,"messages":[{"role":"user","content":"active task: keep compact moving"},{"role":"user","content":[{"type":"text","text":%q}]}],"stream":true}`, testClaudeCodeCompactPrompt()))
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		testOpenAICompatJSONErrorResponse(http.StatusTooManyRequests, "rate_limit_error", "The usage limit has been reached for gpt-5.3-codex-spark.", "rid_spark_rate_limited"),
+		testOpenAICompatJSONErrorResponse(http.StatusTooManyRequests, "rate_limit_error", "The usage limit has been reached for gpt-5.6-luna.", "rid_luna_rate_limited"),
 		testOpenAICompatSSECompletedResponse("resp_mini_chunk_1", "gpt-5.4-mini", "mini chunk summary", 120, 12),
 		testOpenAICompatSSECompletedResponse("resp_mini_merge", "gpt-5.4-mini", "mini merged compact summary", 180, 18),
 	}}
@@ -359,10 +433,11 @@ func TestForwardAsAnthropic_ClaudeCodeCompactFallsBackToMiniWhenSparkRateLimited
 	require.Equal(t, "gpt-5.5", result.Model)
 	require.Equal(t, "gpt-5.4-mini", result.BillingModel)
 	require.Equal(t, "gpt-5.4-mini", result.UpstreamModel)
-	require.Len(t, upstream.bodies, 3)
+	require.Len(t, upstream.bodies, 4)
 	require.Equal(t, "gpt-5.3-codex-spark", gjson.GetBytes(upstream.bodies[0], "model").String())
-	require.Equal(t, "gpt-5.4-mini", gjson.GetBytes(upstream.bodies[1], "model").String())
+	require.Equal(t, "gpt-5.6-luna", gjson.GetBytes(upstream.bodies[1], "model").String())
 	require.Equal(t, "gpt-5.4-mini", gjson.GetBytes(upstream.bodies[2], "model").String())
+	require.Equal(t, "gpt-5.4-mini", gjson.GetBytes(upstream.bodies[3], "model").String())
 }
 
 func TestForwardAsAnthropic_ClaudeCodeCompactChunksWhenCompactModelContextExceeded(t *testing.T) {
@@ -450,7 +525,7 @@ func TestForwardAsAnthropic_ClaudeCodeCompactChunksWhenCompactModelContextExceed
 	require.Contains(t, string(upstream.bodies[len(upstream.bodies)-1]), "chunk 1 summary")
 }
 
-func TestForwardAsAnthropic_ClaudeCodeCompactChunkFallbackSwitchesToMiniWhenSparkRateLimited(t *testing.T) {
+func TestForwardAsAnthropic_ClaudeCodeCompactChunkFallbackSwitchesToLunaWhenSparkRateLimited(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	oldTarget := openAIAnthropicCompactChunkTargetChars
@@ -479,17 +554,17 @@ func TestForwardAsAnthropic_ClaudeCodeCompactChunkFallbackSwitchesToMiniWhenSpar
 	}
 	for i := range chunks {
 		responses = append(responses, testOpenAICompatSSECompletedResponse(
-			fmt.Sprintf("resp_mini_chunk_%d", i+1),
-			"gpt-5.4-mini",
-			fmt.Sprintf("mini chunk %d summary", i+1),
+			fmt.Sprintf("resp_luna_chunk_%d", i+1),
+			"gpt-5.6-luna",
+			fmt.Sprintf("luna chunk %d summary", i+1),
 			120+i,
 			12+i,
 		))
 	}
 	responses = append(responses, testOpenAICompatSSECompletedResponse(
-		"resp_mini_merge",
-		"gpt-5.4-mini",
-		"mini merged compact summary after spark limit",
+		"resp_luna_merge",
+		"gpt-5.6-luna",
+		"luna merged compact summary after spark limit",
 		240,
 		24,
 	))
@@ -518,16 +593,16 @@ func TestForwardAsAnthropic_ClaudeCodeCompactChunkFallbackSwitchesToMiniWhenSpar
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.Contains(t, rec.Body.String(), "mini merged compact summary after spark limit")
-	require.Equal(t, "resp_mini_merge", result.ResponseID)
-	require.Equal(t, "gpt-5.4-mini", result.BillingModel)
-	require.Equal(t, "gpt-5.4-mini", result.UpstreamModel)
+	require.Contains(t, rec.Body.String(), "luna merged compact summary after spark limit")
+	require.Equal(t, "resp_luna_merge", result.ResponseID)
+	require.Equal(t, "gpt-5.6-luna", result.BillingModel)
+	require.Equal(t, "gpt-5.6-luna", result.UpstreamModel)
 	require.Greater(t, result.Usage.InputTokens, 210_000)
 	require.Len(t, upstream.bodies, len(chunks)+3)
 	require.Equal(t, "gpt-5.3-codex-spark", gjson.GetBytes(upstream.bodies[0], "model").String())
 	require.Equal(t, "gpt-5.3-codex-spark", gjson.GetBytes(upstream.bodies[1], "model").String())
 	for _, upstreamBody := range upstream.bodies[2:] {
-		require.Equal(t, "gpt-5.4-mini", gjson.GetBytes(upstreamBody, "model").String())
+		require.Equal(t, "gpt-5.6-luna", gjson.GetBytes(upstreamBody, "model").String())
 		require.False(t, gjson.GetBytes(upstreamBody, "previous_response_id").Exists())
 	}
 }
@@ -811,6 +886,14 @@ func testClaudeCodeCompactPrompt() string {
 		"7. Pending Tasks:",
 		"8. Current Work:",
 		"</summary>",
+	}, "\n")
+}
+
+func testClaudeCodeModernCompactPrompt() string {
+	return strings.Join([]string{
+		"Produce a compact summary for context compaction.",
+		"Include Current State, Active User Intent, Files Touched, Commands And Evidence, Errors And Blockers, Decisions And Config, and Next Command.",
+		"Continue the conversation from where it left off without asking the user any further questions.",
 	}, "\n")
 }
 

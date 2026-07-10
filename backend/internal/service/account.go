@@ -946,8 +946,8 @@ func (a *Account) GetCompactModelFallbacks() map[string][]string {
 
 // ResolveCompactFallbackModels resolves alternate compact models for a compact
 // reroute. It first honors account credentials and then falls back from Codex
-// Spark to 5.4 mini by default, because Spark has a smaller and more volatile
-// subscription quota than normal Codex models.
+// Spark to Luna and 5.4 mini by default, because Spark has a smaller and more
+// volatile subscription quota than normal Codex models.
 func (a *Account) ResolveCompactFallbackModels(requestedModel, mappedModel string) []string {
 	requestedModel = strings.TrimSpace(requestedModel)
 	mappedModel = strings.TrimSpace(mappedModel)
@@ -965,7 +965,7 @@ func (a *Account) ResolveCompactFallbackModels(requestedModel, mappedModel strin
 		}
 	}
 	if !configured && strings.EqualFold(mappedModel, "gpt-5.3-codex-spark") {
-		candidates = append(candidates, "gpt-5.4-mini")
+		candidates = append(candidates, "gpt-5.6-luna", "gpt-5.4-mini")
 	}
 
 	return compactModelFallbackCandidates(candidates, mappedModel)

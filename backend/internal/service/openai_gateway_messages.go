@@ -2408,7 +2408,9 @@ func isClaudeCodeCompactAnthropicRequest(req *apicompat.AnthropicRequest) bool {
 		if strings.TrimSpace(msg.Role) != "user" {
 			continue
 		}
-		return looksLikeClaudeCodeCompactPrompt(anthropicMessageText(msg.Content))
+		if looksLikeClaudeCodeCompactPrompt(anthropicMessageText(msg.Content)) {
+			return true
+		}
 	}
 	return false
 }
@@ -2436,21 +2438,52 @@ func anthropicMessageText(raw json.RawMessage) string {
 
 func looksLikeClaudeCodeCompactPrompt(text string) bool {
 	text = strings.TrimSpace(text)
-	if !strings.Contains(text, "Your task is to create a detailed summary") {
+	if text == "" {
 		return false
 	}
+	lower := strings.ToLower(text)
+
+	anchorMatches := 0
+	for _, anchor := range []string{
+		"your task is to create a detailed summary",
+		"create a detailed summary",
+		"detailed summary of the conversation",
+		"summary of the conversation so far",
+		"context compaction",
+		"compact summary",
+	} {
+		if strings.Contains(lower, anchor) {
+			anchorMatches++
+			break
+		}
+	}
+	if anchorMatches == 0 {
+		return false
+	}
+
+	markerMatches := 0
 	for _, marker := range []string{
 		"<analysis>",
 		"<summary>",
-		"All user messages",
-		"Pending Tasks",
-		"Current Work",
+		"all user messages",
+		"pending tasks",
+		"current work",
+		"previous actions",
+		"explicit requests",
+		"continue the conversation from where",
+		"without asking",
+		"current state",
+		"active user intent",
+		"files touched",
+		"commands and evidence",
+		"errors and blockers",
+		"next command",
 	} {
-		if !strings.Contains(text, marker) {
-			return false
+		if strings.Contains(lower, marker) {
+			markerMatches++
 		}
 	}
-	return true
+	return markerMatches >= 3
 }
 
 func anthropicResponseHasVisibleOutput(resp *apicompat.AnthropicResponse) bool {

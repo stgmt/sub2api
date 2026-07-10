@@ -377,10 +377,10 @@ func TestAccountCompactModelFallbacks(t *testing.T) {
 		}
 	})
 
-	t.Run("defaults spark to mini", func(t *testing.T) {
+	t.Run("defaults spark to luna then mini", func(t *testing.T) {
 		account := &Account{Credentials: map[string]any{}}
 		got := account.ResolveCompactFallbackModels("gpt-5.5", "gpt-5.3-codex-spark")
-		if !equalStringSlice(got, []string{"gpt-5.4-mini"}) {
+		if !equalStringSlice(got, []string{"gpt-5.6-luna", "gpt-5.4-mini"}) {
 			t.Fatalf("ResolveCompactFallbackModels() = %#v", got)
 		}
 	})
