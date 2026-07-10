@@ -20,8 +20,8 @@ type ModelAvailabilityDiagnosis struct {
 	// the requested model.
 	HasModelSupport bool
 	// AllModelSupportingAccountsRateLimited is true when every account that
-	// could serve the requested model is currently blocked by a global upstream
-	// rate-limit cooldown.
+	// could serve the requested model is currently blocked by a global or
+	// model-scoped upstream rate-limit cooldown.
 	AllModelSupportingAccountsRateLimited bool
 	// RateLimitResetAt is the earliest reset time among model-supporting
 	// accounts when AllModelSupportingAccountsRateLimited is true.

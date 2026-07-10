@@ -35,7 +35,7 @@ Expected for the safe profile:
 ```text
 Model: gpt-5.6-sol
 Tokens: ... / 260k
-JSON modelUsage contextWindow: 400000 when using the conservative Claude Code client compact target; this does not prove the upstream model window
+JSON modelUsage contextWindow: 1050000 and `/context` displays `/1m` for the current GPT-5.6 client profile; this is the Claude Code client window hint, while upstream context failures must still be verified from proxy logs
 JSON modelUsage may still show maxOutputTokens: 32000
 ```
 

@@ -4,13 +4,13 @@
     {
       "id": 1,
       "prompt": "Поставь мне sub2api в Docker/WSL, чтобы Claude Code ходил через мою Codex подписку, модель gpt-5.6 full power, и проверь /context.",
-      "expected_output": "Provides Docker/WSL install steps, configures Claude Code env, uses gpt-5.6-sol for main work and gpt-5.3-codex-spark for small-fast/Haiku work with scoped model_fallbacks to gpt-5.6-luna and then gpt-5.4-mini, keeps gpt-5.3-codex-spark as the server-side compact_model_mapping target with gpt-5.6-luna then gpt-5.4-mini in compact_model_fallbacks, sets max/xhigh effort, explains that the 400k Claude Code setting is a conservative client compact target rather than the model window, and verifies /context plus usage logs.",
+      "expected_output": "Provides Docker/WSL install steps, configures Claude Code env, uses gpt-5.6-sol for main work and gpt-5.3-codex-spark for small-fast/Haiku work with scoped model_fallbacks to gpt-5.6-luna and then gpt-5.4-mini, keeps gpt-5.3-codex-spark as the server-side compact_model_mapping target with gpt-5.6-luna then gpt-5.4-mini in compact_model_fallbacks, sets max/xhigh effort, sets CLAUDE_CODE_MAX_CONTEXT_TOKENS=1050000 and CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000 for the GPT-5.6 client profile, and verifies /context plus usage logs.",
       "files": []
     },
     {
       "id": 2,
       "prompt": "Claude Code показывает gpt-5.6-sol, но /context все равно 17k/200k. Почини и не путай client target с model window.",
-      "expected_output": "Explains that Claude Code's displayed denominator is controlled by CLAUDE_CODE_MAX_CONTEXT_TOKENS and CLAUDE_CODE_AUTO_COMPACT_WINDOW, while GPT-5.6's official model window is 1.05M. Sets the current conservative client target to 400000 only if live long-context proof is absent, restarts Claude Code, verifies /context, and checks logs for real context_length_exceeded before claiming an upstream ceiling.",
+      "expected_output": "Explains that Claude Code's displayed denominator is controlled by CLAUDE_CODE_MAX_CONTEXT_TOKENS and CLAUDE_CODE_AUTO_COMPACT_WINDOW, while GPT-5.6's configured model window is 1.05M. Sets CLAUDE_CODE_MAX_CONTEXT_TOKENS=1050000 and CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000, restarts Claude Code, verifies /context shows 1m, and checks logs for real context_length_exceeded before claiming an upstream ceiling.",
       "files": []
     },
     {

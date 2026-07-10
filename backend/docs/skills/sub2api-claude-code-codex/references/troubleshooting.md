@@ -11,7 +11,7 @@ Known failure signatures and fixes for routing, empty streams, context overflow,
 If `/context` still shows `/200k`:
 
 - Ensure `CLAUDE_CODE_MAX_CONTEXT_TOKENS` is present in both User env and `~/.claude/settings.json`.
-- Ensure `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is below the official/proven upstream window. For the current GPT-5.6 profile, `400000` is only a conservative Claude Code client target, not the model window; raise toward the official 1,050,000 only after a live long-context probe through the same proxy/account.
+- Ensure `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is below the official/proven upstream window. For the current GPT-5.6 profile, use `CLAUDE_CODE_MAX_CONTEXT_TOKENS=1050000` and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000`; `/200k` means Claude Code fell back to its custom-model default.
 - Restart the terminal. Current shells do not automatically receive newly written User env values.
 
 If requests do not hit sub2api:
@@ -60,7 +60,7 @@ If Claude Code reports `API Error: Upstream service temporarily unavailable`:
 - If `terminal_error_code=context_length_exceeded`, the problem is not workflow fan-out or localhost routing. The upstream Codex model rejected the prompt size. In the observed local setup, this starts around `272k+` estimated input tokens despite Claude being configured to display `/400k`.
 - Patched local behavior for normal non-compact requests: `context_length_exceeded` is returned to Claude Code as `400 invalid_request_error` without same-account retries, instead of being masked as `API Error: Upstream service temporarily unavailable`.
 - Patched local behavior for Claude Code compact prompts: when the full compact overflows the mapped compact model, the proxy should not return the 400 directly; it should log `openai_messages.compact_context_length_fallback`, summarize chunks, merge them, and return a successful compact response. If the user still sees a 400 during `/compact`, verify the live container image was rebuilt/recreated and that `usage_logs.upstream_model` is `gpt-5.3-codex-spark`.
-- To stop repeats while diagnosing the current GPT-5.6 profile, set `CLAUDE_CODE_MAX_CONTEXT_TOKENS=400000` and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=400000`, then restart Claude Code windows. Do not treat that value as the upstream model maximum.
+- To stop repeats while diagnosing context-window behavior, first verify whether the error is a real upstream `context_length_exceeded`, a proxy routing/rate-limit error, or Claude Code's client display fallback. For the current GPT-5.6 profile, use `CLAUDE_CODE_MAX_CONTEXT_TOKENS=1050000` and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000`, then restart Claude Code windows.
 - Check sub2api access logs for `status_code: 502`.
 - If those rows are `/v1/messages`, `stream=false`, and the moderation log shows a large `body_bytes` value around `1000000`, it is Claude Code's non-streaming fallback sending a huge retry body. Set `CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK=1` in both User env and `~/.claude/settings.json`, then restart Claude Code windows.
 - If sub2api logs around the same timestamp show only `status_code: 200`, `stream=true`, and the JSONL transcript records a synthetic API error inside `subagents/workflows/...`, the failing layer is Claude Code's dynamic workflow fan-out, not the proxy HTTP response. Set `workflowSizeGuideline=small` in `%USERPROFILE%\.claude.json`, stop the existing workflow from `/workflows`, and relaunch with a narrower prompt. Large already-generated workflow scripts are not retroactively shrunk.
@@ -128,6 +128,7 @@ If Claude Code reports `API Error: 503 Service temporarily unavailable` or `API 
 - This is not a context-window failure, a ghost stream, or localhost routing when recent `usage_logs` show normal nonzero rows before/after the burst and `zero_streams=0`.
 - Do not "fix" this by raising `accounts.concurrency`; concurrency only helps slot exhaustion. A real upstream usage limit needs waiting until `rate_limit_reset_at`, reducing fan-out/parallel Claude windows, or adding another valid OpenAI/Codex account to the group.
 - Current fork behavior: when account selection fails because every configured account that supports the requested model is rate-limited or cooled down, return a clear `429 rate_limit_error` with reset timing instead of generic `503 Service temporarily unavailable`. Issue #1 fixed stale fake quota cooldowns by clearing quota-origin `model_rate_limits` after fresh Codex usage snapshots show headroom.
+- 2026-07-10 regression fixed in the local fork: the OpenAI/Codex no-account diagnoser now inspects both global `accounts.rate_limit_reset_at` and model-scoped `accounts.extra.model_rate_limits[model].rate_limit_reset_at`. Before this fix, a real `gpt-5.6-sol` model cooldown could be selected out by the scheduler but diagnosed as generic service unavailability, so Claude Code saw `503` instead of `429`. Live verification after rebuilding `sub2api-codex:local-token-usage`: `/v1/messages` for `gpt-5.6-sol` during active cooldown returned `HTTP_STATUS=429` with `rate_limit_error` and reset timestamp; `ops_error_logs` row `3654` recorded `status_code=429`, `error_type=rate_limit_error`.
 
 If `/v1/models` lists `gpt-5.5-mini` or `gpt-5.6-*` but requests fail:
 
@@ -154,4 +155,4 @@ If Claude Code sub-agent status shows `0 tokens` but sub2api usage logs show non
 If the user wants a larger display than the safe profile:
 
 - Do not invent it for Codex subscription. A larger Claude Code denominator is only a local client hint; the upstream is authoritative.
-- In the old 5.5 setup, `/400k` was disproven by upstream `context_length_exceeded` around `272k-278k` estimated input tokens. Do not generalize that old 5.5 evidence to GPT-5.6. GPT-5.6 official docs list a 1,050,000 token window, so use clean `gpt-5.6-sol` plus `gpt-5.3-codex-spark` small-fast/Haiku labels with the 400k Claude Code client target first, then raise only after live long-context probes.
+- In the old 5.5 setup, `/400k` was disproven by upstream `context_length_exceeded` around `272k-278k` estimated input tokens. Do not generalize that old 5.5 evidence to GPT-5.6. GPT-5.6 Sol/Terra/Luna are configured locally with `max_input_tokens=1050000`; use clean `gpt-5.6-sol` plus `gpt-5.3-codex-spark` small-fast/Haiku labels and the 1M Claude Code client target.

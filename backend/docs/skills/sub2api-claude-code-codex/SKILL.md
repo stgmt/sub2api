@@ -24,7 +24,7 @@ Claude base URL: http://<wsl-primary-ip>:18081 when Windows localhost relay is u
 Main model: gpt-5.6-sol
 Small/Haiku model: gpt-5.3-codex-spark with normal model_fallbacks to gpt-5.6-luna, then gpt-5.4-mini
 Official model windows: GPT-5.6 Sol/Terra/Luna = 1.05M; Claude Fable 5/Opus 4.8/Sonnet 5 = 1M; Claude Haiku 4.5 = 200k
-Client compact target: CLAUDE_CODE_MAX_CONTEXT_TOKENS=400000, CLAUDE_CODE_AUTO_COMPACT_WINDOW=400000 (conservative Claude Code setting, not the model window)
+Client context target: CLAUDE_CODE_MAX_CONTEXT_TOKENS=1050000, CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000 (Claude Code client display/planning target for the 1.05M GPT-5.6 route)
 Compact model: gpt-5.3-codex-spark, fallback gpt-5.6-luna, then gpt-5.4-mini
 Reasoning: max in Claude Code, strongest supported OpenAI effort in sub2api logs
 ```
@@ -62,7 +62,7 @@ Read only the file needed for the current task:
 - Prefer request-time `/v1/messages` probes and `usage_logs.upstream_model` over `/v1/models` catalog output.
 - Keep Spark as Claude Code small-fast/Haiku and compact first hop. Do not route main Opus/Sonnet/full-power work to Spark.
 - Keep Luna as the second hop after Spark for small-fast/Haiku and compact fallbacks, with `gpt-5.4-mini` as the last-resort fallback. Direct `gpt-5.6-luna` requests fall back to `gpt-5.3-codex-spark`, then `gpt-5.4-mini`.
-- Never describe `400000` as the proven upstream/model context limit. It is only the current Claude Code client compact/display target; prove larger windows with a live long-context request through the Docker proxy before changing it.
+- Never describe `400000` as the GPT-5.6 upstream/model context limit. It was an old conservative Claude Code client target from the GPT-5.5-era instability. Current GPT-5.6 client profile is `CLAUDE_CODE_MAX_CONTEXT_TOKENS=1050000` and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000`; still verify real upstream failures from proxy logs before blaming context.
 - Treat `stale fake 429/503` as a proxy state bug first: issue #1 fixed quota-origin cooldown recovery, so stale recurrence usually means an old image, stale container, or non-quota cooldown reason.
 - For Docker-in-WSL, verify both container health and Windows route. If `127.0.0.1:18081` hangs but WSL IP works, set Claude Code to `http://<wsl-primary-ip>:18081`.
 - After code changes, rebuild `sub2api-codex:local-token-usage`, recreate only the `sub2api` service, then re-run live probes.
@@ -78,7 +78,7 @@ Read only the file needed for the current task:
 
 ## Bundled Scripts
 
-- `scripts/setup-sub2api-claude-code.ps1`: create/update the local Docker runtime and Claude Code settings. Defaults to `gpt-5.6-sol`, `gpt-5.3-codex-spark`, and a conservative 400k Claude Code client compact target.
+- `scripts/setup-sub2api-claude-code.ps1`: create/update the local Docker runtime and Claude Code settings. Defaults to `gpt-5.6-sol`, `gpt-5.3-codex-spark`, `CLAUDE_CODE_MAX_CONTEXT_TOKENS=1050000`, and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000`.
 - `scripts/verify-claude-code-sub2api.ps1`: verify health, Claude Code settings, and expected upstream model behavior.
 - `scripts/install-claude-compact-recovery.ps1`: install Claude Code compact recovery hooks.
 - `scripts/compact-recovery.mjs`: lightweight compact recovery hook implementation.

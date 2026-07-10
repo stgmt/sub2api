@@ -7,8 +7,8 @@ param(
   [string]$TimeZone = "Europe/Moscow",
   [string]$Model = "gpt-5.6-sol",
   [string]$SmallFastModel = "gpt-5.3-codex-spark",
-  [int]$MaxContextTokens = 400000,
-  [int]$AutoCompactWindow = 400000,
+  [int]$MaxContextTokens = 1050000,
+  [int]$AutoCompactWindow = 1000000,
   [int]$MaxOutputTokens = 64000,
   [int]$MaxThinkingTokens = 8000,
   [string]$Sub2apiImage = "sub2api-codex:local-token-usage",
@@ -19,9 +19,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# 400k is a conservative Claude Code client compact/display target, not the
-# GPT-5.6 model window. Official GPT-5.6 Sol/Terra/Luna context is 1.05M; raise
-# these parameters only after a live long-context probe through this proxy/account.
+# Claude Code needs explicit context hints for custom/proxy models; otherwise
+# it falls back to a 200k display/planning window. GPT-5.6 Sol/Terra/Luna are
+# configured locally with a 1.05M input window, so auto-compact keeps a 50k
+# buffer below that edge.
 
 function New-Secret([int]$Bytes = 32) {
   $buffer = New-Object byte[] $Bytes
