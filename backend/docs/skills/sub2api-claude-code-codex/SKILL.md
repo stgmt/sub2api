@@ -1,7 +1,7 @@
 ---
 name: sub2api-claude-code-codex
 description: >-
-  Use this skill for Claude Code through a Headroom-first Anthropic-compatible local proxy chain backed by an OpenAI/Codex/ChatGPT subscription: Headroom context optimization, sub2api, Docker/WSL Docker, Codex OAuth, GPT-5.6 Sol/Terra/Luna, GPT-5.3 Codex Spark compact acceleration, Claude Opus/Sonnet/Haiku mapping, max reasoning, context window fixes, empty/0-token ghost streams, stale fake 429/503 no-available-accounts cooldowns, and model_rate_limits self-heal debugging. Triggers include "Claude Code через Codex подписку", "Headroom sub2api", "sub2api Docker", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5[400k]", "быстрая компактизация", "gpt-5.3-codex-spark", "usage 0/0", "503 Service temporarily unavailable", "429 rate_limit_error", and "no available accounts".
+  Use this skill for Claude Code through a Headroom-first Anthropic-compatible local proxy chain backed by an OpenAI/Codex/ChatGPT subscription: Headroom context optimization, Headroom embedding-server/watchdog sidecar, sub2api, Docker/WSL Docker, Codex OAuth, GPT-5.6 Sol/Terra/Luna, GPT-5.3 Codex Spark compact acceleration, Claude Opus/Sonnet/Haiku mapping, max reasoning, context window fixes, empty/0-token ghost streams, stale fake 429/503 no-available-accounts cooldowns, and model_rate_limits self-heal debugging. Triggers include "Claude Code через Codex подписку", "Headroom sub2api", "sub2api Docker", "embedding-server", "SocketEmbedderClient", "Falling back to per-worker embedder", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5[400k]", "быстрая компактизация", "gpt-5.3-codex-spark", "usage 0/0", "503 Service temporarily unavailable", "429 rate_limit_error", and "no available accounts".
 ---
 
 # sub2api Claude Code Codex
@@ -92,7 +92,7 @@ Read only the file needed for the current task:
 ## Bundled Scripts
 
 - `scripts/setup-sub2api-claude-code.ps1`: create/update `deploy/claude-code-codex-headroom/.env`, start the Headroom + sub2api compose project, register the Docker-backed Headroom MCP, remove stale host `tokensave` MCP, and configure Claude Code settings. Defaults to `gpt-5.6-sol`, `gpt-5.3-codex-spark`, `HEADROOM_SAVINGS_PROFILE=agent-90`, `HEADROOM_TARGET_RATIO=0.10`, `CLAUDE_CODE_MAX_CONTEXT_TOKENS=370000`, and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=340000`.
-- `scripts/verify-claude-code-sub2api.ps1`: verify Headroom health/upstream, sub2api health, Claude Code settings, and expected upstream model behavior.
+- `scripts/verify-claude-code-sub2api.ps1`: verify Headroom health/upstream, embedding-server logs/socket/factory/direct embed probe, sub2api health, Claude Code settings, and expected upstream model behavior.
 - `scripts/install-claude-compact-recovery.ps1`: install Claude Code compact recovery hooks.
 - `scripts/compact-recovery.mjs`: lightweight compact recovery hook implementation.
 
@@ -102,6 +102,7 @@ For install/config/debug tasks, do not call it done until these are true or expl
 
 - `headroom-sub2api` and `sub2api-codex` containers are healthy.
 - Headroom `/health` reports ready and upstream `http://sub2api:8080`.
+- Headroom embedding-server logs show `Embedding server: ready.`, no per-worker fallback or missing watchdog module, `/tmp/headroom-embed-8787.sock` exists, and the memory factory returns `headroom.memory.adapters.watchdog SocketEmbedderClient 384`.
 - `claude mcp list` shows `headroom` connected through Docker, not a missing host executable; stale host `tokensave` MCP is removed unless deliberately installed on host.
 - `docker exec headroom-sub2api headroom tools doctor` shows RTK-related bundled tools available, and `headroom savings --json` / `headroom perf --format json` prove the optimization layer is recording traffic.
 - A tiny `/v1/messages` request through `http://127.0.0.1:8787` succeeds for `gpt-5.6-sol` and for Haiku/small-fast through `gpt-5.3-codex-spark` or the configured `gpt-5.6-luna -> gpt-5.4-mini` fallback chain, or a current upstream quota/cooldown blocker is proven as `429`.

@@ -53,8 +53,8 @@ Headroom health reports ready and upstream http://sub2api:8080
 sub2api health reports ok on the direct diagnostic/admin port
 Claude MCP list shows headroom connected through Docker; stale host headroom.exe/tokensave.exe entries are absent
 Headroom tools doctor shows difft, scc, and ast-grep on PATH; the image also includes rtk, lean-ctx, and tokensave
-Headroom logs show `Embedding server: ready.` and do not show `Falling back to per-worker embedder`
-`/tmp/headroom-embed-8787.sock` exists, and the memory factory returns `headroom.memory.adapters.watchdog SocketEmbedderClient 384` when `HEADROOM_EMBEDDING_SERVER_SOCKET` is set
+Headroom logs show `Embedding server: ready.` and do not show `Falling back to per-worker embedder`, `No module named 'headroom.memory.adapters.watchdog'`, or `ModuleNotFound`
+`/tmp/headroom-embed-8787.sock` exists, the memory factory returns `headroom.memory.adapters.watchdog SocketEmbedderClient 384` when `HEADROOM_EMBEDDING_SERVER_SOCKET` is set, and a direct `SocketEmbedderClient.embed(...)` probe returns `EMBED_OK 384`
 Headroom savings/perf shows nonzero proxy traffic after Claude Code has used the proxy
 User env CLAUDE_CODE_EFFORT_LEVEL is absent; /effort can change the session effort
 ```

@@ -55,6 +55,62 @@ function Get-ErrorStatus([object]$ErrorRecord) {
   return $null
 }
 
+function Test-DockerRuntimeAvailable {
+  return [bool]((Get-Command docker -ErrorAction SilentlyContinue) -or (Get-Command wsl.exe -ErrorAction SilentlyContinue))
+}
+
+function Invoke-DockerCommand {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string[]]$Args
+  )
+
+  if (Get-Command docker -ErrorAction SilentlyContinue) {
+    & docker @Args
+  } elseif (Get-Command wsl.exe -ErrorAction SilentlyContinue) {
+    & wsl.exe -- docker @Args
+  } else {
+    throw "docker and wsl.exe not found"
+  }
+}
+
+function Test-HeadroomEmbeddingServer {
+  if (-not (Test-DockerRuntimeAvailable)) {
+    Write-Warning "docker and wsl.exe not found; skipping Headroom embedding-server checks."
+    return
+  }
+
+  Write-Host "`nHeadroom embedding server:"
+  $logs = (Invoke-DockerCommand -Args @("logs", "--tail", "180", "headroom-sub2api") 2>&1) -join "`n"
+  if ($logs -notmatch "Embedding server: ready\.") {
+    throw "Headroom embedding server is not ready. Rebuild the patched headroom image and recreate the service."
+  }
+  if ($logs -match "Falling back to per-worker embedder|No module named 'headroom\.memory\.adapters\.watchdog'|ModuleNotFound") {
+    throw "Headroom embedding server regression detected in logs: fallback or missing watchdog module."
+  }
+  Write-Host "logs: Embedding server ready; no per-worker fallback detected"
+
+  $socketOutput = (Invoke-DockerCommand -Args @("exec", "headroom-sub2api", "sh", "-lc", "test -S /tmp/headroom-embed-8787.sock && echo SOCKET_OK") 2>&1) -join "`n"
+  if ($LASTEXITCODE -ne 0 -or $socketOutput -notmatch "SOCKET_OK") {
+    throw "Headroom embedding socket is missing: /tmp/headroom-embed-8787.sock"
+  }
+  Write-Host "socket: /tmp/headroom-embed-8787.sock"
+
+  $factoryProbe = "import os; os.environ['HEADROOM_EMBEDDING_SERVER_SOCKET']='/tmp/headroom-embed-8787.sock'; from headroom.memory.config import MemoryConfig, EmbedderBackend; from headroom.memory.factory import _create_embedder; e=_create_embedder(MemoryConfig(embedder_backend=EmbedderBackend.ONNX)); print(type(e).__module__, type(e).__name__, e.dimension)"
+  $factoryOutput = (Invoke-DockerCommand -Args @("exec", "headroom-sub2api", "python", "-c", $factoryProbe) 2>&1) -join "`n"
+  if ($LASTEXITCODE -ne 0 -or $factoryOutput -notmatch "headroom\.memory\.adapters\.watchdog\s+SocketEmbedderClient\s+384") {
+    throw "Headroom memory factory did not return SocketEmbedderClient 384. Output: $factoryOutput"
+  }
+  Write-Host "factory: $factoryOutput"
+
+  $embedProbe = "import asyncio; from headroom.memory.adapters.watchdog import SocketEmbedderClient; e=SocketEmbedderClient('/tmp/headroom-embed-8787.sock'); v=asyncio.run(e.embed('sub2api headroom embedding server verification')); print('EMBED_OK', len(v)); asyncio.run(e.close())"
+  $embedOutput = (Invoke-DockerCommand -Args @("exec", "headroom-sub2api", "python", "-c", $embedProbe) 2>&1) -join "`n"
+  if ($LASTEXITCODE -ne 0 -or $embedOutput -notmatch "EMBED_OK\s+384") {
+    throw "Headroom SocketEmbedderClient direct embed probe failed. Output: $embedOutput"
+  }
+  Write-Host "embed: $embedOutput"
+}
+
 $BaseUrl = Normalize-Url $BaseUrl "http://127.0.0.1:8787"
 $Sub2apiBaseUrl = Normalize-Url $Sub2apiBaseUrl "http://127.0.0.1:18081"
 if (-not $Model) { $Model = "gpt-5.6-sol" }
@@ -123,8 +179,8 @@ if (-not $SkipClaudeProbe) {
     if ($effortOverride) {
       throw "User env CLAUDE_CODE_EFFORT_LEVEL=$effortOverride overrides Claude Code /effort. Clear it before verifying this profile."
     }
-    if (-not $env:CLAUDE_CODE_MAX_CONTEXT_TOKENS) { $env:CLAUDE_CODE_MAX_CONTEXT_TOKENS = "1050000" }
-    if (-not $env:CLAUDE_CODE_AUTO_COMPACT_WINDOW) { $env:CLAUDE_CODE_AUTO_COMPACT_WINDOW = "1000000" }
+    if (-not $env:CLAUDE_CODE_MAX_CONTEXT_TOKENS) { $env:CLAUDE_CODE_MAX_CONTEXT_TOKENS = "370000" }
+    if (-not $env:CLAUDE_CODE_AUTO_COMPACT_WINDOW) { $env:CLAUDE_CODE_AUTO_COMPACT_WINDOW = "340000" }
     if (-not $env:CLAUDE_CODE_MAX_OUTPUT_TOKENS) { $env:CLAUDE_CODE_MAX_OUTPUT_TOKENS = "64000" }
     if (-not $env:MAX_THINKING_TOKENS) { $env:MAX_THINKING_TOKENS = "8000" }
 
@@ -173,6 +229,8 @@ if (-not $SkipDockerLogs) {
     Write-Host "`nHeadroom tools doctor:"
     docker exec headroom-sub2api headroom tools doctor
 
+    Test-HeadroomEmbeddingServer
+
     Write-Host "`nHeadroom savings:"
     docker exec headroom-sub2api headroom savings --json
 
@@ -201,6 +259,7 @@ if (-not $SkipDockerLogs) {
     }
     Write-Host "`nHeadroom tools doctor:"
     wsl.exe -- docker exec headroom-sub2api headroom tools doctor
+    Test-HeadroomEmbeddingServer
     Write-Host "`nHeadroom savings:"
     wsl.exe -- docker exec headroom-sub2api headroom savings --json
     Write-Host "`nHeadroom perf:"

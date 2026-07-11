@@ -10,10 +10,11 @@ Prefer this profile unless the user explicitly asks for a different model or por
 Proxy chain: Headroom -> sub2api
 Source fork: https://github.com/stgmt/sub2api
 Source branch: main
-Verified fork commit: 8049675b fix: fall back on Anthropic messages model-not-found
+Verified fork baseline: main; embedding-server patch landed in 84917aec fix: enable headroom embedding sidecar
 Fixed issue: https://github.com/stgmt/sub2api/issues/1
-Headroom image: headroom-sub2api:0.31.0 built from headroom-ai[proxy,code,relevance,html,spreadsheet,otel,reports,mcp] on PyPI plus RTK, lean-ctx, TokenSave, ast-grep, difft, and scc
+Headroom image: headroom-sub2api:0.31.0 built from headroom-ai[proxy,code,relevance,html,spreadsheet,otel,reports,mcp] on PyPI plus RTK, lean-ctx, TokenSave, ast-grep, difft, scc, and the downstream embedding-server patch
 Headroom profile: agent-90, target ratio 0.10, context tool RTK, code-aware compression enabled, output shaper enabled
+Headroom embedding server: enabled via `--embedding-server`; Dockerfile applies `deploy/claude-code-codex-headroom/patch-headroom-embedding-server.py`, adding `headroom.memory.adapters.watchdog`, `EmbeddingServerWatchdog`, and `SocketEmbedderClient` so memory workers use `/tmp/headroom-embed-8787.sock` instead of per-worker embedders
 Headroom MCP: user-level Claude MCP named headroom, launched through Docker with `wsl.exe -e docker exec -i headroom-sub2api headroom mcp serve --proxy-url http://127.0.0.1:8787`
 sub2api image: sub2api-codex:local-token-usage
 Deploy profile: deploy/claude-code-codex-headroom
