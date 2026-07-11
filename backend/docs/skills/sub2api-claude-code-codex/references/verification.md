@@ -34,7 +34,10 @@ claude mcp list
 wsl.exe -- docker exec headroom-sub2api headroom tools doctor
 wsl.exe -- docker exec headroom-sub2api headroom savings --json
 wsl.exe -- docker exec headroom-sub2api headroom perf --hours 1 --format json
+wsl.exe -- docker exec headroom-sub2api sh -lc "test -x /usr/local/bin/start-headroom-proxy && test -d /opt/headroom-seed/headroom && test -d /opt/headroom-seed/cache-headroom && echo SEED_OK"
 wsl.exe -- docker logs --tail 120 headroom-sub2api
+wsl.exe -- docker inspect headroom-sub2api --format '{{range .Mounts}}{{println .Destination "|" .Type "|" .Name "|" .Source}}{{end}}'
+wsl.exe -- docker exec headroom-sub2api python -c "import os; p='/root/.headroom/ccr_store.db'; print('CCR_STORE', os.path.exists(p), os.path.getsize(p) if os.path.exists(p) else 0)"
 wsl.exe -- docker exec headroom-sub2api sh -lc "test -S /tmp/headroom-embed-8787.sock && echo SOCKET_OK"
 wsl.exe -- docker exec headroom-sub2api python -c "import os; os.environ['HEADROOM_EMBEDDING_SERVER_SOCKET']='/tmp/headroom-embed-8787.sock'; from headroom.memory.config import MemoryConfig, EmbedderBackend; from headroom.memory.factory import _create_embedder; e=_create_embedder(MemoryConfig(embedder_backend=EmbedderBackend.ONNX)); print(type(e).__module__, type(e).__name__, e.dimension)"
 
@@ -53,6 +56,8 @@ Headroom health reports ready and upstream http://sub2api:8080
 sub2api health reports ok on the direct diagnostic/admin port
 Claude MCP list shows headroom connected through Docker; stale host headroom.exe/tokensave.exe entries are absent
 Headroom tools doctor shows difft, scc, and ast-grep on PATH; the image also includes rtk, lean-ctx, and tokensave
+Headroom image bootstrap check returns `SEED_OK`; the entrypoint seeds empty persistent mounts from `/opt/headroom-seed` before launching the proxy
+Headroom persistent mounts include `/root/.headroom`, `/root/.cache/headroom`, and `/root/.cache/huggingface`; after memory/embedding traffic, `/root/.headroom/ccr_store.db` is non-empty
 Headroom logs show `Embedding server: ready.` and do not show `Falling back to per-worker embedder`, `No module named 'headroom.memory.adapters.watchdog'`, or `ModuleNotFound`
 `/tmp/headroom-embed-8787.sock` exists, the memory factory returns `headroom.memory.adapters.watchdog SocketEmbedderClient 384` when `HEADROOM_EMBEDDING_SERVER_SOCKET` is set, and a direct `SocketEmbedderClient.embed(...)` probe returns `EMBED_OK 384`
 Headroom savings/perf shows nonzero proxy traffic after Claude Code has used the proxy

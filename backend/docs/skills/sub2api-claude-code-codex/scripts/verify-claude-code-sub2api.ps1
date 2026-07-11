@@ -65,13 +65,56 @@ function Invoke-DockerCommand {
     [string[]]$Args
   )
 
-  if (Get-Command docker -ErrorAction SilentlyContinue) {
-    & docker @Args
-  } elseif (Get-Command wsl.exe -ErrorAction SilentlyContinue) {
-    & wsl.exe -- docker @Args
-  } else {
-    throw "docker and wsl.exe not found"
+  $oldNativeErrorPreference = $null
+  $hasNativeErrorPreference = Get-Variable -Name PSNativeCommandUseErrorActionPreference -Scope Local -ErrorAction SilentlyContinue
+  if ($hasNativeErrorPreference) {
+    $oldNativeErrorPreference = $PSNativeCommandUseErrorActionPreference
+    $PSNativeCommandUseErrorActionPreference = $false
   }
+
+  try {
+    if (Get-Command docker -ErrorAction SilentlyContinue) {
+      & docker @Args
+    } elseif (Get-Command wsl.exe -ErrorAction SilentlyContinue) {
+      & wsl.exe -- docker @Args
+    } else {
+      throw "docker and wsl.exe not found"
+    }
+  } finally {
+    if ($hasNativeErrorPreference) {
+      $PSNativeCommandUseErrorActionPreference = $oldNativeErrorPreference
+    }
+  }
+}
+
+function Get-DockerLogsMerged {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Container,
+    [int]$Tail = 180
+  )
+
+  if (Get-Command docker -ErrorAction SilentlyContinue) {
+    return ((& docker logs --tail $Tail $Container 2>&1) -join "`n")
+  }
+  if (Get-Command wsl.exe -ErrorAction SilentlyContinue) {
+    return ((& wsl.exe -- sh -lc "docker logs --tail $Tail $Container 2>&1") -join "`n")
+  }
+  throw "docker and wsl.exe not found"
+}
+
+function Test-HeadroomImageBootstrap {
+  if (-not (Test-DockerRuntimeAvailable)) {
+    Write-Warning "docker and wsl.exe not found; skipping Headroom image-bootstrap checks."
+    return
+  }
+
+  Write-Host "`nHeadroom image bootstrap:"
+  $bootstrapOutput = (Invoke-DockerCommand -Args @("exec", "headroom-sub2api", "sh", "-lc", "test -x /usr/local/bin/start-headroom-proxy && test -d /opt/headroom-seed/headroom && test -d /opt/headroom-seed/cache-headroom && echo SEED_OK") 2>&1) -join "`n"
+  if ($LASTEXITCODE -ne 0 -or $bootstrapOutput -notmatch "SEED_OK") {
+    throw "Headroom image bootstrap is missing. The image must include start-headroom-proxy and /opt/headroom-seed so fresh persistent volumes are seeded safely. Output: $bootstrapOutput"
+  }
+  Write-Host "seed: $bootstrapOutput"
 }
 
 function Test-HeadroomEmbeddingServer {
@@ -81,7 +124,7 @@ function Test-HeadroomEmbeddingServer {
   }
 
   Write-Host "`nHeadroom embedding server:"
-  $logs = (Invoke-DockerCommand -Args @("logs", "--tail", "180", "headroom-sub2api") 2>&1) -join "`n"
+  $logs = Get-DockerLogsMerged -Container "headroom-sub2api" -Tail 180
   if ($logs -notmatch "Embedding server: ready\.") {
     throw "Headroom embedding server is not ready. Rebuild the patched headroom image and recreate the service."
   }
@@ -109,6 +152,32 @@ function Test-HeadroomEmbeddingServer {
     throw "Headroom SocketEmbedderClient direct embed probe failed. Output: $embedOutput"
   }
   Write-Host "embed: $embedOutput"
+}
+
+function Test-HeadroomPersistentStorage {
+  if (-not (Test-DockerRuntimeAvailable)) {
+    Write-Warning "docker and wsl.exe not found; skipping Headroom persistent-storage checks."
+    return
+  }
+
+  Write-Host "`nHeadroom persistent storage:"
+  $mountProbe = "import os; paths=['/root/.headroom','/root/.cache/headroom','/root/.cache/huggingface']; print('MOUNTS', ' '.join(p+'='+str(os.path.ismount(p)) for p in paths)); raise SystemExit(0 if all(os.path.ismount(p) for p in paths) else 1)"
+  $mountOutput = (Invoke-DockerCommand -Args @("exec", "headroom-sub2api", "python", "-c", $mountProbe) 2>&1) -join "`n"
+  if ($LASTEXITCODE -ne 0) {
+    throw "Headroom persistent mount check failed. Recreate the service from the current compose profile before trusting memory or embedding caches. Output: $mountOutput"
+  }
+  Write-Host "mounts: $mountOutput"
+
+  $storeProbe = "import os; p='/root/.headroom/ccr_store.db'; print('CCR_STORE', os.path.exists(p), os.path.getsize(p) if os.path.exists(p) else 0)"
+  $storeOutput = (Invoke-DockerCommand -Args @("exec", "headroom-sub2api", "python", "-c", $storeProbe) 2>&1) -join "`n"
+  if ($LASTEXITCODE -ne 0) {
+    throw "Could not inspect Headroom ccr_store.db. Output: $storeOutput"
+  }
+  if ($storeOutput -match "CCR_STORE\s+True\s+([1-9][0-9]*)") {
+    Write-Host "memory store: $storeOutput"
+  } else {
+    Write-Warning "Headroom ccr_store.db is not present or is empty yet. This is expected only before memory/embedding traffic has been recorded. Output: $storeOutput"
+  }
 }
 
 $BaseUrl = Normalize-Url $BaseUrl "http://127.0.0.1:8787"
@@ -229,7 +298,9 @@ if (-not $SkipDockerLogs) {
     Write-Host "`nHeadroom tools doctor:"
     docker exec headroom-sub2api headroom tools doctor
 
+    Test-HeadroomImageBootstrap
     Test-HeadroomEmbeddingServer
+    Test-HeadroomPersistentStorage
 
     Write-Host "`nHeadroom savings:"
     docker exec headroom-sub2api headroom savings --json
@@ -259,7 +330,9 @@ if (-not $SkipDockerLogs) {
     }
     Write-Host "`nHeadroom tools doctor:"
     wsl.exe -- docker exec headroom-sub2api headroom tools doctor
+    Test-HeadroomImageBootstrap
     Test-HeadroomEmbeddingServer
+    Test-HeadroomPersistentStorage
     Write-Host "`nHeadroom savings:"
     wsl.exe -- docker exec headroom-sub2api headroom savings --json
     Write-Host "`nHeadroom perf:"

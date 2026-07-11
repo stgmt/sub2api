@@ -45,6 +45,20 @@ instead of falling back to per-worker embedders.
 
 The default `.env` profile is `HEADROOM_SAVINGS_PROFILE=agent-90`, `HEADROOM_TARGET_RATIO=0.10`, `HEADROOM_CONTEXT_TOOL=rtk`, `HEADROOM_CODE_AWARE_ENABLED=1`, and `HEADROOM_OUTPUT_SHAPER=1`.
 
+Headroom persistence is part of the profile. The compose stack must persist:
+
+- `/root/.headroom`: Headroom `ccr_store.db`, savings events, logs, and subscription state.
+- `/root/.cache/headroom`: warmed Headroom tool/model cache.
+- `/root/.cache/huggingface`: warmed HuggingFace/ONNX embedding model cache.
+
+Do not run `docker compose down -v` unless the user explicitly wants to wipe Headroom memory/embeddings and sub2api state.
+
+The image has a bootstrap entrypoint, `/usr/local/bin/start-headroom-proxy`.
+It seeds fresh `/root/.headroom` and cache mounts from `/opt/headroom-seed`
+without overwriting existing files, then launches `headroom proxy`. Keep this
+wrapper; otherwise a clean persistent volume can hide bundled RTK/lean-ctx and
+Headroom tool cache files from the image layer.
+
 Claude Code should not point at stale host binaries for Headroom or TokenSave. If `claude mcp list` shows `C:\Users\...\headroom.exe` or `tokensave.exe` and those files are missing, remove those entries. The setup script re-adds only the `headroom` MCP through Docker:
 
 ```powershell

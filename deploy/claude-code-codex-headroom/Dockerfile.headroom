@@ -18,6 +18,8 @@ RUN python -m pip install --upgrade pip \
 
 COPY patch-headroom-embedding-server.py /tmp/patch-headroom-embedding-server.py
 RUN python /tmp/patch-headroom-embedding-server.py
+COPY start-headroom-proxy.sh /usr/local/bin/start-headroom-proxy
+RUN chmod +x /usr/local/bin/start-headroom-proxy
 
 RUN set -eux; \
     ln -sf /root/.headroom/bin/rtk /usr/local/bin/rtk; \
@@ -33,9 +35,13 @@ RUN set -eux; \
     lean-ctx --version; \
     tokensave --version; \
     difft --version; \
-    scc --version
+    scc --version; \
+    mkdir -p /opt/headroom-seed/headroom /opt/headroom-seed/cache-headroom /opt/headroom-seed/cache-huggingface; \
+    cp -a /root/.headroom/. /opt/headroom-seed/headroom/; \
+    cp -a /root/.cache/headroom/. /opt/headroom-seed/cache-headroom/; \
+    if [ -d /root/.cache/huggingface ]; then cp -a /root/.cache/huggingface/. /opt/headroom-seed/cache-huggingface/; fi
 
 WORKDIR /home/headroom
 
-ENTRYPOINT ["headroom", "proxy"]
+ENTRYPOINT ["/usr/local/bin/start-headroom-proxy"]
 CMD ["--host", "0.0.0.0", "--port", "8787"]

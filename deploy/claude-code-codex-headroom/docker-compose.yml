@@ -76,6 +76,8 @@ services:
       HEADROOM_KOMPRESS_BATCH_SIZE: ${HEADROOM_KOMPRESS_BATCH_SIZE:-16}
     volumes:
       - headroom-data:/root/.headroom
+      - headroom-cache:/root/.cache/headroom
+      - headroom-hf-cache:/root/.cache/huggingface
     healthcheck:
       test:
         - CMD-SHELL
@@ -211,6 +213,8 @@ networks:
 
 volumes:
   headroom-data:
+  headroom-cache:
+  headroom-hf-cache:
   sub2api-data:
   postgres-data:
   redis-data:

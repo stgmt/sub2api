@@ -24,6 +24,17 @@ published wheel exposes the flag but omits
 `headroom.memory.adapters.watchdog`; the local patch adds the watchdog and a
 socket embedder client used by Headroom memory workers.
 
+Headroom memory and embedding caches are persistent. The compose profile mounts
+`/root/.headroom` for `ccr_store.db`, savings, and logs, plus
+`/root/.cache/headroom` and `/root/.cache/huggingface` for warmed local
+tool/model/embedding caches. Do not run `docker compose down -v` unless you
+intend to wipe this memory and all other service volumes.
+
+The image entrypoint is `/usr/local/bin/start-headroom-proxy`, not `headroom`
+directly. It seeds fresh persistent mounts from `/opt/headroom-seed` before
+launching `headroom proxy`, which keeps first-run volumes from hiding bundled
+RTK/lean-ctx/difft/scc assets.
+
 ## Quick Start
 
 From the repository root:
@@ -75,3 +86,5 @@ HEADROOM_OUTPUT_SHAPER=1
 Use `headroom savings --json`, `headroom perf --format json`, and
 `headroom tools doctor` inside the `headroom-sub2api` container to verify the
 optimization layer, RTK/tool binaries, and savings ledger.
+The verifier also checks persistent Headroom mounts and the `ccr_store.db`
+memory store when it exists.

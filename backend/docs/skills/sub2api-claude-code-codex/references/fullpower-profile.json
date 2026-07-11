@@ -17,6 +17,14 @@
       "embedding_server": true,
       "embedding_server_socket": "/tmp/headroom-embed-8787.sock",
       "embedding_server_patch": "deploy/claude-code-codex-headroom/patch-headroom-embedding-server.py",
+      "persistent_mounts": {
+        "/root/.headroom": "Headroom ccr_store.db, savings events, logs, and subscription state",
+        "/root/.cache/headroom": "warmed Headroom local tool/model cache",
+        "/root/.cache/huggingface": "warmed HuggingFace/ONNX embedding model cache"
+      },
+      "bootstrap_entrypoint": "/usr/local/bin/start-headroom-proxy",
+      "bootstrap_seed": "/opt/headroom-seed",
+      "persistence_warning": "Do not run docker compose down -v unless intentionally wiping Headroom memory/embeddings and all service state.",
       "mcp_server": "wsl.exe -e docker exec -i headroom-sub2api headroom mcp serve --proxy-url http://127.0.0.1:8787",
       "docker_tools": [
         "rtk",
@@ -113,6 +121,10 @@
       "Fresh 2026-07-10 Luna re-probe returned HTTP 200 but usage_logs showed gpt-5.6-luna -> gpt-5.4-mini and ops_error_logs recorded recovered upstream 429. Treat Luna as unavailable until the mapping chain ends at gpt-5.6-luna.",
       "Set compact_model_fallbacks so Spark compact failures caused by rate limit, quota, unknown/unsupported model, or service-unavailable class errors continue through gpt-5.6-luna, then gpt-5.4-mini.",
       "Manual /compact may ignore ANTHROPIC_SMALL_FAST_MODEL in some Claude Code builds and use the session main model. Verify compact routing via usage_logs.requested_model/upstream_model."
+      ,
+      "Headroom embeddings/memory must be persisted through /root/.headroom. Verify /root/.headroom/ccr_store.db after memory traffic, and keep /root/.cache/headroom plus /root/.cache/huggingface mounted so warmed tool/model/embedding caches survive container recreation."
+      ,
+      "Headroom image startup must go through /usr/local/bin/start-headroom-proxy so fresh persistent volumes are seeded from /opt/headroom-seed before headroom proxy starts. This prevents clean volumes from hiding bundled RTK/lean-ctx/difft/scc assets."
     ]
   },
   "sub2api_account_credentials": {
