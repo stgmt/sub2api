@@ -70,6 +70,7 @@ func TestOpenAIHandleStreamingAwareError_ResponsesStreamingEmitsResponseFailed(t
 	h.handleStreamingAwareError(c, http.StatusTooManyRequests, "rate_limit_error",
 		"Concurrency limit exceeded for user, please retry later", true)
 
+	assert.NotContains(t, w.Body.String(), "event: error\n", "OpenAI /responses must not regress to generic SSE error")
 	resp, errObj := parseResponsesFailedSSE(t, w.Body.String())
 
 	id, _ := resp["id"].(string)
@@ -168,6 +169,7 @@ func TestGatewayHandleStreamingAwareError_ResponsesStreamingEmitsResponseFailed(
 func parseAnthropicErrorSSE(t *testing.T, body string) map[string]any {
 	t.Helper()
 	require.True(t, strings.Contains(body, "event: error\n"), "expect Anthropic event:error, got: %q", body)
+	require.Equal(t, 1, strings.Count(body, "event: error\n"), "stream must contain exactly one Anthropic error event: %q", body)
 	parts := strings.Split(body, "event: error\n")
 	require.NotEmpty(t, parts)
 	errFrame := parts[len(parts)-1]
@@ -189,7 +191,9 @@ func TestGatewayHandleStreamingAwareError_MessagesStreamingEmitsAnthropicErrorEv
 	h := &GatewayHandler{}
 	h.handleStreamingAwareError(c, http.StatusBadGateway, "upstream_error", "boom", true)
 
-	parsed := parseAnthropicErrorSSE(t, w.Body.String())
+	body := w.Body.String()
+	assert.True(t, strings.HasPrefix(body, "event: error\ndata: "), "must not emit bare data-only Anthropic error: %q", body)
+	parsed := parseAnthropicErrorSSE(t, body)
 	errorObj, ok := parsed["error"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "upstream_error", errorObj["type"])
@@ -209,7 +213,7 @@ func TestOpenAIEnsureAnthropicErrorResponse_AfterWaitPingAppendsErrorEvent(t *te
 
 	require.True(t, wrote)
 	body := w.Body.String()
-	assert.True(t, strings.HasPrefix(body, string(SSEPingFormatComment)), "earlier wait ping must be preserved")
+	assert.True(t, strings.HasPrefix(body, string(SSEPingFormatComment)+"event: error\ndata: "), "wait ping must be followed by named error event: %q", body)
 	parsed := parseAnthropicErrorSSE(t, body)
 	errorObj, ok := parsed["error"].(map[string]any)
 	require.True(t, ok)
@@ -226,12 +230,32 @@ func TestOpenAIHandleAnthropicFailoverExhausted_AfterWaitPingEmitsErrorEvent(t *
 	h.handleAnthropicFailoverExhausted(c, &service.UpstreamFailoverError{StatusCode: http.StatusServiceUnavailable}, true)
 
 	body := w.Body.String()
-	assert.True(t, strings.HasPrefix(body, string(SSEPingFormatComment)), "earlier wait ping must be preserved")
+	assert.True(t, strings.HasPrefix(body, string(SSEPingFormatComment)+"event: error\ndata: "), "wait ping must be followed by named error event: %q", body)
 	parsed := parseAnthropicErrorSSE(t, body)
 	errorObj, ok := parsed["error"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "upstream_error", errorObj["type"])
 	assert.Equal(t, "Upstream service temporarily unavailable", errorObj["message"])
+}
+
+func TestOpenAIHandleAnthropicFailoverExhausted_AfterWaitPingPreservesUpstreamErrorBody(t *testing.T) {
+	c, w := newGinContextForEndpoint(t, EndpointMessages)
+	_, _ = c.Writer.WriteString(string(SSEPingFormatComment))
+
+	h := &OpenAIGatewayHandler{}
+	h.handleAnthropicFailoverExhausted(c, &service.UpstreamFailoverError{
+		StatusCode:   http.StatusBadRequest,
+		ResponseBody: []byte(`{"type":"error","error":{"type":"invalid_request_error","message":"context too large"}}`),
+	}, true)
+
+	body := w.Body.String()
+	assert.True(t, strings.HasPrefix(body, string(SSEPingFormatComment)+"event: error\ndata: "), "wait ping must be followed by named error event: %q", body)
+	parsed := parseAnthropicErrorSSE(t, body)
+	errorObj, ok := parsed["error"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "invalid_request_error", errorObj["type"])
+	assert.Equal(t, "context too large", errorObj["message"])
+	assert.NotContains(t, body, "event: message_start\n")
 }
 
 func TestOpenAIEnsureAnthropicErrorResponse_NormalStartedStreamDoesNotDuplicateMessageStart(t *testing.T) {
@@ -245,6 +269,18 @@ func TestOpenAIEnsureAnthropicErrorResponse_NormalStartedStreamDoesNotDuplicateM
 	body := w.Body.String()
 	assert.Equal(t, 1, strings.Count(body, "event: message_start\n"), "normal stream must keep exactly one message_start")
 	assert.Equal(t, 1, strings.Count(body, "event: error\n"), "mid-stream failure should append one terminal error")
+}
+
+func TestOpenAIEnsureAnthropicErrorResponse_DoesNotCorruptAlreadyWrittenNonStream(t *testing.T) {
+	c, w := newGinContextForEndpoint(t, EndpointMessages)
+	c.String(http.StatusTeapot, "already written")
+
+	h := &OpenAIGatewayHandler{}
+	wrote := h.ensureAnthropicErrorResponse(c, false, false)
+
+	require.False(t, wrote)
+	assert.Equal(t, "already written", w.Body.String())
+	assert.NotContains(t, w.Body.String(), "event: error\n")
 }
 
 // 项目里 /responses 注册在多组路由：/v1/responses（gateway）、裸 /responses（top-level）、
