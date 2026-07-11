@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -164,15 +165,86 @@ func TestGatewayHandleStreamingAwareError_ResponsesStreamingEmitsResponseFailed(
 	assert.Equal(t, "upstream gone", errObj["message"])
 }
 
-// Gateway handler: /v1/messages preserves the legacy data:{type:error,...} format
-// (Anthropic spec accepts a type:"error" stream event).
-func TestGatewayHandleStreamingAwareError_MessagesStreamingKeepsLegacy(t *testing.T) {
+func parseAnthropicErrorSSE(t *testing.T, body string) map[string]any {
+	t.Helper()
+	require.True(t, strings.Contains(body, "event: error\n"), "expect Anthropic event:error, got: %q", body)
+	parts := strings.Split(body, "event: error\n")
+	require.NotEmpty(t, parts)
+	errFrame := parts[len(parts)-1]
+	require.True(t, strings.HasSuffix(errFrame, "\n\n"), "error frame must end with blank line, got: %q", errFrame)
+	lines := strings.Split(strings.TrimSuffix(errFrame, "\n\n"), "\n")
+	require.NotEmpty(t, lines)
+	require.True(t, strings.HasPrefix(lines[0], "data: "))
+	jsonStr := strings.TrimPrefix(lines[0], "data: ")
+
+	var parsed map[string]any
+	require.NoError(t, json.Unmarshal([]byte(jsonStr), &parsed), "data must be valid JSON: %s", jsonStr)
+	assert.Equal(t, "error", parsed["type"])
+	return parsed
+}
+
+// Gateway handler: /v1/messages must emit a named Anthropic error event.
+func TestGatewayHandleStreamingAwareError_MessagesStreamingEmitsAnthropicErrorEvent(t *testing.T) {
 	c, w := newGinContextForEndpoint(t, EndpointMessages)
 	h := &GatewayHandler{}
 	h.handleStreamingAwareError(c, http.StatusBadGateway, "upstream_error", "boom", true)
 
+	parsed := parseAnthropicErrorSSE(t, w.Body.String())
+	errorObj, ok := parsed["error"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "upstream_error", errorObj["type"])
+	assert.Equal(t, "boom", errorObj["message"])
+}
+
+func TestSSEPingFormatClaude_UsesNamedAnthropicPingEvent(t *testing.T) {
+	assert.Equal(t, "event: ping\ndata: {\"type\":\"ping\"}\n\n", string(SSEPingFormatClaude))
+}
+
+func TestOpenAIEnsureAnthropicErrorResponse_AfterWaitPingAppendsErrorEvent(t *testing.T) {
+	c, w := newGinContextForEndpoint(t, EndpointMessages)
+	_, _ = c.Writer.WriteString(string(SSEPingFormatComment))
+
+	h := &OpenAIGatewayHandler{}
+	wrote := h.ensureAnthropicErrorResponse(c, true, false)
+
+	require.True(t, wrote)
 	body := w.Body.String()
-	assert.True(t, strings.HasPrefix(body, `data: {"type":"error"`), "got: %q", body)
+	assert.True(t, strings.HasPrefix(body, string(SSEPingFormatComment)), "earlier wait ping must be preserved")
+	parsed := parseAnthropicErrorSSE(t, body)
+	errorObj, ok := parsed["error"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "api_error", errorObj["type"])
+	assert.Equal(t, "Upstream request failed", errorObj["message"])
+	assert.NotContains(t, body, "event: message_start\n", "fallback error must not synthesize message_start")
+}
+
+func TestOpenAIHandleAnthropicFailoverExhausted_AfterWaitPingEmitsErrorEvent(t *testing.T) {
+	c, w := newGinContextForEndpoint(t, EndpointMessages)
+	_, _ = c.Writer.WriteString(string(SSEPingFormatComment))
+
+	h := &OpenAIGatewayHandler{}
+	h.handleAnthropicFailoverExhausted(c, &service.UpstreamFailoverError{StatusCode: http.StatusServiceUnavailable}, true)
+
+	body := w.Body.String()
+	assert.True(t, strings.HasPrefix(body, string(SSEPingFormatComment)), "earlier wait ping must be preserved")
+	parsed := parseAnthropicErrorSSE(t, body)
+	errorObj, ok := parsed["error"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "upstream_error", errorObj["type"])
+	assert.Equal(t, "Upstream service temporarily unavailable", errorObj["message"])
+}
+
+func TestOpenAIEnsureAnthropicErrorResponse_NormalStartedStreamDoesNotDuplicateMessageStart(t *testing.T) {
+	c, w := newGinContextForEndpoint(t, EndpointMessages)
+	_, _ = c.Writer.WriteString("event: message_start\ndata: {\"type\":\"message_start\"}\n\n")
+
+	h := &OpenAIGatewayHandler{}
+	wrote := h.ensureAnthropicErrorResponse(c, true, true)
+
+	require.True(t, wrote)
+	body := w.Body.String()
+	assert.Equal(t, 1, strings.Count(body, "event: message_start\n"), "normal stream must keep exactly one message_start")
+	assert.Equal(t, 1, strings.Count(body, "event: error\n"), "mid-stream failure should append one terminal error")
 }
 
 // 项目里 /responses 注册在多组路由：/v1/responses（gateway）、裸 /responses（top-level）、

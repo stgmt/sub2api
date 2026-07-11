@@ -1085,7 +1085,8 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 					return
 				}
 				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
-				wroteFallback := h.ensureAnthropicErrorResponse(c, streamStarted)
+				anthropicStarted := result != nil && result.ClientOutputStarted
+				wroteFallback := h.ensureAnthropicErrorResponse(c, streamStarted, anthropicStarted)
 				reqLog.Warn("openai_messages.forward_failed",
 					zap.Int64("account_id", account.ID),
 					zap.Bool("fallback_error_response_written", wroteFallback),
@@ -1225,9 +1226,25 @@ func (h *OpenAIGatewayHandler) mapAnthropicFailoverBodyError(failoverErr *servic
 	return status, errType, errMsg, true
 }
 
-// ensureAnthropicErrorResponse writes a fallback Anthropic error if no response was written.
-func (h *OpenAIGatewayHandler) ensureAnthropicErrorResponse(c *gin.Context, streamStarted bool) bool {
-	if c == nil || c.Writer == nil || c.Writer.Written() {
+// ensureAnthropicErrorResponse writes a fallback Anthropic error.
+//
+// For /v1/messages, wait-ping/concurrency may already have opened HTTP 200 and
+// flushed SSE keepalive bytes before the upstream request produces any Anthropic
+// event. In that state c.Writer.Written() is true, but the stream still needs a
+// protocol-level Anthropic terminal event; otherwise Claude Code sees a silent
+// EOF ("Stream ended without receiving any events").
+func (h *OpenAIGatewayHandler) ensureAnthropicErrorResponse(c *gin.Context, streamStarted bool, anthropicStarted bool) bool {
+	if c == nil || c.Writer == nil {
+		return false
+	}
+	if streamStarted {
+		if !anthropicStarted {
+			requestLogger(c, "handler.openai_gateway.messages").Warn("zero_anthropic_event_stream")
+		}
+		h.anthropicStreamingAwareError(c, http.StatusBadGateway, "api_error", "Upstream request failed", true)
+		return true
+	}
+	if c.Writer.Written() {
 		return false
 	}
 	h.anthropicStreamingAwareError(c, http.StatusBadGateway, "api_error", "Upstream request failed", streamStarted)
