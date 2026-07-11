@@ -68,6 +68,7 @@ Read only the file needed for the current task:
 ## Operating Rules
 
 - Do not print OAuth tokens, API keys, refresh tokens, passwords, or copied auth files in chat.
+- Do not wait for the user to catch persistence regressions. For every install, repair, Docker compose, Headroom, embedding-server, cache, Postgres, Redis, or "make reusable" task, proactively audit persistence before claiming done. The required proof is `docker inspect` showing `Type=bind` for Headroom `/root/.headroom`, `/root/.cache/headroom`, `/root/.cache/huggingface`, sub2api `/app/data`, Postgres data, and Redis `/data`, plus `CCR_STORE True <nonzero>` after memory traffic. If any state path is a Docker named volume, fix the compose/profile/scripts first, recreate only the affected services, rerun `scripts/verify-claude-code-sub2api.ps1`, sync the local skill, commit, and push when repo changes were made.
 - Prefer request-time `/v1/messages` probes and `usage_logs.upstream_model` over `/v1/models` catalog output.
 - Keep Spark as Claude Code small-fast and compact first hop. While native Spark is quota-limited, keep Claude Code `ANTHROPIC_DEFAULT_HAIKU_MODEL` and `CLAUDE_CODE_SUBAGENT_MODEL` on `gpt-5.6-terra-high` so delegated/default-Haiku paths do not accidentally hit Spark and do not inherit parent Sol/max. Set normal messages `model_fallbacks` so `gpt-5.6-terra-high` falls back to `gpt-5.6-sol-medium` on empty-output or unavailable-model failures. Pin frequent subagents with frontmatter `model: gpt-5.6-terra-high` and `effort: high`.
 - Keep Luna as the second hop after Spark for small-fast/Haiku and compact fallbacks, with `gpt-5.4-mini` as the last-resort fallback. Direct `gpt-5.6-luna` requests fall back to `gpt-5.3-codex-spark`, then `gpt-5.4-mini`.
@@ -88,10 +89,11 @@ Read only the file needed for the current task:
 
 1. Inspect current state: `~/.claude/settings.json`, User env, Docker container health, group mapping, account `credentials` compact mappings, and account `extra.model_rate_limits`.
 2. If installing or repairing Docker/Claude config, read `references/install-and-claude-config.md` and use the bundled setup script.
-3. If changing models or compact routing, read `references/group-and-compact-routing.md` and patch both `groups.messages_dispatch_model_config` and `accounts.credentials`.
-4. If debugging limits or errors, read `references/troubleshooting.md` before changing DB state. Preserve non-quota reasons such as `upstream_404_model_not_found` unless deliberately re-probing that model.
-5. Verify with `references/verification.md`: Headroom health/upstream, sub2api health, GPT-5.6 probes through Headroom, Claude alias probes, and `usage_logs` mapping evidence.
-6. Update this skill only after live verification when a model lineup, context window, or proxy behavior changes.
+3. If the task touches persistence, embeddings, caches, Docker volumes, compose, setup, or "reusable" docs, run the host-bind audit before and after changes. Do not accept Docker named volumes as equivalent to host persistence.
+4. If changing models or compact routing, read `references/group-and-compact-routing.md` and patch both `groups.messages_dispatch_model_config` and `accounts.credentials`.
+5. If debugging limits or errors, read `references/troubleshooting.md` before changing DB state. Preserve non-quota reasons such as `upstream_404_model_not_found` unless deliberately re-probing that model.
+6. Verify with `references/verification.md`: Headroom health/upstream, host bind mounts, sub2api health, GPT-5.6 probes through Headroom, Claude alias probes, and `usage_logs` mapping evidence.
+7. Update this skill only after live verification when a model lineup, context window, persistence layout, or proxy behavior changes.
 
 ## Bundled Scripts
 

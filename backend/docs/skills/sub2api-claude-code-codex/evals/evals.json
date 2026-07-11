@@ -36,6 +36,12 @@
       "prompt": "Сделай быструю компактизацию Claude Code через sub2api: основная модель gpt-5.6-sol, small-fast gpt-5.3-codex-spark, fallback gpt-5.6-luna, потом gpt-5.4-mini, и проверь.",
       "expected_output": "Keeps ANTHROPIC_MODEL on gpt-5.6-sol and ANTHROPIC_SMALL_FAST_MODEL on gpt-5.3-codex-spark with normal model_fallbacks to gpt-5.6-luna and then gpt-5.4-mini; while Spark is quota-limited, keeps ANTHROPIC_DEFAULT_HAIKU_MODEL, CLAUDE_CODE_SUBAGENT_MODEL, and frequent delegated agents on gpt-5.6-terra-high with effort high plus gpt-5.6-sol-medium fallback. Direct gpt-5.6-luna falls back to gpt-5.3-codex-spark, then gpt-5.4-mini unless usage_logs proves native Luna. Configures or verifies sub2api account compact_model_mapping from gpt-5.6-sol/gpt-5.6-terra/gpt-5.6-luna to gpt-5.3-codex-spark plus compact_model_fallbacks from Spark to gpt-5.6-luna and then gpt-5.4-mini, restarts the sub2api container only if needed, and confirms compact routing from usage_logs.requested_model/upstream_model.",
       "files": []
+    },
+    {
+      "id": 7,
+      "prompt": "Почини Headroom/sub2api persistence так, чтобы я больше не пинал за Docker volumes и чтобы эмбеддинги не терялись.",
+      "expected_output": "Proactively audits Docker inspect mounts before claiming done, refuses Docker named volumes for state, configures SUB2API_STATE_ROOT host bind mounts for Headroom /root/.headroom, /root/.cache/headroom, /root/.cache/huggingface, sub2api /app/data, Postgres data, and Redis /data, keeps the start-headroom-proxy bootstrap seed path, recreates only affected services, verifies Type=bind for every stateful container, verifies CCR_STORE True with nonzero size after memory traffic, verifies embedding-server SocketEmbedderClient and EMBED_OK, syncs the installed local skill, and commits/pushes repo skill/docs/script changes.",
+      "files": []
     }
   ]
 }
