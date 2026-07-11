@@ -14,6 +14,9 @@
       "savings_profile": "agent-90",
       "target_ratio": 0.1,
       "context_tool": "rtk",
+      "embedding_server": true,
+      "embedding_server_socket": "/tmp/headroom-embed-8787.sock",
+      "embedding_server_patch": "deploy/claude-code-codex-headroom/patch-headroom-embedding-server.py",
       "mcp_server": "wsl.exe -e docker exec -i headroom-sub2api headroom mcp serve --proxy-url http://127.0.0.1:8787",
       "docker_tools": [
         "rtk",

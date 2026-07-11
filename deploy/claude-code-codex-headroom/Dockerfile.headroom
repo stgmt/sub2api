@@ -16,6 +16,9 @@ RUN python -m pip install --upgrade pip \
     && headroom tools install \
     && python -c "from headroom.rtk.installer import ensure_rtk; from headroom.lean_ctx.installer import ensure_lean_ctx; from headroom.graph.tokensave_installer import ensure_tokensave; print('rtk', ensure_rtk()); print('lean-ctx', ensure_lean_ctx()); print('tokensave', ensure_tokensave())"
 
+COPY patch-headroom-embedding-server.py /tmp/patch-headroom-embedding-server.py
+RUN python /tmp/patch-headroom-embedding-server.py
+
 RUN set -eux; \
     ln -sf /root/.headroom/bin/rtk /usr/local/bin/rtk; \
     ln -sf /root/.headroom/bin/lean-ctx /usr/local/bin/lean-ctx; \

@@ -34,6 +34,9 @@ claude mcp list
 wsl.exe -- docker exec headroom-sub2api headroom tools doctor
 wsl.exe -- docker exec headroom-sub2api headroom savings --json
 wsl.exe -- docker exec headroom-sub2api headroom perf --hours 1 --format json
+wsl.exe -- docker logs --tail 120 headroom-sub2api
+wsl.exe -- docker exec headroom-sub2api sh -lc "test -S /tmp/headroom-embed-8787.sock && echo SOCKET_OK"
+wsl.exe -- docker exec headroom-sub2api python -c "import os; os.environ['HEADROOM_EMBEDDING_SERVER_SOCKET']='/tmp/headroom-embed-8787.sock'; from headroom.memory.config import MemoryConfig, EmbedderBackend; from headroom.memory.factory import _create_embedder; e=_create_embedder(MemoryConfig(embedder_backend=EmbedderBackend.ONNX)); print(type(e).__module__, type(e).__name__, e.dimension)"
 
 claude --model $env:ANTHROPIC_MODEL --effort max --print --no-session-persistence "/context"
 claude --model $env:ANTHROPIC_MODEL --effort max --print --output-format json --no-session-persistence "Reply exactly: OK_SUB2API"
@@ -50,6 +53,8 @@ Headroom health reports ready and upstream http://sub2api:8080
 sub2api health reports ok on the direct diagnostic/admin port
 Claude MCP list shows headroom connected through Docker; stale host headroom.exe/tokensave.exe entries are absent
 Headroom tools doctor shows difft, scc, and ast-grep on PATH; the image also includes rtk, lean-ctx, and tokensave
+Headroom logs show `Embedding server: ready.` and do not show `Falling back to per-worker embedder`
+`/tmp/headroom-embed-8787.sock` exists, and the memory factory returns `headroom.memory.adapters.watchdog SocketEmbedderClient 384` when `HEADROOM_EMBEDDING_SERVER_SOCKET` is set
 Headroom savings/perf shows nonzero proxy traffic after Claude Code has used the proxy
 User env CLAUDE_CODE_EFFORT_LEVEL is absent; /effort can change the session effort
 ```

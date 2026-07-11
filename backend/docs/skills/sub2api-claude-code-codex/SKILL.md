@@ -18,14 +18,14 @@ Branch: main
 Verified main commit: use `git log -1 --oneline` on https://github.com/stgmt/sub2api main after each stack update
 Fixed issue: https://github.com/stgmt/sub2api/issues/1
 Image: sub2api-codex:local-token-usage
-Headroom image: headroom-sub2api:0.31.0 built from headroom-ai[proxy,code,relevance,html,spreadsheet,otel,reports,mcp] plus RTK, lean-ctx, TokenSave, ast-grep, difft, and scc
+Headroom image: headroom-sub2api:0.31.0 built from headroom-ai[proxy,code,relevance,html,spreadsheet,otel,reports,mcp] plus RTK, lean-ctx, TokenSave, ast-grep, difft, scc, and the downstream embedding-server patch
 Docker compose project: sub2api-codex
 Deploy profile: deploy/claude-code-codex-headroom
 Claude base URL: http://127.0.0.1:8787
 Claude chain: Claude Code -> Headroom 127.0.0.1:8787 -> Docker DNS http://sub2api:8080
 Direct sub2api URL: http://127.0.0.1:18081 for admin UI, diagnostics, and non-Claude clients only
 Headroom MCP: user-level Claude MCP named `headroom`, launched through `wsl.exe -e docker exec -i headroom-sub2api headroom mcp serve --proxy-url http://127.0.0.1:8787`
-Headroom savings profile: agent-90, target ratio 0.10, context tool RTK, code-aware compression on, output shaper on
+Headroom savings profile: agent-90, target ratio 0.10, context tool RTK, code-aware compression on, memory on, embedding server on, output shaper on
 Main model: gpt-5.6-sol
 Small-fast/compact first hop: gpt-5.3-codex-spark with normal model_fallbacks to gpt-5.6-luna, then gpt-5.4-mini
 Default Haiku and subagent overrides: gpt-5.6-terra-high while native Spark is quota-limited, with model_fallbacks to gpt-5.6-sol-medium so empty Terra tool turns do not loop on the same account
@@ -76,6 +76,7 @@ Read only the file needed for the current task:
 - Treat `stale fake 429/503` as a proxy state bug first: issue #1 fixed quota-origin cooldown recovery, so stale recurrence usually means an old image, stale container, or non-quota cooldown reason.
 - For Docker-in-WSL, verify both Headroom and sub2api health plus the Windows route. If Windows cannot reach `127.0.0.1:8787` but WSL/Docker can, publish Headroom on `0.0.0.0` and use the WSL eth0 IP on port `8787`; do not point Claude Code directly at sub2api `18081` except as a temporary diagnostic bypass.
 - Keep Headroom/RTK/lean-ctx/TokenSave binaries inside Docker for this profile. If `claude mcp list` shows `headroom` or `tokensave` pointing at missing `%USERPROFILE%\.local\bin\*.exe`, remove those stale user MCP entries. Re-add only `headroom` as a Docker-backed stdio server unless the user explicitly asks for a host install.
+- Keep `--embedding-server` enabled. The upstream `headroom-ai==0.31.0` wheel exposes the flag but omits `headroom.memory.adapters.watchdog`; this image patches in a Unix-socket `EmbeddingServerWatchdog` and `SocketEmbedderClient` so memory workers use the sidecar instead of silently falling back to per-worker embedders. If startup logs show `Falling back to per-worker embedder`, rebuild from the patched Dockerfile.
 - Verify Headroom optimization with `docker exec headroom-sub2api headroom tools doctor`, `headroom savings --json`, and `headroom perf --format json`. A healthy stack should show bundled tools on PATH and nonzero proxy savings once traffic has passed through Headroom.
 - After code changes, rebuild `sub2api-codex:local-token-usage` or the compose profile, recreate affected services under project `sub2api-codex`, then re-run live probes through Headroom.
 

@@ -36,6 +36,13 @@ difft
 scc
 ```
 
+It also applies `deploy/claude-code-codex-headroom/patch-headroom-embedding-server.py`.
+This downstream patch is required for `headroom-ai==0.31.0`: the upstream CLI
+has `--embedding-server`, but the published wheel omits
+`headroom.memory.adapters.watchdog`. The patch adds a Unix-socket watchdog and
+socket embedder client so Headroom memory workers use `/tmp/headroom-embed-8787.sock`
+instead of falling back to per-worker embedders.
+
 The default `.env` profile is `HEADROOM_SAVINGS_PROFILE=agent-90`, `HEADROOM_TARGET_RATIO=0.10`, `HEADROOM_CONTEXT_TOOL=rtk`, `HEADROOM_CODE_AWARE_ENABLED=1`, and `HEADROOM_OUTPUT_SHAPER=1`.
 
 Claude Code should not point at stale host binaries for Headroom or TokenSave. If `claude mcp list` shows `C:\Users\...\headroom.exe` or `tokensave.exe` and those files are missing, remove those entries. The setup script re-adds only the `headroom` MCP through Docker:

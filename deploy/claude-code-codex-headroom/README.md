@@ -18,6 +18,12 @@ at stale host binaries for these tools; the setup script registers the
 wsl.exe -e docker exec -i headroom-sub2api headroom mcp serve --proxy-url http://127.0.0.1:8787
 ```
 
+The image also patches `headroom-ai==0.31.0` so `headroom proxy
+--embedding-server` actually starts a Unix-socket embedding sidecar. The
+published wheel exposes the flag but omits
+`headroom.memory.adapters.watchdog`; the local patch adds the watchdog and a
+socket embedder client used by Headroom memory workers.
+
 ## Quick Start
 
 From the repository root:
@@ -63,6 +69,7 @@ HEADROOM_TARGET_RATIO=0.10
 HEADROOM_CONTEXT_TOOL=rtk
 HEADROOM_CODE_AWARE_ENABLED=1
 HEADROOM_OUTPUT_SHAPER=1
+--embedding-server
 ```
 
 Use `headroom savings --json`, `headroom perf --format json`, and

@@ -32,6 +32,7 @@ services:
       - --memory
       - --memory-storage
       - project
+      - --embedding-server
       - --no-ccr-proactive-expansion
       - --anthropic-api-url
       - http://sub2api:8080
