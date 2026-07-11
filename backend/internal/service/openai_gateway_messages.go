@@ -79,11 +79,13 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	var anthropicCompactFallbackUpstreamModels []string
 	if anthropicCompactRequest {
 		compactBillingModel := resolveOpenAICompactForwardModel(account, billingModel)
-		anthropicCompactModelMapped = compactBillingModel != "" && compactBillingModel != billingModel
-		if anthropicCompactModelMapped {
+		if compactBillingModel != "" {
+			anthropicCompactFallbackUpstreamModels = resolveOpenAICompactFallbackForwardModels(account, anthropicCompactRequestedModel, compactBillingModel)
+		}
+		anthropicCompactModelMapped = compactBillingModel != "" && (compactBillingModel != billingModel || len(anthropicCompactFallbackUpstreamModels) > 0)
+		if compactBillingModel != "" && compactBillingModel != billingModel {
 			billingModel = compactBillingModel
 			upstreamModel = normalizeOpenAIModelForUpstream(account, billingModel)
-			anthropicCompactFallbackUpstreamModels = resolveOpenAICompactFallbackForwardModels(account, anthropicCompactRequestedModel, billingModel)
 		}
 	}
 	promptCacheKey = strings.TrimSpace(promptCacheKey)
@@ -415,6 +417,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 				zap.Strings("fallback_upstream_models", anthropicCompactFallbackUpstreamModels),
 				zap.Error(fallbackErr),
 			)
+			return s.writeAnthropicCompactEmergencyFallback(c, account, &anthropicReq, originalModel, billingModel, upstreamModel, startTime, result, OpenAIUsage{}, clientStream, resp.Header.Get("x-request-id"), fallbackErr)
 		}
 		if previousResponseID != "" && (isOpenAICompatPreviousResponseNotFound(resp.StatusCode, upstreamMsg, respBody) || isOpenAICompatPreviousResponseUnsupported(resp.StatusCode, upstreamMsg, respBody)) {
 			if isOpenAICompatPreviousResponseUnsupported(resp.StatusCode, upstreamMsg, respBody) {
@@ -583,7 +586,7 @@ func (s *OpenAIGatewayService) handleAnthropicCompactMappedStreamingResponse(
 		)
 		result, fallbackErr := s.runAnthropicCompactChunkFallbackWithModelFallbacks(ctx, c, account, anthropicReq, token, originalModel, compactFallbackUpstreamModels, startTime, usage, clientStream, requestID)
 		if fallbackErr != nil && !c.Writer.Written() {
-			writeAnthropicError(c, http.StatusBadGateway, "api_error", openAIAnthropicCompactFallbackFallbackResponse)
+			return s.writeAnthropicCompactEmergencyFallback(c, account, anthropicReq, originalModel, billingModel, upstreamModel, startTime, result, usage, clientStream, requestID, fallbackErr)
 		}
 		return result, fallbackErr
 	}
@@ -599,7 +602,7 @@ func (s *OpenAIGatewayService) handleAnthropicCompactMappedStreamingResponse(
 		candidates := append([]string{upstreamModel}, compactFallbackUpstreamModels...)
 		result, fallbackErr := s.runAnthropicCompactChunkFallbackWithModelFallbacks(ctx, c, account, anthropicReq, token, originalModel, candidates, startTime, usage, clientStream, requestID)
 		if fallbackErr != nil && !c.Writer.Written() {
-			writeAnthropicError(c, http.StatusBadGateway, "api_error", openAIAnthropicCompactFallbackFallbackResponse)
+			return s.writeAnthropicCompactEmergencyFallback(c, account, anthropicReq, originalModel, billingModel, upstreamModel, startTime, result, usage, clientStream, requestID, fallbackErr)
 		}
 		return result, fallbackErr
 	}
@@ -623,9 +626,56 @@ func (s *OpenAIGatewayService) handleAnthropicCompactMappedStreamingResponse(
 			return nil, fmt.Errorf("openai cyber_policy: %s", msg)
 		}
 	}
+	if !anthropicResponseHasVisibleOutput(apicompat.ResponsesToAnthropic(finalResponse, originalModel)) && len(compactFallbackUpstreamModels) > 0 {
+		logger.L().Warn("openai_messages.compact_empty_output_fallback",
+			zap.String("request_id", requestID),
+			zap.Int64("account_id", account.ID),
+			zap.String("model", originalModel),
+			zap.String("upstream_model", upstreamModel),
+			zap.Int("initial_input_tokens", usage.InputTokens),
+		)
+		candidates := append([]string{upstreamModel}, compactFallbackUpstreamModels...)
+		result, fallbackErr := s.runAnthropicCompactChunkFallbackWithModelFallbacks(ctx, c, account, anthropicReq, token, originalModel, candidates, startTime, usage, clientStream, requestID)
+		if fallbackErr != nil && !c.Writer.Written() {
+			return s.writeAnthropicCompactEmergencyFallback(c, account, anthropicReq, originalModel, billingModel, upstreamModel, startTime, result, usage, clientStream, requestID, fallbackErr)
+		}
+		return result, fallbackErr
+	}
 
 	acc.SupplementResponseOutput(finalResponse)
 	return s.writeAnthropicBufferedFinalResponse(c, account, resp.Header, finalResponse, usage, originalModel, billingModel, upstreamModel, startTime, clientStream, requestID)
+}
+
+func (s *OpenAIGatewayService) writeAnthropicCompactEmergencyFallback(
+	c *gin.Context,
+	account *Account,
+	anthropicReq *apicompat.AnthropicRequest,
+	originalModel string,
+	billingModel string,
+	upstreamModel string,
+	startTime time.Time,
+	fallbackResult *OpenAIForwardResult,
+	initialUsage OpenAIUsage,
+	clientStream bool,
+	requestID string,
+	cause error,
+) (*OpenAIForwardResult, error) {
+	usage := initialUsage
+	if fallbackResult != nil {
+		usage = fallbackResult.Usage
+		requestID = firstNonEmpty(fallbackResult.RequestID, requestID)
+	}
+	compactPrompt, transcript := buildAnthropicCompactFallbackTranscript(anthropicReq)
+	emergency := buildAnthropicCompactEmergencySummary(compactPrompt, []string{transcript})
+	finalResponse := buildAnthropicCompactEmergencyResponse(upstreamModel, emergency, usage)
+	logger.L().Warn("openai_messages.compact_emergency_summary_returned",
+		zap.Int64("account_id", account.ID),
+		zap.String("model", originalModel),
+		zap.String("upstream_model", upstreamModel),
+		zap.String("request_id", requestID),
+		zap.Error(cause),
+	)
+	return s.writeAnthropicBufferedFinalResponse(c, account, nil, finalResponse, usage, originalModel, billingModel, upstreamModel, startTime, clientStream, requestID)
 }
 
 // handleAnthropicBufferedStreamingResponse reads all Responses SSE events from

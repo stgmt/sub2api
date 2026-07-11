@@ -92,9 +92,9 @@
       "If Claude Code reports 429 rate_limit_error or legacy 503 Service temporarily unavailable while /health is ok, check for openai_messages.account_select_failed with no available accounts.",
       "Do not treat account cooldown 503 as a context-window, ghost-stream, or localhost routing failure.",
       "Use gpt-5.3-codex-spark as ANTHROPIC_SMALL_FAST_MODEL for compact/small-fast routing, but use gpt-5.6-terra-high as ANTHROPIC_DEFAULT_HAIKU_MODEL while native Spark is quota-limited so delegated/default-Haiku paths do not hit Spark quota or inherit parent Sol/max.",
-      "Use gpt-5.6-terra-high with effort: high for the user-level Claude Code general-purpose, Explore, and workflow-subagent overrides while native Spark is quota-limited. The -high alias is intentionally normalized by patched sub2api to upstream gpt-5.6-terra with reasoning_effort=high so delegated agents do not inherit parent Sol/max. This is a model/effort override, not a global Agent-blocking hook.",
+      "Use gpt-5.6-terra-high with effort: high for the user-level Claude Code general-purpose, Explore, and workflow-subagent overrides while native Spark is quota-limited. The -high alias is intentionally normalized by patched sub2api to upstream gpt-5.6-terra with reasoning_effort=high so delegated agents do not inherit parent Sol/max. Add model_fallbacks from gpt-5.6-terra-high to gpt-5.6-sol-medium so empty Terra tool turns fall back to Sol at medium effort instead of looping or inheriting high. This is a model/effort override, not a global Agent-blocking hook.",
       "Do not install PreToolUse/SubagentStart/SubagentStop state-file hooks to block Agent calls unless the user explicitly asks for a hard cap. Current fan-out control is advisory through workflowSizeGuideline=small and general-purpose.md guardrails. Do not claim a built-in depth cap prevents hundreds of spawned descendants; local sessions showed one parent line reaching hundreds of spawned agents.",
-      "Use messages_dispatch_model_config.model_fallbacks for normal small-fast/Haiku fallback: gpt-5.3-codex-spark -> gpt-5.6-luna -> gpt-5.4-mini. Direct gpt-5.6-luna requests fall back to gpt-5.3-codex-spark -> gpt-5.4-mini.",
+      "Use messages_dispatch_model_config.model_fallbacks for normal small-fast/Haiku fallback: gpt-5.3-codex-spark -> gpt-5.6-luna -> gpt-5.4-mini. Direct gpt-5.6-luna requests fall back to gpt-5.3-codex-spark -> gpt-5.4-mini. Delegated gpt-5.6-terra-high falls back to gpt-5.6-sol-medium.",
       "Fresh 2026-07-10 Luna re-probe returned HTTP 200 but usage_logs showed gpt-5.6-luna -> gpt-5.4-mini and ops_error_logs recorded recovered upstream 429. Treat Luna as unavailable until the mapping chain ends at gpt-5.6-luna.",
       "Set compact_model_fallbacks so Spark compact failures caused by rate limit, quota, unknown/unsupported model, or service-unavailable class errors continue through gpt-5.6-luna, then gpt-5.4-mini.",
       "Manual /compact may ignore ANTHROPIC_SMALL_FAST_MODEL in some Claude Code builds and use the session main model. Verify compact routing via usage_logs.requested_model/upstream_model."
@@ -174,6 +174,9 @@
         "gpt-5.6-luna": [
           "gpt-5.3-codex-spark",
           "gpt-5.4-mini"
+        ],
+        "gpt-5.6-terra-high": [
+          "gpt-5.6-sol-medium"
         ],
         "claude-haiku-*": [
           "gpt-5.6-luna",

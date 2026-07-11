@@ -77,6 +77,7 @@ func TestNormalizeOpenAICompatRequestedModel(t *testing.T) {
 		want  string
 	}{
 		{name: "gpt reasoning alias strips xhigh", input: "gpt-5.4-xhigh", want: "gpt-5.4"},
+		{name: "gpt reasoning alias strips mid", input: "gpt-5.6-sol-mid", want: "gpt-5.6-sol"},
 		{name: "gpt reasoning alias strips none", input: "gpt-5.4-none", want: "gpt-5.4"},
 		{name: "codex max model stays intact", input: "gpt-5.1-codex-max", want: "gpt-5.1-codex-max"},
 		{name: "non openai model unchanged", input: "claude-opus-4-6", want: "claude-opus-4-6"},
@@ -113,6 +114,16 @@ func TestApplyOpenAICompatModelNormalization(t *testing.T) {
 		require.Equal(t, "gpt-5.6-terra", req.Model)
 		require.NotNil(t, req.OutputConfig)
 		require.Equal(t, "high", req.OutputConfig.Effort)
+	})
+
+	t.Run("mid alias maps to medium effort", func(t *testing.T) {
+		req := &apicompat.AnthropicRequest{Model: "gpt-5.6-sol-mid"}
+
+		applyOpenAICompatModelNormalization(req)
+
+		require.Equal(t, "gpt-5.6-sol", req.Model)
+		require.NotNil(t, req.OutputConfig)
+		require.Equal(t, "medium", req.OutputConfig.Effort)
 	})
 
 	t.Run("non openai model is untouched", func(t *testing.T) {
@@ -830,6 +841,52 @@ func TestForwardAsAnthropic_ClaudeCodeCompactReturnsEmergencySummaryWhenMergeSti
 	require.Len(t, upstream.bodies, 3)
 }
 
+func TestForwardAsAnthropic_ClaudeHaikuCompactSameModelEmptyOutputUsesEmergencySummary(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(fmt.Sprintf(`{"model":"claude-haiku-4-5-20251001","max_tokens":16,"messages":[{"role":"user","content":"active task: keep compact moving"},{"role":"user","content":[{"type":"text","text":%q}]}],"stream":true}`,
+		testClaudeCodeCompactPrompt(),
+	))
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		testOpenAICompatSSECompletedEmptyResponse("resp_empty_full", "gpt-5.3-codex-spark", 168_033, 0),
+		testOpenAICompatSSECompletedEmptyResponse("resp_empty_chunk", "gpt-5.3-codex-spark", 1_200, 0),
+	}}
+	svc := &OpenAIGatewayService{
+		httpUpstream: upstream,
+		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
+	}
+	account := &Account{
+		ID:          1,
+		Name:        "openai-oauth",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"access_token":       "oauth-token",
+			"chatgpt_account_id": "chatgpt-acc",
+		},
+	}
+
+	result, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "gpt-5.3-codex-spark")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.True(t, strings.HasPrefix(result.ResponseID, "compact_fallback_"))
+	require.Equal(t, "claude-haiku-4-5-20251001", result.Model)
+	require.Equal(t, "gpt-5.3-codex-spark", result.BillingModel)
+	require.Equal(t, "gpt-5.3-codex-spark", result.UpstreamModel)
+	require.Contains(t, rec.Body.String(), "# Compact Capsule")
+	require.Contains(t, rec.Body.String(), "active task: keep compact moving")
+	require.Len(t, upstream.bodies, 2)
+	require.Equal(t, "gpt-5.3-codex-spark", gjson.GetBytes(upstream.bodies[0], "model").String())
+	require.Equal(t, "gpt-5.3-codex-spark", gjson.GetBytes(upstream.bodies[1], "model").String())
+}
+
 func testOpenAICompatSSEFailedContextResponse(id, model string, inputTokens int) *http.Response {
 	body := fmt.Sprintf(
 		"data: {\"type\":\"response.failed\",\"response\":{\"id\":%q,\"object\":\"response\",\"model\":%q,\"status\":\"failed\",\"output\":[],\"error\":{\"code\":\"context_length_exceeded\",\"message\":\"Your input exceeds the context window of this model. Please adjust your input and try again.\"},\"usage\":{\"input_tokens\":%d,\"output_tokens\":0,\"total_tokens\":%d}}}\n\ndata: [DONE]\n\n",
@@ -850,6 +907,22 @@ func testOpenAICompatJSONErrorResponse(statusCode int, code, message, requestID 
 	return &http.Response{
 		StatusCode: statusCode,
 		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{requestID}},
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+}
+
+func testOpenAICompatSSECompletedEmptyResponse(id, model string, inputTokens, outputTokens int) *http.Response {
+	body := fmt.Sprintf(
+		"data: {\"type\":\"response.completed\",\"response\":{\"id\":%q,\"object\":\"response\",\"model\":%q,\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":%d,\"output_tokens\":%d,\"total_tokens\":%d}}}\n\ndata: [DONE]\n\n",
+		id,
+		model,
+		inputTokens,
+		outputTokens,
+		inputTokens+outputTokens,
+	)
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"rid_" + id}},
 		Body:       io.NopCloser(strings.NewReader(body)),
 	}
 }

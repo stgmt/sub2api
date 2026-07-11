@@ -17,6 +17,10 @@ func normalizeOpenAIMessagesDispatchMappedModel(model string) string {
 	return strings.TrimSpace(model)
 }
 
+func normalizeOpenAIMessagesDispatchFallbackModel(model string) string {
+	return strings.TrimSpace(model)
+}
+
 func normalizeOpenAIMessagesDispatchModelConfig(cfg OpenAIMessagesDispatchModelConfig) OpenAIMessagesDispatchModelConfig {
 	out := OpenAIMessagesDispatchModelConfig{
 		OpusMappedModel:   normalizeOpenAIMessagesDispatchMappedModel(cfg.OpusMappedModel),
@@ -49,7 +53,7 @@ func normalizeOpenAIMessagesDispatchModelConfig(cfg OpenAIMessagesDispatchModelC
 			normalizedFallbacks := make([]string, 0, len(fallbackModels))
 			seen := make(map[string]bool, len(fallbackModels))
 			for _, fallbackModel := range fallbackModels {
-				fallbackModel = normalizeOpenAIMessagesDispatchMappedModel(fallbackModel)
+				fallbackModel = normalizeOpenAIMessagesDispatchFallbackModel(fallbackModel)
 				if fallbackModel == "" {
 					continue
 				}

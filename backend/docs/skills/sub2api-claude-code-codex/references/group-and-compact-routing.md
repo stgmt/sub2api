@@ -44,11 +44,14 @@ Use these fields:
       "gpt-5.3-codex-spark": ["gpt-5.6-luna", "gpt-5.4-mini"],
       "claude-haiku-*": ["gpt-5.6-luna", "gpt-5.4-mini"],
       "haiku": ["gpt-5.6-luna", "gpt-5.4-mini"],
+      "gpt-5.6-terra-high": ["gpt-5.6-sol-medium"],
       "gpt-5.6-luna": ["gpt-5.3-codex-spark", "gpt-5.4-mini"]
     }
   }
 }
 ```
+
+The `gpt-5.6-terra-high -> gpt-5.6-sol-medium` fallback depends on patched sub2api preserving effort suffixes in `model_fallbacks` while normalizing the routing model for account selection. Without that patch, Sol fallback can silently inherit Terra's `high` effort.
 
 If exact admin API endpoints differ across sub2api versions, use the admin UI and match these field names. The important fields in current sub2api are `allow_messages_dispatch`, `require_oauth_only`, `default_mapped_model`, and `messages_dispatch_model_config`.
 
@@ -68,12 +71,13 @@ Also set compact-only mapping on the OpenAI/Codex OAuth account credentials, not
   },
   "compact_model_fallbacks": {
     "gpt-5.3-codex-spark": ["gpt-5.6-luna", "gpt-5.4-mini"],
-    "gpt-5.6": ["gpt-5.4-mini"],
-    "gpt-5.6-sol": ["gpt-5.4-mini"],
-    "gpt-5.6-terra": ["gpt-5.4-mini"],
-    "gpt-5.6-luna": ["gpt-5.3-codex-spark", "gpt-5.4-mini"],
-    "gpt-5.5": ["gpt-5.4-mini"],
-    "gpt-5.5[400k]": ["gpt-5.4-mini"]
+    "gpt-5.6": ["gpt-5.6-luna", "gpt-5.4-mini"],
+    "gpt-5.6-sol": ["gpt-5.6-luna", "gpt-5.4-mini"],
+    "gpt-5.6-terra": ["gpt-5.6-luna", "gpt-5.4-mini"],
+    "gpt-5.6-luna": ["gpt-5.4-mini"],
+    "gpt-5.5": ["gpt-5.6-luna", "gpt-5.4-mini"],
+    "gpt-5.5[400k]": ["gpt-5.6-luna", "gpt-5.4-mini"],
+    "gpt-5.4": ["gpt-5.6-luna", "gpt-5.4-mini"]
   }
 }
 ```
@@ -91,7 +95,7 @@ set credentials = jsonb_set(
     true
   ),
   '{compact_model_fallbacks}',
-    '{"gpt-5.3-codex-spark":["gpt-5.6-luna","gpt-5.4-mini"],"gpt-5.6":["gpt-5.4-mini"],"gpt-5.6-sol":["gpt-5.4-mini"],"gpt-5.6-terra":["gpt-5.4-mini"],"gpt-5.6-luna":["gpt-5.3-codex-spark","gpt-5.4-mini"],"gpt-5.5":["gpt-5.4-mini"],"gpt-5.5[400k]":["gpt-5.4-mini"]}'::jsonb,
+    '{"gpt-5.3-codex-spark":["gpt-5.6-luna","gpt-5.4-mini"],"gpt-5.6":["gpt-5.6-luna","gpt-5.4-mini"],"gpt-5.6-sol":["gpt-5.6-luna","gpt-5.4-mini"],"gpt-5.6-terra":["gpt-5.6-luna","gpt-5.4-mini"],"gpt-5.6-luna":["gpt-5.4-mini"],"gpt-5.5":["gpt-5.6-luna","gpt-5.4-mini"],"gpt-5.5[400k]":["gpt-5.6-luna","gpt-5.4-mini"],"gpt-5.4":["gpt-5.6-luna","gpt-5.4-mini"]}'::jsonb,
   true
 ), updated_at = now()
 where platform='openai';

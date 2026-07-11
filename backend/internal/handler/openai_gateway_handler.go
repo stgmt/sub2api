@@ -892,7 +892,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	for {
 		currentRoutingModel := routingModel
 		if effectiveMappedModel != "" {
-			currentRoutingModel = effectiveMappedModel
+			currentRoutingModel = service.NormalizeOpenAICompatRequestedModel(effectiveMappedModel)
 		}
 		reqLog.Debug("openai_messages.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
 		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(

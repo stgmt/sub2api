@@ -76,6 +76,7 @@ Expected for the current advisory subagent profile:
 general-purpose.md / Explore.md / workflow-subagent.md frontmatter model: gpt-5.6-terra-high and effort: high
 worker/Claude command line includes -Model "gpt-5.6-terra-high" or --model gpt-5.6-terra-high
 usage_logs rows show requested_model=gpt-5.6-terra-high, upstream_model=gpt-5.6-terra, reasoning_effort=high
+fallback proof for empty/unavailable Terra-high turns: usage_logs should show requested_model=gpt-5.6-terra-high, model_mapping_chain including gpt-5.6-sol, and reasoning_effort=medium after fallback; direct alias probe `claude --print --model gpt-5.6-sol-mid ...` should record upstream_model=gpt-5.6-sol and reasoning_effort=medium
 no global Agent-blocking PreToolUse/SubagentStart/SubagentStop hook is installed unless the user explicitly requested a hard cap
 ```
 

@@ -81,6 +81,8 @@ func splitOpenAICompatReasoningModel(model string) (normalizedModel string, reas
 	case "none", "minimal":
 	case "low", "medium", "high":
 		reasoningEffort = last
+	case "mid", "med":
+		reasoningEffort = "medium"
 	case "xhigh", "extrahigh":
 		reasoningEffort = "xhigh"
 	default:
