@@ -137,6 +137,16 @@ go test .\internal\pkg\apicompat -run 'Anthropic|Responses' -count=1
 
 Expected: service tests pass, apicompat tests pass, and the benchmark reports low single-digit milliseconds for local grouping/emergency-cap work. This benchmark does not include upstream model latency.
 
+For Anthropic `/v1/messages` SSE compatibility after wait-ping/concurrency:
+
+```powershell
+cd .\backend
+go test .\internal\handler -run 'Test(SSEPingFormatClaude|GatewayHandleStreamingAwareError|OpenAIEnsureAnthropicErrorResponse|OpenAIHandleAnthropicFailoverExhausted|OpenAIHandleStreamingAwareError)' -count=1
+go test .\internal\handler -count=1
+```
+
+Expected: wait-ping/comment is followed by a named Anthropic `event: error`, not a bare JSON/data-only frame; failover-exhausted preserves upstream Anthropic error bodies; normal streams keep exactly one `message_start`; OpenAI `/responses` still emits `event: response.failed`. Mutation sanity check: reverting native `/v1/messages` to data-only error or disabling the `streamStarted` SSE branch must fail these tests.
+
 For the current sub2api source path:
 
 ```text
