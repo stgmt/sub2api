@@ -8,10 +8,29 @@ ENV PIP_NO_CACHE_DIR=1 \
     PYTHONUNBUFFERED=1 \
     HEADROOM_TELEMETRY=off
 
-# Use the PyPI package with the proxy extra. The public GHCR image can lag behind
-# current releases, and plain headroom-ai misses runtime proxy dependencies.
+# Install the full local-runtime stack, not only the HTTP proxy. The MCP/CCR,
+# code-aware compression, reports, OTEL, and bundled CLI tools are all used by
+# the Claude Code profile and should survive image rebuilds.
 RUN python -m pip install --upgrade pip \
-    && python -m pip install "headroom-ai[proxy]==${HEADROOM_VERSION}"
+    && python -m pip install "headroom-ai[proxy,code,relevance,html,spreadsheet,otel,reports,mcp]==${HEADROOM_VERSION}" \
+    && headroom tools install \
+    && python -c "from headroom.rtk.installer import ensure_rtk; from headroom.lean_ctx.installer import ensure_lean_ctx; from headroom.graph.tokensave_installer import ensure_tokensave; print('rtk', ensure_rtk()); print('lean-ctx', ensure_lean_ctx()); print('tokensave', ensure_tokensave())"
+
+RUN set -eux; \
+    ln -sf /root/.headroom/bin/rtk /usr/local/bin/rtk; \
+    ln -sf /root/.headroom/bin/lean-ctx /usr/local/bin/lean-ctx; \
+    ln -sf /root/.local/bin/tokensave /usr/local/bin/tokensave; \
+    difft_path="$(find /root/.cache/headroom/bin -type f -name difft | head -n 1)"; \
+    scc_path="$(find /root/.cache/headroom/bin -type f -name scc | head -n 1)"; \
+    test -n "$difft_path"; \
+    test -n "$scc_path"; \
+    ln -sf "$difft_path" /usr/local/bin/difft; \
+    ln -sf "$scc_path" /usr/local/bin/scc; \
+    rtk --version; \
+    lean-ctx --version; \
+    tokensave --version; \
+    difft --version; \
+    scc --version
 
 WORKDIR /home/headroom
 

@@ -30,6 +30,10 @@ if ($effortOverride) { throw "Clear User env CLAUDE_CODE_EFFORT_LEVEL=$effortOve
 
 Invoke-RestMethod "http://127.0.0.1:8787/health"
 Invoke-RestMethod "http://127.0.0.1:18081/health"
+claude mcp list
+wsl.exe -- docker exec headroom-sub2api headroom tools doctor
+wsl.exe -- docker exec headroom-sub2api headroom savings --json
+wsl.exe -- docker exec headroom-sub2api headroom perf --hours 1 --format json
 
 claude --model $env:ANTHROPIC_MODEL --effort max --print --no-session-persistence "/context"
 claude --model $env:ANTHROPIC_MODEL --effort max --print --output-format json --no-session-persistence "Reply exactly: OK_SUB2API"
@@ -39,11 +43,14 @@ Expected for the safe profile:
 
 ```text
 Model: gpt-5.6-sol
-Tokens: ... / 1m
-JSON modelUsage contextWindow: 1050000 and `/context` displays `/1m` for the current GPT-5.6 client profile; this is the Claude Code client window hint, while upstream context failures must still be verified from proxy logs
+Tokens: ... / 370k
+JSON modelUsage contextWindow matches the configured Claude Code client target, currently 370000 with auto-compact at 340000; this is the Claude Code client window hint, while upstream context failures must still be verified from proxy logs
 JSON modelUsage may still show maxOutputTokens: 32000
 Headroom health reports ready and upstream http://sub2api:8080
 sub2api health reports ok on the direct diagnostic/admin port
+Claude MCP list shows headroom connected through Docker; stale host headroom.exe/tokensave.exe entries are absent
+Headroom tools doctor shows difft, scc, and ast-grep on PATH; the image also includes rtk, lean-ctx, and tokensave
+Headroom savings/perf shows nonzero proxy traffic after Claude Code has used the proxy
 User env CLAUDE_CODE_EFFORT_LEVEL is absent; /effort can change the session effort
 ```
 

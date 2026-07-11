@@ -20,9 +20,31 @@ Use the bundled setup script from PowerShell:
 powershell -ExecutionPolicy Bypass -File .\scripts\setup-sub2api-claude-code.ps1
 ```
 
-The script writes `deploy/claude-code-codex-headroom/.env`, starts the compose project `sub2api-codex`, and configures Claude Code environment values. It intentionally does not embed anyone's real OAuth refresh token or sub2api API key.
+The script writes `deploy/claude-code-codex-headroom/.env`, starts the compose project `sub2api-codex`, configures Claude Code environment values, and registers the Docker-backed Headroom MCP server. It intentionally does not embed anyone's real OAuth refresh token or sub2api API key.
 
 Run it from a cloned `stgmt/sub2api` checkout, or pass `-RepoRoot` so it can find `deploy/claude-code-codex-headroom/docker-compose.yml`.
+
+The Headroom image is the full local optimization stack, not a bare proxy:
+
+```text
+headroom-ai[proxy,code,relevance,html,spreadsheet,otel,reports,mcp]
+rtk
+lean-ctx
+tokensave
+ast-grep
+difft
+scc
+```
+
+The default `.env` profile is `HEADROOM_SAVINGS_PROFILE=agent-90`, `HEADROOM_TARGET_RATIO=0.10`, `HEADROOM_CONTEXT_TOOL=rtk`, `HEADROOM_CODE_AWARE_ENABLED=1`, and `HEADROOM_OUTPUT_SHAPER=1`.
+
+Claude Code should not point at stale host binaries for Headroom or TokenSave. If `claude mcp list` shows `C:\Users\...\headroom.exe` or `tokensave.exe` and those files are missing, remove those entries. The setup script re-adds only the `headroom` MCP through Docker:
+
+```powershell
+claude mcp remove headroom -s user
+claude mcp remove tokensave -s user
+claude mcp add headroom -s user -- wsl.exe -e docker exec -i headroom-sub2api headroom mcp serve --proxy-url http://127.0.0.1:8787
+```
 
 ### WSL Docker Notes
 

@@ -15,20 +15,22 @@ Use this profile unless the user explicitly asks for a different model, port, or
 ```text
 Fork: https://github.com/stgmt/sub2api
 Branch: main
-Verified main commit: 8049675b fix: fall back on Anthropic messages model-not-found
+Verified main commit: use `git log -1 --oneline` on https://github.com/stgmt/sub2api main after each stack update
 Fixed issue: https://github.com/stgmt/sub2api/issues/1
 Image: sub2api-codex:local-token-usage
-Headroom image: headroom-sub2api:0.31.0 built from headroom-ai[proxy] on PyPI
+Headroom image: headroom-sub2api:0.31.0 built from headroom-ai[proxy,code,relevance,html,spreadsheet,otel,reports,mcp] plus RTK, lean-ctx, TokenSave, ast-grep, difft, and scc
 Docker compose project: sub2api-codex
 Deploy profile: deploy/claude-code-codex-headroom
 Claude base URL: http://127.0.0.1:8787
 Claude chain: Claude Code -> Headroom 127.0.0.1:8787 -> Docker DNS http://sub2api:8080
 Direct sub2api URL: http://127.0.0.1:18081 for admin UI, diagnostics, and non-Claude clients only
+Headroom MCP: user-level Claude MCP named `headroom`, launched through `wsl.exe -e docker exec -i headroom-sub2api headroom mcp serve --proxy-url http://127.0.0.1:8787`
+Headroom savings profile: agent-90, target ratio 0.10, context tool RTK, code-aware compression on, output shaper on
 Main model: gpt-5.6-sol
 Small-fast/compact first hop: gpt-5.3-codex-spark with normal model_fallbacks to gpt-5.6-luna, then gpt-5.4-mini
 Default Haiku and subagent overrides: gpt-5.6-terra-high while native Spark is quota-limited, with model_fallbacks to gpt-5.6-sol-medium so empty Terra tool turns do not loop on the same account
 Official model windows: GPT-5.6 Sol/Terra/Luna = 1.05M; Claude Fable 5/Opus 4.8/Sonnet 5 = 1M; Claude Haiku 4.5 = 200k
-Client context target: CLAUDE_CODE_MAX_CONTEXT_TOKENS=1050000, CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000 (Claude Code client display/planning target for the 1.05M GPT-5.6 route)
+Client context target: CLAUDE_CODE_MAX_CONTEXT_TOKENS=370000, CLAUDE_CODE_AUTO_COMPACT_WINDOW=340000 (Claude Code client compact/display target; lower than the official 1.05M GPT-5.6 window to avoid late upstream overflow and max-output failures)
 Compact model: gpt-5.3-codex-spark, fallback gpt-5.6-luna, then gpt-5.4-mini
 Reasoning: main GPT-5.6 uses max; delegated Terra subagents use high unless explicitly raised
 ```
@@ -70,9 +72,11 @@ Read only the file needed for the current task:
 - For Claude Code `general-purpose`, `Explore`, and `workflow-subagent`, use user-level overrides at `%USERPROFILE%\.claude\agents\*.md` with `model: gpt-5.6-terra-high` and `effort: high` while Spark is quota-limited. The `-high` alias is intentional: patched sub2api strips it to upstream `gpt-5.6-terra` and records `reasoning_effort=high`, overriding inherited parent `max`. If Terra returns a 0-visible-output turn, patched sub2api must preserve fallback effort aliases and switch to `gpt-5.6-sol-medium` (`reasoning_effort=medium`), not bare Sol/high. Project-specific agents such as `agent-marketplace-agent` should get the same frontmatter when they fan out heavily. Verify with agent JSONL and `usage_logs.reasoning_effort`, not with the Claude UI label alone.
 - Do not persist `CLAUDE_CODE_EFFORT_LEVEL` in Windows User/System env or `~/.claude/settings.json env`. It overrides Claude Code's interactive `/effort` command for every session. Use `effortLevel` only as a soft startup default, and prefer `xhigh` for the profile default so users can switch to `max`, `high`, or lower efforts in-session.
 - Do not install a global `PreToolUse` / `SubagentStart` / `SubagentStop` hook that blocks Agent calls unless the user explicitly asks for it. Current policy is advisory only: `workflowSizeGuideline=small` plus the `general-purpose` prompt asks for no more than 10 sibling agents and no deep chains. Do not claim Claude Code has a reliable built-in depth cap that prevents hundreds of descendants; local evidence has shown a single parent line can grow into hundreds of spawned agents.
-- Never describe `400000` as the GPT-5.6 upstream/model context limit. It was an old conservative Claude Code client target from the GPT-5.5-era instability. Current GPT-5.6 client profile is `CLAUDE_CODE_MAX_CONTEXT_TOKENS=1050000` and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000`; still verify real upstream failures from proxy logs before blaming context.
+- Never describe `400000`, `370000`, or `340000` as the GPT-5.6 upstream/model context limit. These are Claude Code client compact/display targets. Current safe client profile is `CLAUDE_CODE_MAX_CONTEXT_TOKENS=370000` and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=340000`; still verify real upstream failures from proxy logs before blaming context.
 - Treat `stale fake 429/503` as a proxy state bug first: issue #1 fixed quota-origin cooldown recovery, so stale recurrence usually means an old image, stale container, or non-quota cooldown reason.
 - For Docker-in-WSL, verify both Headroom and sub2api health plus the Windows route. If Windows cannot reach `127.0.0.1:8787` but WSL/Docker can, publish Headroom on `0.0.0.0` and use the WSL eth0 IP on port `8787`; do not point Claude Code directly at sub2api `18081` except as a temporary diagnostic bypass.
+- Keep Headroom/RTK/lean-ctx/TokenSave binaries inside Docker for this profile. If `claude mcp list` shows `headroom` or `tokensave` pointing at missing `%USERPROFILE%\.local\bin\*.exe`, remove those stale user MCP entries. Re-add only `headroom` as a Docker-backed stdio server unless the user explicitly asks for a host install.
+- Verify Headroom optimization with `docker exec headroom-sub2api headroom tools doctor`, `headroom savings --json`, and `headroom perf --format json`. A healthy stack should show bundled tools on PATH and nonzero proxy savings once traffic has passed through Headroom.
 - After code changes, rebuild `sub2api-codex:local-token-usage` or the compose profile, recreate affected services under project `sub2api-codex`, then re-run live probes through Headroom.
 
 ## Workflow
@@ -86,7 +90,7 @@ Read only the file needed for the current task:
 
 ## Bundled Scripts
 
-- `scripts/setup-sub2api-claude-code.ps1`: create/update `deploy/claude-code-codex-headroom/.env`, start the Headroom + sub2api compose project, and configure Claude Code settings. Defaults to `gpt-5.6-sol`, `gpt-5.3-codex-spark`, `CLAUDE_CODE_MAX_CONTEXT_TOKENS=1050000`, and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000`.
+- `scripts/setup-sub2api-claude-code.ps1`: create/update `deploy/claude-code-codex-headroom/.env`, start the Headroom + sub2api compose project, register the Docker-backed Headroom MCP, remove stale host `tokensave` MCP, and configure Claude Code settings. Defaults to `gpt-5.6-sol`, `gpt-5.3-codex-spark`, `HEADROOM_SAVINGS_PROFILE=agent-90`, `HEADROOM_TARGET_RATIO=0.10`, `CLAUDE_CODE_MAX_CONTEXT_TOKENS=370000`, and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=340000`.
 - `scripts/verify-claude-code-sub2api.ps1`: verify Headroom health/upstream, sub2api health, Claude Code settings, and expected upstream model behavior.
 - `scripts/install-claude-compact-recovery.ps1`: install Claude Code compact recovery hooks.
 - `scripts/compact-recovery.mjs`: lightweight compact recovery hook implementation.
@@ -97,6 +101,8 @@ For install/config/debug tasks, do not call it done until these are true or expl
 
 - `headroom-sub2api` and `sub2api-codex` containers are healthy.
 - Headroom `/health` reports ready and upstream `http://sub2api:8080`.
+- `claude mcp list` shows `headroom` connected through Docker, not a missing host executable; stale host `tokensave` MCP is removed unless deliberately installed on host.
+- `docker exec headroom-sub2api headroom tools doctor` shows RTK-related bundled tools available, and `headroom savings --json` / `headroom perf --format json` prove the optimization layer is recording traffic.
 - A tiny `/v1/messages` request through `http://127.0.0.1:8787` succeeds for `gpt-5.6-sol` and for Haiku/small-fast through `gpt-5.3-codex-spark` or the configured `gpt-5.6-luna -> gpt-5.4-mini` fallback chain, or a current upstream quota/cooldown blocker is proven as `429`.
 - Claude aliases route as expected in `usage_logs` or response/model mapping evidence: Opus -> Sol, Sonnet -> Terra, Haiku -> Spark -> Luna -> mini.
 - `~/.claude/settings.json` and User env agree on main/small models and Claude Code client context target.

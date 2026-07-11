@@ -12,7 +12,9 @@ Source fork: https://github.com/stgmt/sub2api
 Source branch: main
 Verified fork commit: 8049675b fix: fall back on Anthropic messages model-not-found
 Fixed issue: https://github.com/stgmt/sub2api/issues/1
-Headroom image: headroom-sub2api:0.31.0 built from headroom-ai[proxy] on PyPI
+Headroom image: headroom-sub2api:0.31.0 built from headroom-ai[proxy,code,relevance,html,spreadsheet,otel,reports,mcp] on PyPI plus RTK, lean-ctx, TokenSave, ast-grep, difft, and scc
+Headroom profile: agent-90, target ratio 0.10, context tool RTK, code-aware compression enabled, output shaper enabled
+Headroom MCP: user-level Claude MCP named headroom, launched through Docker with `wsl.exe -e docker exec -i headroom-sub2api headroom mcp serve --proxy-url http://127.0.0.1:8787`
 sub2api image: sub2api-codex:local-token-usage
 Deploy profile: deploy/claude-code-codex-headroom
 Claude base URL: http://127.0.0.1:8787
@@ -39,8 +41,8 @@ Reasoning: main GPT-5.6 max should reach upstream/usage as max; delegated Terra 
 Official GPT-5.6 context window: 1,050,000 tokens with 128,000 max output for Sol/Terra/Luna.
 Official Claude context windows: Fable 5, Opus 4.8, and Sonnet 5 are 1M; Haiku 4.5 is 200k.
 Official context docs checked on 2026-07-10: OpenAI https://developers.openai.com/api/docs/models and Anthropic https://platform.claude.com/docs/en/about-claude/models/overview
-Default Claude Code client compact/display target for this local proxy: CLAUDE_CODE_MAX_CONTEXT_TOKENS=1050000
-Default Claude Code auto compact target for this local proxy: CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000
+Default Claude Code client compact/display target for this local proxy: CLAUDE_CODE_MAX_CONTEXT_TOKENS=370000
+Default Claude Code auto compact target for this local proxy: CLAUDE_CODE_AUTO_COMPACT_WINDOW=340000
 Important: these values are Claude Code local display/planning/auto-compact behavior. The upstream proxy/model is still authoritative; verify real failures in sub2api logs and `ops_error_logs`.
 Output guard: CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
 Thinking guard: MAX_THINKING_TOKENS=8000
@@ -100,7 +102,7 @@ Why both context variables matter:
 - `CLAUDE_CODE_MAX_CONTEXT_TOKENS` makes Claude Code report the chosen `contextWindow` in JSON output.
 - `CLAUDE_CODE_AUTO_COMPACT_WINDOW` makes `/context` display the chosen denominator and decides when Claude Code compacts.
 - Official GPT-5.6 API docs list a 1,050,000 token context window and 128,000 max output for Sol/Terra/Luna. Official Claude docs list Fable 5, Opus 4.8, and Sonnet 5 at 1M, and Haiku 4.5 at 200k.
-- For the current 5.6 proxy profile, default Claude Code to `CLAUDE_CODE_MAX_CONTEXT_TOKENS=1050000` and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000`. This fixes Claude Code's `/200k` fallback for custom/proxy models while leaving a small buffer below the 1.05M upstream window for auto-compact.
+- For the current 5.6 proxy profile, default Claude Code to `CLAUDE_CODE_MAX_CONTEXT_TOKENS=370000` and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=340000`. This fixes Claude Code's `/200k` fallback for custom/proxy models while forcing compaction before the local route's observed long-context danger zone. Do not call 370k or 340k the upstream model limit; they are client safety thresholds.
 
 Why output and thinking guards matter:
 

@@ -15,18 +15,21 @@ param(
   [string]$SubagentEffort = "high",
   [ValidateSet("auto", "low", "medium", "high", "xhigh", "max")]
   [string]$DefaultEffort = "xhigh",
-  [int]$MaxContextTokens = 1050000,
-  [int]$AutoCompactWindow = 1000000,
+  [int]$MaxContextTokens = 370000,
+  [int]$AutoCompactWindow = 340000,
   [int]$MaxOutputTokens = 64000,
   [int]$MaxThinkingTokens = 8000,
   [string]$HeadroomVersion = "0.31.0",
   [string]$HeadroomPythonVersion = "3.12",
+  [string]$HeadroomSavingsProfile = "agent-90",
+  [string]$HeadroomTargetRatio = "0.10",
   [string]$Sub2apiImage = "sub2api-codex:local-token-usage",
   [string]$ApiKey = "",
   [switch]$ForceRegenerateSecrets,
   [switch]$SkipDockerUp,
   [switch]$SkipClaudeConfig,
-  [switch]$SkipGeneralPurposeAgent
+  [switch]$SkipGeneralPurposeAgent,
+  [switch]$SkipHeadroomMcp
 )
 
 $ErrorActionPreference = "Stop"
@@ -123,6 +126,35 @@ function Write-DotEnv([System.Collections.IDictionary]$Map, [string]$Path) {
     "HEADROOM_PYTHON_VERSION",
     "HEADROOM_BIND_HOST",
     "HEADROOM_PORT",
+    "HEADROOM_SAVINGS_PROFILE",
+    "HEADROOM_TARGET_RATIO",
+    "HEADROOM_FORCE_KOMPRESS",
+    "HEADROOM_ACCURACY_GUARD",
+    "HEADROOM_CODE_AWARE_ENABLED",
+    "HEADROOM_CONTEXT_TOOL",
+    "HEADROOM_RTK_GAIN_SCOPE",
+    "HEADROOM_COMPRESS_USER_MESSAGES",
+    "HEADROOM_COMPRESS_SYSTEM_MESSAGES",
+    "HEADROOM_PROTECT_ANALYSIS_CONTEXT",
+    "HEADROOM_PROTECT_READS",
+    "HEADROOM_PROTECT_RECENT",
+    "HEADROOM_MIN_TOKENS",
+    "HEADROOM_MAX_ITEMS",
+    "HEADROOM_DEDUPE",
+    "HEADROOM_TOOL_SEARCH",
+    "HEADROOM_LOSSLESS_THEN_LOSSY",
+    "HEADROOM_OUTPUT_SHAPER",
+    "HEADROOM_OUTPUT_HOLDOUT",
+    "HEADROOM_REQUEST_TIMEOUT_SECONDS",
+    "HEADROOM_ANTHROPIC_PRE_UPSTREAM_CONCURRENCY",
+    "HEADROOM_COMPRESSION_MAX_WORKERS",
+    "HEADROOM_KOMPRESS_EXECUTION_TIMEOUT_MS",
+    "HEADROOM_COMPRESSION_TIMEOUT_SECONDS",
+    "HEADROOM_COMPRESSION_DEADLINE_MS",
+    "HEADROOM_KOMPRESS_MAX_CONCURRENT",
+    "HEADROOM_KOMPRESS_ONNX_INTRA_THREADS",
+    "HEADROOM_KOMPRESS_ONNX_INTER_THREADS",
+    "HEADROOM_KOMPRESS_BATCH_SIZE",
     "SUB2API_BIND_HOST",
     "SUB2API_PORT",
     "SUB2API_IMAGE",
@@ -191,6 +223,35 @@ Set-DotEnvValue $envMap "HEADROOM_VERSION" $HeadroomVersion
 Set-DotEnvValue $envMap "HEADROOM_PYTHON_VERSION" $HeadroomPythonVersion
 Set-DotEnvValue $envMap "HEADROOM_BIND_HOST" $HeadroomBindHost
 Set-DotEnvValue $envMap "HEADROOM_PORT" ([string]$HeadroomPort)
+Set-DotEnvValue $envMap "HEADROOM_SAVINGS_PROFILE" $HeadroomSavingsProfile
+Set-DotEnvValue $envMap "HEADROOM_TARGET_RATIO" $HeadroomTargetRatio
+Set-DotEnvValue $envMap "HEADROOM_FORCE_KOMPRESS" "1"
+Set-DotEnvValue $envMap "HEADROOM_ACCURACY_GUARD" "strict"
+Set-DotEnvValue $envMap "HEADROOM_CODE_AWARE_ENABLED" "1"
+Set-DotEnvValue $envMap "HEADROOM_CONTEXT_TOOL" "rtk"
+Set-DotEnvValue $envMap "HEADROOM_RTK_GAIN_SCOPE" "global"
+Set-DotEnvValue $envMap "HEADROOM_COMPRESS_USER_MESSAGES" "1"
+Set-DotEnvValue $envMap "HEADROOM_COMPRESS_SYSTEM_MESSAGES" "1"
+Set-DotEnvValue $envMap "HEADROOM_PROTECT_ANALYSIS_CONTEXT" "1"
+Set-DotEnvValue $envMap "HEADROOM_PROTECT_READS" "0"
+Set-DotEnvValue $envMap "HEADROOM_PROTECT_RECENT" "2"
+Set-DotEnvValue $envMap "HEADROOM_MIN_TOKENS" "120"
+Set-DotEnvValue $envMap "HEADROOM_MAX_ITEMS" "8"
+Set-DotEnvValue $envMap "HEADROOM_DEDUPE" "0"
+Set-DotEnvValue $envMap "HEADROOM_TOOL_SEARCH" "0"
+Set-DotEnvValue $envMap "HEADROOM_LOSSLESS_THEN_LOSSY" "0"
+Set-DotEnvValue $envMap "HEADROOM_OUTPUT_SHAPER" "1"
+Set-DotEnvValue $envMap "HEADROOM_OUTPUT_HOLDOUT" "0"
+Set-DotEnvValue $envMap "HEADROOM_REQUEST_TIMEOUT_SECONDS" "900"
+Set-DotEnvValue $envMap "HEADROOM_ANTHROPIC_PRE_UPSTREAM_CONCURRENCY" "8"
+Set-DotEnvValue $envMap "HEADROOM_COMPRESSION_MAX_WORKERS" "2"
+Set-DotEnvValue $envMap "HEADROOM_KOMPRESS_EXECUTION_TIMEOUT_MS" "60000"
+Set-DotEnvValue $envMap "HEADROOM_COMPRESSION_TIMEOUT_SECONDS" "120"
+Set-DotEnvValue $envMap "HEADROOM_COMPRESSION_DEADLINE_MS" "90000"
+Set-DotEnvValue $envMap "HEADROOM_KOMPRESS_MAX_CONCURRENT" "2"
+Set-DotEnvValue $envMap "HEADROOM_KOMPRESS_ONNX_INTRA_THREADS" "2"
+Set-DotEnvValue $envMap "HEADROOM_KOMPRESS_ONNX_INTER_THREADS" "1"
+Set-DotEnvValue $envMap "HEADROOM_KOMPRESS_BATCH_SIZE" "16"
 Set-DotEnvValue $envMap "SUB2API_BIND_HOST" $Sub2apiBindHost
 Set-DotEnvValue $envMap "SUB2API_PORT" ([string]$Sub2apiPort)
 Set-DotEnvValue $envMap "SUB2API_IMAGE" $Sub2apiImage
@@ -367,6 +428,20 @@ $Body
       "Claude Code workflow subagent override. Pins generated workflow worker agents to GPT-5.6 Terra high effort on the local proxy profile." `
       "You are the workflow-subagent Claude Code worker.`n`nExecute the delegated workflow slice in your own context and return only the specific result the parent workflow needs. Keep the scope bounded, prefer concrete evidence from files, commands, logs, and tests, and avoid expanding a small slice into a broad investigation."
   }
+
+  if (-not $SkipHeadroomMcp) {
+    if ((Get-Command claude -ErrorAction SilentlyContinue) -and (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
+      try {
+        & claude mcp remove headroom -s user *> $null
+      } catch {}
+      try {
+        & claude mcp remove tokensave -s user *> $null
+      } catch {}
+      & claude mcp add headroom -s user -- wsl.exe -e docker exec -i headroom-sub2api headroom mcp serve --proxy-url "http://127.0.0.1:8787"
+    } else {
+      Write-Warning "Could not configure Docker-backed Headroom MCP because claude or wsl.exe was not found."
+    }
+  }
 }
 
 Write-Host "repo root: $resolvedRepoRoot"
@@ -377,6 +452,7 @@ Write-Host "sub2api admin/diagnostics: http://$Sub2apiBindHost`:$Sub2apiPort"
 Write-Host "Claude base URL: $ClaudeBaseUrl"
 Write-Host "sub2api image: $Sub2apiImage"
 Write-Host "Headroom image: headroom-sub2api:$HeadroomVersion"
+Write-Host "Headroom savings profile: $HeadroomSavingsProfile (target ratio $HeadroomTargetRatio)"
 Write-Host "model: $Model"
 Write-Host "default effort: $DefaultEffort (use /effort inside Claude Code to change per session)"
 Write-Host "small-fast model: $SmallFastModel"

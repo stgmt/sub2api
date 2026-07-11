@@ -11,7 +11,7 @@ Known failure signatures and fixes for routing, empty streams, context overflow,
 If `/context` still shows `/200k`:
 
 - Ensure `CLAUDE_CODE_MAX_CONTEXT_TOKENS` is present in both User env and `~/.claude/settings.json`.
-- Ensure `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is below the official/proven upstream window. For the current GPT-5.6 profile, use `CLAUDE_CODE_MAX_CONTEXT_TOKENS=1050000` and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000`; `/200k` means Claude Code fell back to its custom-model default.
+- Ensure `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is below the official/proven upstream window. For the current GPT-5.6 Claude Code client profile, use `CLAUDE_CODE_MAX_CONTEXT_TOKENS=370000` and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=340000`; `/200k` means Claude Code fell back to its custom-model default.
 - Restart the terminal. Current shells do not automatically receive newly written User env values.
 
 If requests do not hit sub2api:
@@ -67,7 +67,7 @@ If Claude Code reports `API Error: Upstream service temporarily unavailable`:
 - If `terminal_error_code=context_length_exceeded`, the problem is not workflow fan-out or localhost routing. The upstream Codex model rejected the prompt size. In the observed local setup, this starts around `272k+` estimated input tokens despite Claude being configured to display `/400k`.
 - Patched local behavior for normal non-compact requests: `context_length_exceeded` is returned to Claude Code as `400 invalid_request_error` without same-account retries, instead of being masked as `API Error: Upstream service temporarily unavailable`.
 - Patched local behavior for Claude Code compact prompts: when the full compact overflows the mapped compact model, the proxy should not return the 400 directly; it should log `openai_messages.compact_context_length_fallback`, summarize chunks, merge them, and return a successful compact response. If the user still sees a 400 during `/compact`, verify the live container image was rebuilt/recreated and that `usage_logs.upstream_model` is `gpt-5.3-codex-spark`.
-- To stop repeats while diagnosing context-window behavior, first verify whether the error is a real upstream `context_length_exceeded`, a proxy routing/rate-limit error, or Claude Code's client display fallback. For the current GPT-5.6 profile, use `CLAUDE_CODE_MAX_CONTEXT_TOKENS=1050000` and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000`, then restart Claude Code windows.
+- To stop repeats while diagnosing context-window behavior, first verify whether the error is a real upstream `context_length_exceeded`, a proxy routing/rate-limit error, or Claude Code's client display fallback. For the current GPT-5.6 Claude Code client profile, use `CLAUDE_CODE_MAX_CONTEXT_TOKENS=370000` and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=340000`, then restart Claude Code windows.
 - Check sub2api access logs for `status_code: 502`.
 - If those rows are `/v1/messages`, `stream=false`, and the moderation log shows a large `body_bytes` value around `1000000`, it is Claude Code's non-streaming fallback sending a huge retry body. Set `CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK=1` in both User env and `~/.claude/settings.json`, then restart Claude Code windows.
 - If sub2api logs around the same timestamp show only `status_code: 200`, `stream=true`, and the JSONL transcript records a synthetic API error inside `subagents/workflows/...`, the failing layer is Claude Code's dynamic workflow fan-out, not the proxy HTTP response. Do not claim `workflowSizeGuideline=small` will prevent it; the local setup already had it and still produced hundreds of spawned descendants. Stop the existing workflow from `/workflows` and relaunch only a narrow prompt, or disable workflows for that session/profile when fan-out must not happen. Large already-generated workflow scripts are not retroactively shrunk.
@@ -167,4 +167,9 @@ If Claude Code sub-agent status shows `0 tokens` but sub2api usage logs show non
 If the user wants a larger display than the safe profile:
 
 - Do not invent it for Codex subscription. A larger Claude Code denominator is only a local client hint; the upstream is authoritative.
-- In the old 5.5 setup, `/400k` was disproven by upstream `context_length_exceeded` around `272k-278k` estimated input tokens. Do not generalize that old 5.5 evidence to GPT-5.6. GPT-5.6 Sol/Terra/Luna are configured locally with `max_input_tokens=1050000`; use clean `gpt-5.6-sol` plus `gpt-5.3-codex-spark` small-fast/Haiku labels and the 1M Claude Code client target.
+- In the old 5.5 setup, `/400k` was disproven by upstream `context_length_exceeded` around `272k-278k` estimated input tokens. Do not generalize that old 5.5 evidence to GPT-5.6. GPT-5.6 Sol/Terra/Luna are configured locally with `max_input_tokens=1050000`; use clean `gpt-5.6-sol` plus `gpt-5.3-codex-spark` small-fast/Haiku labels, and keep the Claude Code client compact/display target at 370k/340k unless a fresh long-context probe proves a better safe threshold.
+
+Headroom Docker stack:
+
+- Keep the Headroom HTTP proxy, RTK, lean-ctx, TokenSave, ast-grep, difft, and scc inside the Docker image for this profile. Claude Code should use a Docker-backed `headroom` MCP, not stale `%USERPROFILE%\.local\bin\headroom.exe` or `tokensave.exe` paths.
+- Do not enable Headroom `--embedding-server` on `headroom-ai==0.31.0` in this image. Live verification showed it logs `No module named 'headroom.memory.adapters.watchdog'` and falls back to the per-worker embedder. The memory layer is still healthy without that flag; verify through `/health` `checks.memory.status=healthy`.

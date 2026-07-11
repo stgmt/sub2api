@@ -8,9 +8,21 @@
     "windows_localhost_fallback": "If Windows cannot reach 127.0.0.1:8787 but WSL/Docker can, publish Headroom on 0.0.0.0 and use http://<wsl-primary-ip>:8787. Do not use :18081 as the normal Claude Code endpoint.",
     "headroom": {
       "docker_image": "headroom-sub2api:0.31.0",
-      "package": "headroom-ai[proxy]==0.31.0",
+      "package": "headroom-ai[proxy,code,relevance,html,spreadsheet,otel,reports,mcp]==0.31.0",
       "docker_bind": "127.0.0.1:8787->8787",
-      "upstream": "http://sub2api:8080"
+      "upstream": "http://sub2api:8080",
+      "savings_profile": "agent-90",
+      "target_ratio": 0.1,
+      "context_tool": "rtk",
+      "mcp_server": "wsl.exe -e docker exec -i headroom-sub2api headroom mcp serve --proxy-url http://127.0.0.1:8787",
+      "docker_tools": [
+        "rtk",
+        "lean-ctx",
+        "tokensave",
+        "ast-grep",
+        "difft",
+        "scc"
+      ]
     },
     "sub2api": {
       "direct_base_url": "http://127.0.0.1:18081",
@@ -20,7 +32,7 @@
     },
     "container_name": "sub2api-codex",
     "fork": "https://github.com/stgmt/sub2api",
-    "verified_main_commit": "8049675b",
+    "verified_main_commit": "check git log -1 on stgmt/main after each pushed stack update",
     "account_concurrency": 32,
     "disable_nonstreaming_fallback": true
   },
@@ -63,10 +75,10 @@
     "general_purpose_subagent_model": "gpt-5.6-terra-high",
     "subagent_effort": "high",
     "effort": "max",
-    "max_context_tokens": 1050000,
-    "auto_compact_window": 1000000,
+    "max_context_tokens": 370000,
+    "auto_compact_window": 340000,
     "context_target_kind": "conservative Claude Code client compact/display target, not a proven model window",
-    "raise_context_target_rule": "Raise toward 1050000 only after a live long-context probe succeeds through this Docker proxy and this OpenAI/Codex OAuth account.",
+    "raise_context_target_rule": "Raise toward 1050000 only after a live long-context probe succeeds through this Docker proxy and this OpenAI/Codex OAuth account. Default to 370000/340000 until that proof exists.",
     "max_output_tokens": 64000,
     "max_thinking_tokens": 8000,
     "disable_nonessential_traffic": true,

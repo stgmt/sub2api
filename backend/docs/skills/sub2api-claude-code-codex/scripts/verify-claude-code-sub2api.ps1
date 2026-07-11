@@ -163,6 +163,22 @@ if (-not $SkipDockerLogs) {
     Write-Host "`nCompose services:"
     docker compose -p $ProjectName ps
 
+    Write-Host "`nClaude MCP servers:"
+    if (Get-Command claude -ErrorAction SilentlyContinue) {
+      claude mcp list
+    } else {
+      Write-Warning "claude command not found; skipping MCP list."
+    }
+
+    Write-Host "`nHeadroom tools doctor:"
+    docker exec headroom-sub2api headroom tools doctor
+
+    Write-Host "`nHeadroom savings:"
+    docker exec headroom-sub2api headroom savings --json
+
+    Write-Host "`nHeadroom perf:"
+    docker exec headroom-sub2api headroom perf --hours 1 --format json
+
     Write-Host "`nRecent usage logs:"
     $recentUsageSql = "select id, requested_model, upstream_model, reasoning_effort, model_mapping_chain, input_tokens, created_at from usage_logs order by id desc limit 5;"
     docker exec sub2api-codex-postgres psql -U sub2api -d sub2api -F "," -Atc $recentUsageSql
@@ -177,6 +193,18 @@ if (-not $SkipDockerLogs) {
 
     Write-Host "`nCompose services:"
     wsl.exe -- bash -lc "docker compose -p '$ProjectName' ps"
+    Write-Host "`nClaude MCP servers:"
+    if (Get-Command claude -ErrorAction SilentlyContinue) {
+      claude mcp list
+    } else {
+      Write-Warning "claude command not found; skipping MCP list."
+    }
+    Write-Host "`nHeadroom tools doctor:"
+    wsl.exe -- docker exec headroom-sub2api headroom tools doctor
+    Write-Host "`nHeadroom savings:"
+    wsl.exe -- docker exec headroom-sub2api headroom savings --json
+    Write-Host "`nHeadroom perf:"
+    wsl.exe -- docker exec headroom-sub2api headroom perf --hours 1 --format json
     Write-Host "`nRecent usage logs:"
     $recentUsageSql = "select id, requested_model, upstream_model, reasoning_effort, model_mapping_chain, input_tokens, created_at from usage_logs order by id desc limit 5;"
     wsl.exe -- bash -lc "docker exec sub2api-codex-postgres psql -U sub2api -d sub2api -F ',' -Atc $(Quote-BashSingle $recentUsageSql)"
