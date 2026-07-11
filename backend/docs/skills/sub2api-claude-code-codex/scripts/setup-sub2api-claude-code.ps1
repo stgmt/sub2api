@@ -13,6 +13,8 @@ param(
   [string]$DefaultHaikuModel = "gpt-5.6-terra-high",
   [string]$SubagentModel = "gpt-5.6-terra-high",
   [string]$SubagentEffort = "high",
+  [ValidateSet("auto", "low", "medium", "high", "xhigh", "max")]
+  [string]$DefaultEffort = "xhigh",
   [int]$MaxContextTokens = 1050000,
   [int]$AutoCompactWindow = 1000000,
   [int]$MaxOutputTokens = 64000,
@@ -67,6 +69,12 @@ function Set-ObjectProperty([object]$Object, [string]$Name, [object]$Value) {
     $Object.PSObject.Properties[$Name].Value = $Value
   } else {
     $Object | Add-Member -NotePropertyName $Name -NotePropertyValue $Value
+  }
+}
+
+function Remove-ObjectProperty([object]$Object, [string]$Name) {
+  if ($null -ne $Object -and $Object.PSObject.Properties[$Name]) {
+    $Object.PSObject.Properties.Remove($Name)
   }
 }
 
@@ -259,7 +267,7 @@ if (-not $SkipClaudeConfig) {
   }
 
   Set-ObjectProperty $settings "model" $Model
-  Set-ObjectProperty $settings "effortLevel" "max"
+  Set-ObjectProperty $settings "effortLevel" $DefaultEffort
   Set-ObjectProperty $settings.env "ANTHROPIC_BASE_URL" $ClaudeBaseUrl
   Set-ObjectProperty $settings.env "ANTHROPIC_MODEL" $Model
   Set-ObjectProperty $settings.env "ANTHROPIC_DEFAULT_HAIKU_MODEL" $DefaultHaikuModel
@@ -271,6 +279,7 @@ if (-not $SkipClaudeConfig) {
   Set-ObjectProperty $settings.env "MAX_THINKING_TOKENS" ([string]$MaxThinkingTokens)
   Set-ObjectProperty $settings.env "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC" "1"
   Set-ObjectProperty $settings.env "CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK" "1"
+  Remove-ObjectProperty $settings.env "CLAUDE_CODE_EFFORT_LEVEL"
   $settings | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $settingsPath -Encoding UTF8
 
   [Environment]::SetEnvironmentVariable("ANTHROPIC_BASE_URL", $ClaudeBaseUrl, "User")
@@ -284,6 +293,11 @@ if (-not $SkipClaudeConfig) {
   [Environment]::SetEnvironmentVariable("MAX_THINKING_TOKENS", [string]$MaxThinkingTokens, "User")
   [Environment]::SetEnvironmentVariable("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1", "User")
   [Environment]::SetEnvironmentVariable("CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK", "1", "User")
+  try {
+    [Environment]::SetEnvironmentVariable("CLAUDE_CODE_EFFORT_LEVEL", $null, "User")
+  } catch {
+    Write-Warning "Could not clear user CLAUDE_CODE_EFFORT_LEVEL: $($_.Exception.Message)"
+  }
 
   $globalConfigPath = Join-Path $env:USERPROFILE ".claude.json"
   if (Test-Path $globalConfigPath) {
@@ -364,6 +378,7 @@ Write-Host "Claude base URL: $ClaudeBaseUrl"
 Write-Host "sub2api image: $Sub2apiImage"
 Write-Host "Headroom image: headroom-sub2api:$HeadroomVersion"
 Write-Host "model: $Model"
+Write-Host "default effort: $DefaultEffort (use /effort inside Claude Code to change per session)"
 Write-Host "small-fast model: $SmallFastModel"
 Write-Host "default Haiku model: $DefaultHaikuModel"
 Write-Host "subagent model/effort: $SubagentModel / $SubagentEffort"

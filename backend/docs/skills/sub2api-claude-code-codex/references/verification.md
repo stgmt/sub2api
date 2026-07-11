@@ -25,6 +25,8 @@ $env:CLAUDE_CODE_MAX_CONTEXT_TOKENS = [Environment]::GetEnvironmentVariable("CLA
 $env:CLAUDE_CODE_AUTO_COMPACT_WINDOW = [Environment]::GetEnvironmentVariable("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "User")
 $env:CLAUDE_CODE_MAX_OUTPUT_TOKENS = [Environment]::GetEnvironmentVariable("CLAUDE_CODE_MAX_OUTPUT_TOKENS", "User")
 $env:MAX_THINKING_TOKENS = [Environment]::GetEnvironmentVariable("MAX_THINKING_TOKENS", "User")
+$effortOverride = [Environment]::GetEnvironmentVariable("CLAUDE_CODE_EFFORT_LEVEL", "User")
+if ($effortOverride) { throw "Clear User env CLAUDE_CODE_EFFORT_LEVEL=$effortOverride; it overrides /effort in Claude Code." }
 
 Invoke-RestMethod "http://127.0.0.1:8787/health"
 Invoke-RestMethod "http://127.0.0.1:18081/health"
@@ -42,6 +44,7 @@ JSON modelUsage contextWindow: 1050000 and `/context` displays `/1m` for the cur
 JSON modelUsage may still show maxOutputTokens: 32000
 Headroom health reports ready and upstream http://sub2api:8080
 sub2api health reports ok on the direct diagnostic/admin port
+User env CLAUDE_CODE_EFFORT_LEVEL is absent; /effort can change the session effort
 ```
 
 Check sub2api logs or Postgres:

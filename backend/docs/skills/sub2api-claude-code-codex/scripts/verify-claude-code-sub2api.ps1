@@ -119,6 +119,10 @@ if (-not $SkipClaudeProbe) {
     $env:CLAUDE_CODE_AUTO_COMPACT_WINDOW = [Environment]::GetEnvironmentVariable("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "User")
     $env:CLAUDE_CODE_MAX_OUTPUT_TOKENS = [Environment]::GetEnvironmentVariable("CLAUDE_CODE_MAX_OUTPUT_TOKENS", "User")
     $env:MAX_THINKING_TOKENS = [Environment]::GetEnvironmentVariable("MAX_THINKING_TOKENS", "User")
+    $effortOverride = [Environment]::GetEnvironmentVariable("CLAUDE_CODE_EFFORT_LEVEL", "User")
+    if ($effortOverride) {
+      throw "User env CLAUDE_CODE_EFFORT_LEVEL=$effortOverride overrides Claude Code /effort. Clear it before verifying this profile."
+    }
     if (-not $env:CLAUDE_CODE_MAX_CONTEXT_TOKENS) { $env:CLAUDE_CODE_MAX_CONTEXT_TOKENS = "1050000" }
     if (-not $env:CLAUDE_CODE_AUTO_COMPACT_WINDOW) { $env:CLAUDE_CODE_AUTO_COMPACT_WINDOW = "1000000" }
     if (-not $env:CLAUDE_CODE_MAX_OUTPUT_TOKENS) { $env:CLAUDE_CODE_MAX_OUTPUT_TOKENS = "64000" }
@@ -126,6 +130,7 @@ if (-not $SkipClaudeProbe) {
 
     Write-Host "Output guard: $env:CLAUDE_CODE_MAX_OUTPUT_TOKENS"
     Write-Host "Thinking guard: $env:MAX_THINKING_TOKENS"
+    Write-Host "Effort override: <unset> (/effort remains usable)"
 
     Write-Host "`n/context:"
     claude --model $Model --effort max --print --no-session-persistence "/context"

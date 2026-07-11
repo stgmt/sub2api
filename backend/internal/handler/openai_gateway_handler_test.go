@@ -498,6 +498,58 @@ func TestShouldTryOpenAIMessagesModelFallback(t *testing.T) {
 	require.False(t, shouldTryOpenAIMessagesModelFallback(http.StatusBadRequest, "context window exceeded", []byte(`{"error":{"code":"context_length_exceeded"}}`)))
 }
 
+func TestShouldFastFallbackOpenAIMessagesBeforeSameAccountRetry(t *testing.T) {
+	emptyOutputErr := &service.UpstreamFailoverError{
+		StatusCode:             http.StatusBadGateway,
+		ResponseBody:           []byte(`{"error":{"message":"OpenAI messages buffered response completed without assistant content or tool output"}}`),
+		RetryableOnSameAccount: true,
+	}
+
+	require.True(t, shouldFastFallbackOpenAIMessagesBeforeSameAccountRetry(
+		"claude-haiku-4-5-20251001",
+		"gpt-5.3-codex-spark",
+		false,
+		emptyOutputErr,
+		"OpenAI messages buffered response completed without assistant content or tool output",
+	))
+	require.True(t, shouldFastFallbackOpenAIMessagesBeforeSameAccountRetry(
+		"gpt-5.3-codex-spark",
+		"gpt-5.3-codex-spark",
+		false,
+		emptyOutputErr,
+		"OpenAI messages stream completed without assistant content or tool output",
+	))
+
+	require.False(t, shouldFastFallbackOpenAIMessagesBeforeSameAccountRetry(
+		"claude-haiku-4-5-20251001",
+		"gpt-5.3-codex-spark",
+		true,
+		emptyOutputErr,
+		"OpenAI messages buffered response completed without assistant content or tool output",
+	))
+	require.False(t, shouldFastFallbackOpenAIMessagesBeforeSameAccountRetry(
+		"gpt-5.6-sol",
+		"gpt-5.6-sol",
+		false,
+		emptyOutputErr,
+		"OpenAI messages buffered response completed without assistant content or tool output",
+	))
+	require.False(t, shouldFastFallbackOpenAIMessagesBeforeSameAccountRetry(
+		"claude-haiku-4-5-20251001",
+		"gpt-5.3-codex-spark",
+		false,
+		&service.UpstreamFailoverError{StatusCode: http.StatusBadGateway, RetryableOnSameAccount: false},
+		"OpenAI messages buffered response completed without assistant content or tool output",
+	))
+	require.False(t, shouldFastFallbackOpenAIMessagesBeforeSameAccountRetry(
+		"claude-haiku-4-5-20251001",
+		"gpt-5.3-codex-spark",
+		false,
+		&service.UpstreamFailoverError{StatusCode: http.StatusBadRequest, ResponseBody: []byte(`{"error":{"code":"context_length_exceeded"}}`), RetryableOnSameAccount: true},
+		"Your input exceeds the context window of this model",
+	))
+}
+
 func TestOpenAIGatewayMessagesDispatchGateAllowsGrokGroups(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

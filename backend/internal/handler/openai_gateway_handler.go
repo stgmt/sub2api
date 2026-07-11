@@ -69,6 +69,33 @@ func shouldTryOpenAIMessagesModelFallback(statusCode int, message string, respon
 	return openAIMessagesModelFallbackText(message + " " + string(responseBody))
 }
 
+func shouldFastFallbackOpenAIMessagesBeforeSameAccountRetry(requestedModel, mappedModel string, reqStream bool, failoverErr *service.UpstreamFailoverError, message string) bool {
+	if reqStream || failoverErr == nil || !failoverErr.RetryableOnSameAccount {
+		return false
+	}
+	if !isClaudeCodeSmallFastMessagesRoute(requestedModel, mappedModel) {
+		return false
+	}
+	if !openAIMessagesEmptyVisibleOutputText(message + " " + string(failoverErr.ResponseBody)) {
+		return false
+	}
+	return shouldTryOpenAIMessagesModelFallback(failoverErr.StatusCode, message, failoverErr.ResponseBody)
+}
+
+func isClaudeCodeSmallFastMessagesRoute(requestedModel, mappedModel string) bool {
+	requested := strings.ToLower(strings.TrimSpace(requestedModel))
+	mapped := strings.ToLower(strings.TrimSpace(mappedModel))
+	return strings.Contains(requested, "haiku") ||
+		requested == "gpt-5.3-codex-spark" ||
+		mapped == "gpt-5.3-codex-spark"
+}
+
+func openAIMessagesEmptyVisibleOutputText(text string) bool {
+	lower := strings.ToLower(strings.TrimSpace(text))
+	return strings.Contains(lower, "without assistant content") &&
+		strings.Contains(lower, "tool output")
+}
+
 func isOpenAIMessagesContextWindowError(message string, responseBody []byte) bool {
 	code := strings.ToLower(strings.TrimSpace(gjson.GetBytes(responseBody, "error.code").String()))
 	if code == "context_length_exceeded" {
@@ -1002,8 +1029,12 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 						)
 					}
 					h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
+					fastFallbackBeforeRetry := shouldFastFallbackOpenAIMessagesBeforeSameAccountRetry(reqModel, defaultMappedModel, reqStream, failoverErr, upstreamMsg)
+					if fastFallbackBeforeRetry && tryNextModelFallback("upstream_failover_fast_small_model", failoverErr.StatusCode, upstreamMsg) {
+						continue
+					}
 					// 池模式：同账号重试
-					if failoverErr.RetryableOnSameAccount {
+					if failoverErr.RetryableOnSameAccount && !fastFallbackBeforeRetry {
 						retryLimit := account.GetPoolModeRetryCount()
 						if sameAccountRetryCount[account.ID] < retryLimit {
 							sameAccountRetryCount[account.ID]++

@@ -1,6 +1,6 @@
 {
   "name": "sub2api-claude-code-codex-fullpower",
-  "last_updated": "2026-07-10",
+  "last_updated": "2026-07-11",
   "proxy": {
     "base_url": "http://127.0.0.1:8787",
     "chain": "Claude Code -> Headroom 127.0.0.1:8787 -> Docker DNS http://sub2api:8080 -> sub2api",
@@ -85,7 +85,8 @@
       "Use clean gpt-5.6-sol for main work and gpt-5.3-codex-spark for Claude Code small-fast/Haiku, with fallback chain gpt-5.6-luna then gpt-5.4-mini. Legacy gpt-5.5[400k] is cosmetic only and must not be treated as the model window.",
       "Claude Code may still report maxOutputTokens as 32000 on custom/proxy models even when CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000 is set.",
       "On sub2api's Anthropic-to-OpenAI Responses route, thinking.budget_tokens is parsed but not forwarded as an OpenAI reasoning budget.",
-      "Codex/GPT-5.6 reasoning is requested with output_config.effort=max and should reach upstream as reasoning.effort=max. If structured logs show requested_effort=max plus upstream_effort=xhigh, the running image is stale or using a legacy fallback path.",
+      "Codex/GPT-5.6 reasoning is requested with output_config.effort=max when the session or probe explicitly asks for max and should reach upstream as reasoning.effort=max. If structured logs show requested_effort=max plus upstream_effort=xhigh, the running image is stale or using a legacy fallback path.",
+      "Do not persist CLAUDE_CODE_EFFORT_LEVEL in User/System env or settings.env. It overrides Claude Code /effort in every session. Keep effortLevel=xhigh as the startup default and use /effort or --effort for per-session max/high/xhigh experiments.",
       "MAX_THINKING_TOKENS=8000 is a Claude Code compatibility guard, not the Codex reasoning control.",
       "For a single-user local setup with multiple Claude Code windows, set accounts.concurrency=32; the default 3/12 can produce account_slot_acquire_failed under parallel subagent load.",
       "If Claude Code reports 429 rate_limit_error or legacy 503 Service temporarily unavailable while /health is ok, check for openai_messages.account_select_failed with no available accounts.",
