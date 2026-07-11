@@ -24,11 +24,12 @@ published wheel exposes the flag but omits
 `headroom.memory.adapters.watchdog`; the local patch adds the watchdog and a
 socket embedder client used by Headroom memory workers.
 
-Headroom memory and embedding caches are persistent. The compose profile mounts
-`/root/.headroom` for `ccr_store.db`, savings, and logs, plus
-`/root/.cache/headroom` and `/root/.cache/huggingface` for warmed local
-tool/model/embedding caches. Do not run `docker compose down -v` unless you
-intend to wipe this memory and all other service volumes.
+All service state is persisted on the Docker host under
+`${SUB2API_STATE_ROOT:-./data}`. The compose profile bind-mounts host
+directories for Headroom memory, embedding/model caches, sub2api app data,
+Postgres, and Redis. It intentionally does not use Docker named volumes for
+state. Do not delete the state root unless you intend to wipe memory,
+embeddings, accounts, database state, and warmed caches.
 
 The image entrypoint is `/usr/local/bin/start-headroom-proxy`, not `headroom`
 directly. It seeds fresh persistent mounts from `/opt/headroom-seed` before

@@ -17,6 +17,8 @@
       "embedding_server": true,
       "embedding_server_socket": "/tmp/headroom-embed-8787.sock",
       "embedding_server_patch": "deploy/claude-code-codex-headroom/patch-headroom-embedding-server.py",
+      "state_root": "${SUB2API_STATE_ROOT:-./data}",
+      "state_storage": "host bind mounts only; do not use Docker named volumes for state",
       "persistent_mounts": {
         "/root/.headroom": "Headroom ccr_store.db, savings events, logs, and subscription state",
         "/root/.cache/headroom": "warmed Headroom local tool/model cache",
@@ -24,7 +26,7 @@
       },
       "bootstrap_entrypoint": "/usr/local/bin/start-headroom-proxy",
       "bootstrap_seed": "/opt/headroom-seed",
-      "persistence_warning": "Do not run docker compose down -v unless intentionally wiping Headroom memory/embeddings and all service state.",
+      "persistence_warning": "Do not delete SUB2API_STATE_ROOT unless intentionally wiping Headroom memory/embeddings and all service state.",
       "mcp_server": "wsl.exe -e docker exec -i headroom-sub2api headroom mcp serve --proxy-url http://127.0.0.1:8787",
       "docker_tools": [
         "rtk",
@@ -39,7 +41,12 @@
       "direct_base_url": "http://127.0.0.1:18081",
       "direct_port_use": "admin UI, diagnostics, and non-Claude clients only",
       "docker_bind": "127.0.0.1:18081->8080",
-      "docker_image": "sub2api-codex:local-token-usage"
+      "docker_image": "sub2api-codex:local-token-usage",
+      "persistent_mounts": {
+        "/app/data": "sub2api app data",
+        "/var/lib/postgresql/data": "Postgres database",
+        "/data": "Redis appendonly data"
+      }
     },
     "container_name": "sub2api-codex",
     "fork": "https://github.com/stgmt/sub2api",
@@ -122,8 +129,9 @@
       "Set compact_model_fallbacks so Spark compact failures caused by rate limit, quota, unknown/unsupported model, or service-unavailable class errors continue through gpt-5.6-luna, then gpt-5.4-mini.",
       "Manual /compact may ignore ANTHROPIC_SMALL_FAST_MODEL in some Claude Code builds and use the session main model. Verify compact routing via usage_logs.requested_model/upstream_model."
       ,
-      "Headroom embeddings/memory must be persisted through /root/.headroom. Verify /root/.headroom/ccr_store.db after memory traffic, and keep /root/.cache/headroom plus /root/.cache/huggingface mounted so warmed tool/model/embedding caches survive container recreation."
+      "Headroom embeddings/memory must be persisted through /root/.headroom as a host bind mount. Verify /root/.headroom/ccr_store.db after memory traffic, and keep /root/.cache/headroom plus /root/.cache/huggingface mounted so warmed tool/model/embedding caches survive container recreation."
       ,
+      "All stateful services must use host bind mounts under SUB2API_STATE_ROOT, not Docker named volumes. Verify docker inspect mount Type=bind for headroom-sub2api, sub2api-codex, sub2api-codex-postgres, and sub2api-codex-redis.",
       "Headroom image startup must go through /usr/local/bin/start-headroom-proxy so fresh persistent volumes are seeded from /opt/headroom-seed before headroom proxy starts. This prevents clean volumes from hiding bundled RTK/lean-ctx/difft/scc assets."
     ]
   },

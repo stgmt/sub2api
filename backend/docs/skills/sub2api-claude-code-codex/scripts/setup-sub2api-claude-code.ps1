@@ -6,6 +6,7 @@ param(
   [string]$HeadroomBindHost = "127.0.0.1",
   [string]$Sub2apiBindHost = "127.0.0.1",
   [string]$BaseUrl = "",
+  [string]$StateRoot = "./data",
   [string]$AdminEmail = "admin@sub2api.local",
   [string]$TimeZone = "Europe/Moscow",
   [string]$Model = "gpt-5.6-sol",
@@ -126,6 +127,7 @@ function Write-DotEnv([System.Collections.IDictionary]$Map, [string]$Path) {
     "HEADROOM_PYTHON_VERSION",
     "HEADROOM_BIND_HOST",
     "HEADROOM_PORT",
+    "SUB2API_STATE_ROOT",
     "HEADROOM_SAVINGS_PROFILE",
     "HEADROOM_TARGET_RATIO",
     "HEADROOM_FORCE_KOMPRESS",
@@ -223,6 +225,7 @@ Set-DotEnvValue $envMap "HEADROOM_VERSION" $HeadroomVersion
 Set-DotEnvValue $envMap "HEADROOM_PYTHON_VERSION" $HeadroomPythonVersion
 Set-DotEnvValue $envMap "HEADROOM_BIND_HOST" $HeadroomBindHost
 Set-DotEnvValue $envMap "HEADROOM_PORT" ([string]$HeadroomPort)
+Set-DotEnvValue $envMap "SUB2API_STATE_ROOT" $StateRoot
 Set-DotEnvValue $envMap "HEADROOM_SAVINGS_PROFILE" $HeadroomSavingsProfile
 Set-DotEnvValue $envMap "HEADROOM_TARGET_RATIO" $HeadroomTargetRatio
 Set-DotEnvValue $envMap "HEADROOM_FORCE_KOMPRESS" "1"
@@ -286,6 +289,14 @@ Set-DotEnvValue $envMap "POSTGRES_PASSWORD" (New-Secret 24) -OnlyIfMissing:(!$Fo
 Set-DotEnvValue $envMap "REDIS_PASSWORD" (New-Secret 24) -OnlyIfMissing:(!$ForceRegenerateSecrets)
 
 Write-DotEnv -Map $envMap -Path $envPath
+foreach ($stateSubdir in @("headroom", "headroom-cache", "headroom-huggingface", "sub2api", "postgres", "redis")) {
+  $statePath = if ([System.IO.Path]::IsPathRooted($StateRoot)) {
+    Join-Path $StateRoot $stateSubdir
+  } else {
+    Join-Path $profileDir (Join-Path $StateRoot $stateSubdir)
+  }
+  New-Item -ItemType Directory -Force -Path $statePath | Out-Null
+}
 
 if (-not $SkipDockerUp) {
   if (Get-Command docker -ErrorAction SilentlyContinue) {
@@ -447,6 +458,7 @@ $Body
 Write-Host "repo root: $resolvedRepoRoot"
 Write-Host "compose profile: $profileDir"
 Write-Host "compose project: $ProjectName"
+Write-Host "host state root: $StateRoot"
 Write-Host "Headroom: http://$HeadroomBindHost`:$HeadroomPort -> http://sub2api:8080"
 Write-Host "sub2api admin/diagnostics: http://$Sub2apiBindHost`:$Sub2apiPort"
 Write-Host "Claude base URL: $ClaudeBaseUrl"

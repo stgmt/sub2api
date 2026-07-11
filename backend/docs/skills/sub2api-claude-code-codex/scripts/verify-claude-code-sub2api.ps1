@@ -103,6 +103,48 @@ function Get-DockerLogsMerged {
   throw "docker and wsl.exe not found"
 }
 
+function Assert-DockerBindMount {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Container,
+    [Parameter(Mandatory = $true)]
+    [string[]]$Destinations
+  )
+
+  $mountJson = (Invoke-DockerCommand -Args @("inspect", $Container, "--format", "{{json .Mounts}}") 2>&1) -join "`n"
+  if ($LASTEXITCODE -ne 0) {
+    throw "Could not inspect Docker mounts for ${Container}: $mountJson"
+  }
+  $mounts = $mountJson | ConvertFrom-Json
+  foreach ($destination in $Destinations) {
+    $matches = @($mounts | Where-Object { $_.Destination -eq $destination })
+    if ($matches.Count -gt 0) {
+      $mount = $matches[0]
+      if ($mount.Type -ne "bind") {
+        throw "${Container}:${destination} is mounted as '$($mount.Type)', not host bind. Source: $($mount.Source)"
+      }
+      Write-Host "bind mount: ${Container}:${destination} <= $($mount.Source)"
+      return
+    }
+  }
+  throw "${Container} is missing expected host bind mount destination(s): $($Destinations -join ', ')"
+}
+
+function Test-AllStateOnHostBinds {
+  if (-not (Test-DockerRuntimeAvailable)) {
+    Write-Warning "docker and wsl.exe not found; skipping host-bind state checks."
+    return
+  }
+
+  Write-Host "`nHost bind state:"
+  Assert-DockerBindMount -Container "headroom-sub2api" -Destinations @("/root/.headroom")
+  Assert-DockerBindMount -Container "headroom-sub2api" -Destinations @("/root/.cache/headroom")
+  Assert-DockerBindMount -Container "headroom-sub2api" -Destinations @("/root/.cache/huggingface")
+  Assert-DockerBindMount -Container "sub2api-codex" -Destinations @("/app/data")
+  Assert-DockerBindMount -Container "sub2api-codex-postgres" -Destinations @("/var/lib/postgresql/data", "/var/lib/postgresql")
+  Assert-DockerBindMount -Container "sub2api-codex-redis" -Destinations @("/data")
+}
+
 function Test-HeadroomImageBootstrap {
   if (-not (Test-DockerRuntimeAvailable)) {
     Write-Warning "docker and wsl.exe not found; skipping Headroom image-bootstrap checks."
@@ -301,6 +343,7 @@ if (-not $SkipDockerLogs) {
     Test-HeadroomImageBootstrap
     Test-HeadroomEmbeddingServer
     Test-HeadroomPersistentStorage
+    Test-AllStateOnHostBinds
 
     Write-Host "`nHeadroom savings:"
     docker exec headroom-sub2api headroom savings --json
@@ -333,6 +376,7 @@ if (-not $SkipDockerLogs) {
     Test-HeadroomImageBootstrap
     Test-HeadroomEmbeddingServer
     Test-HeadroomPersistentStorage
+    Test-AllStateOnHostBinds
     Write-Host "`nHeadroom savings:"
     wsl.exe -- docker exec headroom-sub2api headroom savings --json
     Write-Host "`nHeadroom perf:"

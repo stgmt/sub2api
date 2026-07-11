@@ -26,7 +26,8 @@ Claude chain: Claude Code -> Headroom 127.0.0.1:8787 -> Docker DNS http://sub2ap
 Direct sub2api URL: http://127.0.0.1:18081 for admin UI, diagnostics, and non-Claude clients only
 Headroom MCP: user-level Claude MCP named `headroom`, launched through `wsl.exe -e docker exec -i headroom-sub2api headroom mcp serve --proxy-url http://127.0.0.1:8787`
 Headroom savings profile: agent-90, target ratio 0.10, context tool RTK, code-aware compression on, memory on, embedding server on, output shaper on
-Headroom persistence: `/root/.headroom` stores `ccr_store.db`, savings, and logs; `/root/.cache/headroom` and `/root/.cache/huggingface` store warmed local tool/model/embedding caches. These paths must be persistent mounts.
+Host state root: `${SUB2API_STATE_ROOT:-./data}` in the deploy profile. All state must be host bind-mounted there, not stored in Docker named volumes.
+Headroom persistence: `/root/.headroom` stores `ccr_store.db`, savings, and logs; `/root/.cache/headroom` and `/root/.cache/huggingface` store warmed local tool/model/embedding caches. These paths must be host bind mounts.
 Main model: gpt-5.6-sol
 Small-fast/compact first hop: gpt-5.3-codex-spark with normal model_fallbacks to gpt-5.6-luna, then gpt-5.4-mini
 Default Haiku and subagent overrides: gpt-5.6-terra-high while native Spark is quota-limited, with model_fallbacks to gpt-5.6-sol-medium so empty Terra tool turns do not loop on the same account
@@ -78,7 +79,7 @@ Read only the file needed for the current task:
 - For Docker-in-WSL, verify both Headroom and sub2api health plus the Windows route. If Windows cannot reach `127.0.0.1:8787` but WSL/Docker can, publish Headroom on `0.0.0.0` and use the WSL eth0 IP on port `8787`; do not point Claude Code directly at sub2api `18081` except as a temporary diagnostic bypass.
 - Keep Headroom/RTK/lean-ctx/TokenSave binaries inside Docker for this profile. If `claude mcp list` shows `headroom` or `tokensave` pointing at missing `%USERPROFILE%\.local\bin\*.exe`, remove those stale user MCP entries. Re-add only `headroom` as a Docker-backed stdio server unless the user explicitly asks for a host install.
 - Keep `--embedding-server` enabled. The upstream `headroom-ai==0.31.0` wheel exposes the flag but omits `headroom.memory.adapters.watchdog`; this image patches in a Unix-socket `EmbeddingServerWatchdog` and `SocketEmbedderClient` so memory workers use the sidecar instead of silently falling back to per-worker embedders. If startup logs show `Falling back to per-worker embedder`, rebuild from the patched Dockerfile.
-- Keep Headroom memory and embedding cache paths persistent. `headroom-data:/root/.headroom` preserves `ccr_store.db` and savings/log ledgers; `headroom-cache:/root/.cache/headroom` and `headroom-hf-cache:/root/.cache/huggingface` preserve warmed local tool/model/embedding caches. Do not run `docker compose down -v` unless the user explicitly wants to wipe Headroom memory and embeddings.
+- Keep all service state on host bind mounts under `${SUB2API_STATE_ROOT:-./data}`. Headroom uses `headroom`, `headroom-cache`, and `headroom-huggingface`; sub2api uses `sub2api`; Postgres uses `postgres`; Redis uses `redis`. Do not replace these with Docker named volumes. Do not delete the state root unless the user explicitly wants to wipe memory, embeddings, accounts, database, and cache.
 - Keep the Headroom image bootstrap wrapper. `/usr/local/bin/start-headroom-proxy` seeds fresh persistent mounts from `/opt/headroom-seed` before starting `headroom proxy`, so a clean volume preserves memory without hiding bundled RTK/lean-ctx/difft/scc assets.
 - Verify Headroom optimization with `docker exec headroom-sub2api headroom tools doctor`, `headroom savings --json`, and `headroom perf --format json`. A healthy stack should show bundled tools on PATH and nonzero proxy savings once traffic has passed through Headroom.
 - After code changes, rebuild `sub2api-codex:local-token-usage` or the compose profile, recreate affected services under project `sub2api-codex`, then re-run live probes through Headroom.
@@ -95,7 +96,7 @@ Read only the file needed for the current task:
 ## Bundled Scripts
 
 - `scripts/setup-sub2api-claude-code.ps1`: create/update `deploy/claude-code-codex-headroom/.env`, start the Headroom + sub2api compose project, register the Docker-backed Headroom MCP, remove stale host `tokensave` MCP, and configure Claude Code settings. Defaults to `gpt-5.6-sol`, `gpt-5.3-codex-spark`, `HEADROOM_SAVINGS_PROFILE=agent-90`, `HEADROOM_TARGET_RATIO=0.10`, `CLAUDE_CODE_MAX_CONTEXT_TOKENS=370000`, and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=340000`.
-- `scripts/verify-claude-code-sub2api.ps1`: verify Headroom health/upstream, persistent memory/cache mounts, embedding-server logs/socket/factory/direct embed probe, sub2api health, Claude Code settings, and expected upstream model behavior.
+- `scripts/verify-claude-code-sub2api.ps1`: verify Headroom health/upstream, host bind state mounts, persistent memory/cache mounts, embedding-server logs/socket/factory/direct embed probe, sub2api health, Claude Code settings, and expected upstream model behavior.
 - `scripts/install-claude-compact-recovery.ps1`: install Claude Code compact recovery hooks.
 - `scripts/compact-recovery.mjs`: lightweight compact recovery hook implementation.
 
@@ -107,7 +108,7 @@ For install/config/debug tasks, do not call it done until these are true or expl
 - Headroom `/health` reports ready and upstream `http://sub2api:8080`.
 - Headroom image has `/usr/local/bin/start-headroom-proxy` and `/opt/headroom-seed` so fresh persistent volumes are seeded without overwriting existing memory.
 - Headroom embedding-server logs show `Embedding server: ready.`, no per-worker fallback or missing watchdog module, `/tmp/headroom-embed-8787.sock` exists, and the memory factory returns `headroom.memory.adapters.watchdog SocketEmbedderClient 384`.
-- Headroom persistent mounts exist for `/root/.headroom`, `/root/.cache/headroom`, and `/root/.cache/huggingface`; if memory traffic has already happened, `/root/.headroom/ccr_store.db` exists and is non-empty.
+- Headroom, sub2api, Postgres, and Redis state mounts are Docker `bind` mounts to host paths, not Docker named volumes; if memory traffic has already happened, `/root/.headroom/ccr_store.db` exists and is non-empty.
 - `claude mcp list` shows `headroom` connected through Docker, not a missing host executable; stale host `tokensave` MCP is removed unless deliberately installed on host.
 - `docker exec headroom-sub2api headroom tools doctor` shows RTK-related bundled tools available, and `headroom savings --json` / `headroom perf --format json` prove the optimization layer is recording traffic.
 - A tiny `/v1/messages` request through `http://127.0.0.1:8787` succeeds for `gpt-5.6-sol` and for Haiku/small-fast through `gpt-5.3-codex-spark` or the configured `gpt-5.6-luna -> gpt-5.4-mini` fallback chain, or a current upstream quota/cooldown blocker is proven as `429`.

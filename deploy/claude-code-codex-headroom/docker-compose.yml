@@ -75,9 +75,9 @@ services:
       HEADROOM_KOMPRESS_ONNX_INTER_THREADS: ${HEADROOM_KOMPRESS_ONNX_INTER_THREADS:-1}
       HEADROOM_KOMPRESS_BATCH_SIZE: ${HEADROOM_KOMPRESS_BATCH_SIZE:-16}
     volumes:
-      - headroom-data:/root/.headroom
-      - headroom-cache:/root/.cache/headroom
-      - headroom-hf-cache:/root/.cache/huggingface
+      - ${SUB2API_STATE_ROOT:-./data}/headroom:/root/.headroom
+      - ${SUB2API_STATE_ROOT:-./data}/headroom-cache:/root/.cache/headroom
+      - ${SUB2API_STATE_ROOT:-./data}/headroom-huggingface:/root/.cache/huggingface
     healthcheck:
       test:
         - CMD-SHELL
@@ -141,7 +141,7 @@ services:
       SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP: ${SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP:-true}
       SECURITY_URL_ALLOWLIST_ALLOW_PRIVATE_HOSTS: ${SECURITY_URL_ALLOWLIST_ALLOW_PRIVATE_HOSTS:-true}
     volumes:
-      - sub2api-data:/app/data
+      - ${SUB2API_STATE_ROOT:-./data}/sub2api:/app/data
     healthcheck:
       test:
         - CMD
@@ -169,7 +169,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-sub2api}
       PGDATA: /var/lib/postgresql/data
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - ${SUB2API_STATE_ROOT:-./data}/postgres:/var/lib/postgresql/data
     healthcheck:
       test:
         - CMD-SHELL
@@ -194,7 +194,7 @@ services:
     environment:
       REDISCLI_AUTH: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
     volumes:
-      - redis-data:/data
+      - ${SUB2API_STATE_ROOT:-./data}/redis:/data
     healthcheck:
       test:
         - CMD
@@ -210,11 +210,3 @@ services:
 networks:
   sub2api-network:
     driver: bridge
-
-volumes:
-  headroom-data:
-  headroom-cache:
-  headroom-hf-cache:
-  sub2api-data:
-  postgres-data:
-  redis-data:
