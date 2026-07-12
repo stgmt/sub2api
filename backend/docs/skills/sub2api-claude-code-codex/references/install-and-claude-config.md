@@ -43,7 +43,17 @@ has `--embedding-server`, but the published wheel omits
 socket embedder client so Headroom memory workers use `/tmp/headroom-embed-8787.sock`
 instead of falling back to per-worker embedders.
 
-The default `.env` profile is `HEADROOM_SAVINGS_PROFILE=agent-90`, `HEADROOM_TARGET_RATIO=0.10`, `HEADROOM_CONTEXT_TOOL=rtk`, `HEADROOM_CODE_AWARE_ENABLED=1`, and `HEADROOM_OUTPUT_SHAPER=1`.
+It also applies `deploy/claude-code-codex-headroom/patch-headroom-claude-code-streaming.py`.
+This downstream patch is required for Claude Code streaming stability with
+Headroom 0.31.0: the upstream wheel has a private mid-turn queue path that can
+return HTTP 202 `headroom_queued` for a `stream:true` Anthropic Messages request.
+Claude Code expects Anthropic SSE events, so that private 202 appears as
+`API Error: Stream ended without receiving any events`. The patch derives
+active-stream keys from Claude Code session plus agent id, waits for the
+previous stream to drain, and uses `HEADROOM_MID_TURN_STREAM_WAIT_MS=600000` by
+default.
+
+The default `.env` profile is `HEADROOM_SAVINGS_PROFILE=agent-90`, `HEADROOM_TARGET_RATIO=0.10`, `HEADROOM_CONTEXT_TOOL=rtk`, `HEADROOM_CODE_AWARE_ENABLED=1`, `HEADROOM_OUTPUT_SHAPER=1`, and `HEADROOM_MID_TURN_STREAM_WAIT_MS=600000`.
 
 Host persistence is part of the profile. The compose stack writes state under `${SUB2API_STATE_ROOT:-./data}` on the Docker host. The default is `deploy/claude-code-codex-headroom/data` when running from the deploy profile. These are host bind mounts, not Docker named volumes:
 
@@ -92,3 +102,44 @@ curl.exe --max-time 5 "http://127.0.0.1:18081/health"
 ```
 
 If Windows cannot reach `127.0.0.1:8787` but WSL/Docker can, do not chase model mapping first. The Windows localhost relay or bind is the failing layer. Set `HEADROOM_BIND_HOST=0.0.0.0` in `deploy/claude-code-codex-headroom/.env`, recreate the `headroom` service, and set Claude Code `ANTHROPIC_BASE_URL` to `http://$wslIp:8787`. Keep `:18081` as a direct sub2api admin/diagnostic bypass only.
+
+### Windows Autostart
+
+Use a single autostart owner for the whole stack:
+
+```text
+Scheduled task: Sub2API Codex Proxy Stack Autostart
+Action: powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<skill-or-profile>\scripts\start-sub2api-proxy-stack.ps1" -RepoRoot "<sub2api>" -ProfileDir "<sub2api>\deploy\claude-code-codex-headroom" -Distro "Ubuntu-24.04"
+RunLevel: Highest
+Compose project: sub2api-codex
+```
+
+Do not keep a second `headroom-proxy` task or a Startup-folder `.cmd` launcher. A separate host `headroom.exe proxy` launcher commonly goes stale when the host binary is removed, while a second compose launcher can race WSL startup and create confusing duplicate logs. Leave only the scheduled task that starts the Docker compose stack.
+
+The setup script installs this task by default. Use `-SkipAutostart` only for a one-off/local-only setup. The task target, `scripts/start-sub2api-proxy-stack.ps1`, is idempotent: it has a named mutex, runs `docker compose --env-file .env -p sub2api-codex up -d --remove-orphans`, refreshes Claude Code `ANTHROPIC_BASE_URL` from the current WSL `eth0` IP when localhost relay is unreliable, then verifies Headroom and sub2api health.
+
+If WSL fails with:
+
+```text
+Wsl/Service/CreateInstance/MountDisk/HCS/ERROR_SHARING_VIOLATION
+Failed to attach disk ... ext4.vhdx
+```
+
+the task needs `RunLevel=Highest` so the start script can self-heal: `wsl --terminate <distro>`, `wsl --shutdown`, inspect `%LOCALAPPDATA%\wsl\*\ext4.vhdx` with `Get-DiskImage`, `Dismount-DiskImage` only attached stale images, then retry WSL. If `Get-DiskImage` shows `Attached=False` and WSL still reports sharing violation, the lock is below normal user-mode handles; collect `hcsdiag list`, `handle64 <ext4.vhdx>`, and Windows may need a full reboot.
+
+Verification:
+
+```powershell
+Get-ScheduledTask -TaskName "Sub2API Codex Proxy Stack Autostart" |
+  Select-Object TaskName,State,@{n="RunLevel";e={$_.Principal.RunLevel}},@{n="Action";e={$_.Actions.Arguments}}
+
+Get-ScheduledTask |
+  Where-Object { $_.TaskName -match "sub2api|headroom|proxy" -or $_.Actions.Arguments -match "sub2api|headroom|proxy" }
+
+Start-ScheduledTask -TaskName "Sub2API Codex Proxy Stack Autostart"
+Start-Sleep -Seconds 10
+Get-ScheduledTaskInfo -TaskName "Sub2API Codex Proxy Stack Autostart"
+curl.exe --max-time 5 "http://127.0.0.1:8787/health"
+curl.exe --max-time 5 "http://127.0.0.1:18081/health"
+wsl.exe -d Ubuntu-24.04 -- bash -lc 'docker ps --filter label=com.docker.compose.project=sub2api-codex --format "{{.Names}}|{{.Status}}|{{.Ports}}"'
+```

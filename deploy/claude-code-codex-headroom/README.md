@@ -18,11 +18,19 @@ at stale host binaries for these tools; the setup script registers the
 wsl.exe -e docker exec -i headroom-sub2api headroom mcp serve --proxy-url http://127.0.0.1:8787
 ```
 
-The image also patches `headroom-ai==0.31.0` so `headroom proxy
---embedding-server` actually starts a Unix-socket embedding sidecar. The
-published wheel exposes the flag but omits
-`headroom.memory.adapters.watchdog`; the local patch adds the watchdog and a
-socket embedder client used by Headroom memory workers.
+The image also applies downstream patches for `headroom-ai==0.31.0`:
+
+- `patch-headroom-embedding-server.py` makes `headroom proxy
+  --embedding-server` actually start a Unix-socket embedding sidecar. The
+  published wheel exposes the flag but omits
+  `headroom.memory.adapters.watchdog`; the local patch adds the watchdog and a
+  socket embedder client used by Headroom memory workers.
+- `patch-headroom-claude-code-streaming.py` makes the Anthropic streaming path
+  Claude Code-safe. The upstream wheel can return private HTTP 202
+  `headroom_queued` responses during mid-turn overlap; Claude Code expects
+  Anthropic SSE events and reports `Stream ended without receiving any events`.
+  The patch keys active streams by Claude session plus agent id and waits for
+  overlap drain instead of returning 202.
 
 All service state is persisted on the Docker host under
 `${SUB2API_STATE_ROOT:-./data}`. The compose profile bind-mounts host
@@ -71,7 +79,9 @@ powershell -ExecutionPolicy Bypass -File backend\docs\skills\sub2api-claude-code
 powershell -ExecutionPolicy Bypass -File backend\docs\skills\sub2api-claude-code-codex\scripts\verify-claude-code-sub2api.ps1
 ```
 
-The setup script generates a local `.env`, starts the compose project as `sub2api-codex`, and configures Claude Code to use `http://127.0.0.1:8787`.
+The setup script generates a local `.env`, starts the compose project as `sub2api-codex`, configures Claude Code to use `http://127.0.0.1:8787`, and installs a single Windows scheduled-task autostart named `Sub2API Codex Proxy Stack Autostart`.
+
+The autostart task runs `start-sub2api-proxy-stack.ps1` with `RunLevel=Highest`, removes stale `headroom-proxy` task entries, disables Startup-folder proxy launchers, and can self-heal stale WSL `ext4.vhdx` attach locks before retrying Docker compose startup. Use `-SkipAutostart` only when you deliberately want a local/manual-only setup.
 
 It also writes the full Headroom agent profile into `.env`:
 
@@ -81,6 +91,7 @@ HEADROOM_TARGET_RATIO=0.10
 HEADROOM_CONTEXT_TOOL=rtk
 HEADROOM_CODE_AWARE_ENABLED=1
 HEADROOM_OUTPUT_SHAPER=1
+HEADROOM_MID_TURN_STREAM_WAIT_MS=600000
 --embedding-server
 ```
 

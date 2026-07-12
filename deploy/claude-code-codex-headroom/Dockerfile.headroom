@@ -18,6 +18,8 @@ RUN python -m pip install --upgrade pip \
 
 COPY patch-headroom-embedding-server.py /tmp/patch-headroom-embedding-server.py
 RUN python /tmp/patch-headroom-embedding-server.py
+COPY patch-headroom-claude-code-streaming.py /tmp/patch-headroom-claude-code-streaming.py
+RUN python /tmp/patch-headroom-claude-code-streaming.py
 COPY start-headroom-proxy.sh /usr/local/bin/start-headroom-proxy
 RUN chmod +x /usr/local/bin/start-headroom-proxy
 
