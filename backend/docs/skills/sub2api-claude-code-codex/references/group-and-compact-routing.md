@@ -44,14 +44,14 @@ Use these fields:
       "gpt-5.3-codex-spark": ["gpt-5.6-luna", "gpt-5.4-mini"],
       "claude-haiku-*": ["gpt-5.6-luna", "gpt-5.4-mini"],
       "haiku": ["gpt-5.6-luna", "gpt-5.4-mini"],
-      "gpt-5.6-terra-high": ["gpt-5.6-sol-medium"],
+      "gpt-5.6-terra-medium": ["gpt-5.6-sol-medium"],
       "gpt-5.6-luna": ["gpt-5.3-codex-spark", "gpt-5.4-mini"]
     }
   }
 }
 ```
 
-The `gpt-5.6-terra-high -> gpt-5.6-sol-medium` fallback depends on patched sub2api preserving effort suffixes in `model_fallbacks` while normalizing the routing model for account selection. Without that patch, Sol fallback can silently inherit Terra's `high` effort.
+The `gpt-5.6-terra-medium -> gpt-5.6-sol-medium` fallback depends on patched sub2api preserving effort suffixes in `model_fallbacks` while normalizing the routing model for account selection. Without that patch, Sol fallback can silently inherit the wrong parent effort.
 
 If exact admin API endpoints differ across sub2api versions, use the admin UI and match these field names. The important fields in current sub2api are `allow_messages_dispatch`, `require_oauth_only`, `default_mapped_model`, and `messages_dispatch_model_config`.
 

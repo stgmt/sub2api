@@ -30,6 +30,8 @@ if ($effortOverride) { throw "Clear User env CLAUDE_CODE_EFFORT_LEVEL=$effortOve
 
 Invoke-RestMethod "http://127.0.0.1:8787/health"
 Invoke-RestMethod "http://127.0.0.1:18081/health"
+Get-ScheduledTask -TaskName "Sub2API Codex Proxy Stack Autostart" | Select-Object TaskName,State,@{n="RunLevel";e={$_.Principal.RunLevel}},@{n="Action";e={$_.Actions.Arguments}}
+Get-ScheduledTask | Where-Object { $_.TaskName -eq "headroom-proxy" -or ($_.Actions.Arguments -match "headroom-proxy|headroom.exe proxy") }
 claude mcp list
 wsl.exe -- docker exec headroom-sub2api headroom tools doctor
 wsl.exe -- docker exec headroom-sub2api headroom savings --json
@@ -55,6 +57,7 @@ JSON modelUsage contextWindow matches the configured Claude Code client target, 
 JSON modelUsage may still show maxOutputTokens: 32000
 Headroom health reports ready and upstream http://sub2api:8080
 sub2api health reports ok on the direct diagnostic/admin port
+Windows autostart is single-owner: `Sub2API Codex Proxy Stack Autostart` exists, `RunLevel=Highest`, action calls `start-sub2api-proxy-stack.ps1`, `LastTaskResult=0` after a manual `Start-ScheduledTask`, stale `headroom-proxy` is absent, and Startup-folder proxy launchers are absent or renamed with `.disabled`
 Claude MCP list shows headroom connected through Docker; stale host headroom.exe/tokensave.exe entries are absent
 Headroom tools doctor shows difft, scc, and ast-grep on PATH; the image also includes rtk, lean-ctx, and tokensave
 Headroom image bootstrap check returns `SEED_OK`; the entrypoint seeds empty persistent mounts from `/opt/headroom-seed` before launching the proxy
@@ -91,10 +94,10 @@ wsl.exe -- docker exec sub2api-codex-postgres psql -U sub2api -d sub2api -F " | 
 Expected for the current advisory subagent profile:
 
 ```text
-general-purpose.md / Explore.md / workflow-subagent.md frontmatter model: gpt-5.6-terra-high and effort: high
-worker/Claude command line includes -Model "gpt-5.6-terra-high" or --model gpt-5.6-terra-high
-usage_logs rows show requested_model=gpt-5.6-terra-high, upstream_model=gpt-5.6-terra, reasoning_effort=high
-fallback proof for empty/unavailable Terra-high turns: usage_logs should show requested_model=gpt-5.6-terra-high, model_mapping_chain including gpt-5.6-sol, and reasoning_effort=medium after fallback; direct alias probe `claude --print --model gpt-5.6-sol-mid ...` should record upstream_model=gpt-5.6-sol and reasoning_effort=medium
+general-purpose.md / Explore.md / workflow-subagent.md frontmatter model: gpt-5.6-terra-medium and effort: medium
+worker/Claude command line includes -Model "gpt-5.6-terra-medium" or --model gpt-5.6-terra-medium
+usage_logs rows show requested_model=gpt-5.6-terra-medium, upstream_model=gpt-5.6-terra, reasoning_effort=medium
+fallback proof for empty/unavailable Terra-medium turns: usage_logs should show requested_model=gpt-5.6-terra-medium, model_mapping_chain including gpt-5.6-sol, and reasoning_effort=medium after fallback; direct alias probe `claude --print --model gpt-5.6-sol-mid ...` should record upstream_model=gpt-5.6-sol and reasoning_effort=medium
 no global Agent-blocking PreToolUse/SubagentStart/SubagentStop hook is installed unless the user explicitly requested a hard cap
 ```
 
@@ -146,6 +149,14 @@ go test .\internal\handler -count=1
 ```
 
 Expected: wait-ping/comment is followed by a named Anthropic `event: error`, not a bare JSON/data-only frame; failover-exhausted preserves upstream Anthropic error bodies; normal streams keep exactly one `message_start`; OpenAI `/responses` still emits `event: response.failed`. Mutation sanity check: reverting native `/v1/messages` to data-only error or disabling the `streamStarted` SSE branch must fail these tests.
+
+For the Headroom Claude Code streaming-overlap downstream patch:
+
+```powershell
+python .\deploy\claude-code-codex-headroom\test_headroom_claude_code_streaming_patch.py
+```
+
+Expected: the test builds a fake `headroom-ai==0.31.0` install layout, applies `patch-headroom-claude-code-streaming.py`, proves the unsafe `return JSONResponse(content=queued, status_code=202)` branch is gone, proves the patch is idempotent, proves `x-claude-code-session-id` plus `x-claude-code-agent-id` becomes the active stream key, and proves a mutated/unknown Anthropic overlap branch fails closed instead of silently producing a partial patch.
 
 For the current sub2api source path:
 

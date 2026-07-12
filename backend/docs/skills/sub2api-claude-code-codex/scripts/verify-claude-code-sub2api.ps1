@@ -20,6 +20,56 @@ function Normalize-Url([string]$Url, [string]$Fallback) {
   return $Fallback
 }
 
+function Test-IsWindowsHost {
+  return [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)
+}
+
+function Test-Sub2apiAutostartTask {
+  if (-not (Test-IsWindowsHost)) {
+    Write-Warning "Autostart task check is Windows-only; skipping."
+    return
+  }
+
+  Write-Host "`nWindows autostart:"
+  $taskName = "Sub2API Codex Proxy Stack Autostart"
+  $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+  if (-not $task) {
+    throw "Missing scheduled task: $taskName. Run scripts/setup-sub2api-claude-code.ps1 without -SkipAutostart."
+  }
+  $info = Get-ScheduledTaskInfo -TaskName $taskName
+  $arguments = [string]$task.Actions.Arguments
+  Write-Host "task: $($task.TaskName) state=$($task.State) runLevel=$($task.Principal.RunLevel) lastResult=$($info.LastTaskResult)"
+  Write-Host "action: $($task.Actions.Execute) $arguments"
+  if ($task.Principal.RunLevel -ne "Highest") {
+    throw "$taskName must use RunLevel=Highest so the WSL VHDX-lock self-heal can call Dismount-DiskImage."
+  }
+  if ($arguments -notmatch "start-sub2api-proxy-stack\.ps1") {
+    throw "$taskName action must call start-sub2api-proxy-stack.ps1, not a stale host executable."
+  }
+  if ($arguments -notmatch "claude-code-codex-headroom|ProfileDir|RepoRoot") {
+    throw "$taskName action does not identify the deploy profile/repo root."
+  }
+
+  $staleTask = Get-ScheduledTask -TaskName "headroom-proxy" -ErrorAction SilentlyContinue
+  if ($staleTask) {
+    throw "Stale scheduled task still exists: headroom-proxy. Remove it to avoid two proxy starters."
+  }
+
+  $startupDir = [Environment]::GetFolderPath("Startup")
+  if ($startupDir -and (Test-Path -LiteralPath $startupDir)) {
+    $staleLaunchers = @(Get-ChildItem -LiteralPath $startupDir -File -ErrorAction SilentlyContinue |
+      Where-Object {
+        $_.Name -match "sub2api|headroom" -and
+        $_.Extension -in @(".cmd", ".bat", ".ps1", ".lnk") -and
+        $_.Name -notmatch "\.disabled$"
+      })
+    if ($staleLaunchers.Count -gt 0) {
+      throw "Stale Startup launcher(s) still active: $($staleLaunchers.FullName -join ', ')"
+    }
+  }
+  Write-Host "single-owner autostart: ok"
+}
+
 function Show-Health([string]$Label, [string]$Url) {
   try {
     $response = Invoke-WebRequest -UseBasicParsing "$Url/health" -TimeoutSec 10
@@ -85,6 +135,16 @@ function Invoke-DockerCommand {
       $PSNativeCommandUseErrorActionPreference = $oldNativeErrorPreference
     }
   }
+}
+
+function ConvertTo-PythonBase64Command {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Code
+  )
+
+  $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Code))
+  return "import base64; exec(base64.b64decode('$encoded').decode('utf-8'))"
 }
 
 function Get-DockerLogsMerged {
@@ -196,6 +256,90 @@ function Test-HeadroomEmbeddingServer {
   Write-Host "embed: $embedOutput"
 }
 
+function Test-HeadroomClaudeCodeStreamingPatch {
+  if (-not (Test-DockerRuntimeAvailable)) {
+    Write-Warning "docker and wsl.exe not found; skipping Headroom Claude Code streaming patch checks."
+    return
+  }
+
+  Write-Host "`nHeadroom Claude Code streaming patch:"
+  $sourceProbe = @'
+from pathlib import Path
+files = {
+  "anthropic": Path("/usr/local/lib/python3.12/site-packages/headroom/proxy/handlers/anthropic.py"),
+  "streaming": Path("/usr/local/lib/python3.12/site-packages/headroom/proxy/handlers/streaming.py"),
+}
+texts = {name: path.read_text() for name, path in files.items()}
+required = {
+  "anthropic": ["Claude Code session key patch", "Claude Code no-202 overlap patch"],
+  "streaming": ["active-stream refcount patch", "overlap wait patch"],
+}
+missing = [
+  f"{name}:{needle}"
+  for name, needles in required.items()
+  for needle in needles
+  if needle not in texts[name]
+]
+if "return JSONResponse(content=queued, status_code=202)" in texts["anthropic"]:
+  missing.append("anthropic:unsafe 202 queue return still present")
+if missing:
+  raise SystemExit("MISSING " + ", ".join(missing))
+print("SOURCE_OK")
+'@
+  $sourceOutput = (Invoke-DockerCommand -Args @("exec", "headroom-sub2api", "python", "-c", (ConvertTo-PythonBase64Command $sourceProbe)) 2>&1) -join "`n"
+  if ($LASTEXITCODE -ne 0 -or $sourceOutput -notmatch "SOURCE_OK") {
+    throw "Headroom Claude Code streaming patch source check failed. Rebuild/recreate headroom-sub2api. Output: $sourceOutput"
+  }
+  Write-Host "source: $sourceOutput"
+
+  $envOutput = (Invoke-DockerCommand -Args @("exec", "headroom-sub2api", "python", "-c", "import os; print('MID_TURN_WAIT_MS=' + os.environ.get('HEADROOM_MID_TURN_STREAM_WAIT_MS',''))") 2>&1) -join "`n"
+  if ($LASTEXITCODE -ne 0 -or $envOutput -notmatch "MID_TURN_WAIT_MS=\d+") {
+    throw "HEADROOM_MID_TURN_STREAM_WAIT_MS is missing in headroom-sub2api. Output: $envOutput"
+  }
+  Write-Host "env: $envOutput"
+
+  $regressionProbe = @'
+import asyncio
+import logging
+from types import SimpleNamespace
+from headroom.proxy.handlers.streaming import StreamingMixin
+from headroom.proxy.handlers import anthropic
+
+logging.disable(logging.CRITICAL)
+
+class Dummy(StreamingMixin):
+  pass
+
+async def main():
+  d = Dummy()
+  key = "verify-overlap"
+  d._active_streams.clear()
+  d._mid_turn_queues.clear()
+  if hasattr(d, "_active_stream_counts"):
+    d._active_stream_counts.clear()
+  d._mark_mid_turn_stream_active(key)
+  async def clear():
+    await asyncio.sleep(0.05)
+    d._cleanup_mid_turn_stream(key)
+  task = asyncio.create_task(clear())
+  waited = await d._wait_for_mid_turn_stream(key, "verify-request")
+  await task
+  assert waited >= 40, waited
+  assert key not in d._active_streams
+  assert not d._mid_turn_queues
+  req = SimpleNamespace(headers={"x-claude-code-session-id": "s", "x-claude-code-agent-id": "a"})
+  assert anthropic._headroom_session_header_from_request(req) == "claude-code:s:a"
+  print(f"OVERLAP_OK waited_ms={waited:.1f}")
+
+asyncio.run(main())
+'@
+  $regressionOutput = (Invoke-DockerCommand -Args @("exec", "headroom-sub2api", "python", "-c", (ConvertTo-PythonBase64Command $regressionProbe)) 2>&1) -join "`n"
+  if ($LASTEXITCODE -ne 0 -or $regressionOutput -notmatch "OVERLAP_OK") {
+    throw "Headroom Claude Code overlap wait regression failed. Output: $regressionOutput"
+  }
+  Write-Host "regression: $regressionOutput"
+}
+
 function Test-HeadroomPersistentStorage {
   if (-not (Test-DockerRuntimeAvailable)) {
     Write-Warning "docker and wsl.exe not found; skipping Headroom persistent-storage checks."
@@ -226,8 +370,8 @@ $BaseUrl = Normalize-Url $BaseUrl "http://127.0.0.1:8787"
 $Sub2apiBaseUrl = Normalize-Url $Sub2apiBaseUrl "http://127.0.0.1:18081"
 if (-not $Model) { $Model = "gpt-5.6-sol" }
 if (-not $SmallFastModel) { $SmallFastModel = "gpt-5.3-codex-spark" }
-if (-not $DefaultHaikuModel) { $DefaultHaikuModel = "gpt-5.6-terra-high" }
-if (-not $SubagentModel) { $SubagentModel = "gpt-5.6-terra-high" }
+if (-not $DefaultHaikuModel) { $DefaultHaikuModel = "gpt-5.6-terra-medium" }
+if (-not $SubagentModel) { $SubagentModel = "gpt-5.6-terra-medium" }
 
 Write-Host "Claude/Headroom base URL: $BaseUrl"
 Write-Host "sub2api admin/diagnostic URL: $Sub2apiBaseUrl"
@@ -237,6 +381,7 @@ Write-Host "Default Haiku model: $DefaultHaikuModel"
 Write-Host "Subagent model: $SubagentModel"
 Write-Host "Has API token: $([bool]$ApiKey)"
 
+Test-Sub2apiAutostartTask
 Show-Health "Headroom" $BaseUrl
 Show-Health "sub2api" $Sub2apiBaseUrl
 
@@ -340,9 +485,10 @@ if (-not $SkipDockerLogs) {
     Write-Host "`nHeadroom tools doctor:"
     docker exec headroom-sub2api headroom tools doctor
 
-    Test-HeadroomImageBootstrap
-    Test-HeadroomEmbeddingServer
-    Test-HeadroomPersistentStorage
+Test-HeadroomImageBootstrap
+Test-HeadroomEmbeddingServer
+Test-HeadroomClaudeCodeStreamingPatch
+Test-HeadroomPersistentStorage
     Test-AllStateOnHostBinds
 
     Write-Host "`nHeadroom savings:"
@@ -375,6 +521,7 @@ if (-not $SkipDockerLogs) {
     wsl.exe -- docker exec headroom-sub2api headroom tools doctor
     Test-HeadroomImageBootstrap
     Test-HeadroomEmbeddingServer
+    Test-HeadroomClaudeCodeStreamingPatch
     Test-HeadroomPersistentStorage
     Test-AllStateOnHostBinds
     Write-Host "`nHeadroom savings:"

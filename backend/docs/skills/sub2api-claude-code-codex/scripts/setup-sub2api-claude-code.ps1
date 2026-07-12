@@ -11,9 +11,9 @@ param(
   [string]$TimeZone = "Europe/Moscow",
   [string]$Model = "gpt-5.6-sol",
   [string]$SmallFastModel = "gpt-5.3-codex-spark",
-  [string]$DefaultHaikuModel = "gpt-5.6-terra-high",
-  [string]$SubagentModel = "gpt-5.6-terra-high",
-  [string]$SubagentEffort = "high",
+  [string]$DefaultHaikuModel = "gpt-5.6-terra-medium",
+  [string]$SubagentModel = "gpt-5.6-terra-medium",
+  [string]$SubagentEffort = "medium",
   [ValidateSet("auto", "low", "medium", "high", "xhigh", "max")]
   [string]$DefaultEffort = "xhigh",
   [int]$MaxContextTokens = 370000,
@@ -30,7 +30,8 @@ param(
   [switch]$SkipDockerUp,
   [switch]$SkipClaudeConfig,
   [switch]$SkipGeneralPurposeAgent,
-  [switch]$SkipHeadroomMcp
+  [switch]$SkipHeadroomMcp,
+  [switch]$SkipAutostart
 )
 
 $ErrorActionPreference = "Stop"
@@ -103,6 +104,69 @@ function Find-RepoRoot {
   }
 
   throw "Could not find deploy\claude-code-codex-headroom\docker-compose.yml. Run from a cloned sub2api repo or pass -RepoRoot."
+}
+
+function Test-IsWindowsHost {
+  return [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)
+}
+
+function Test-IsElevated {
+  if (-not (Test-IsWindowsHost)) { return $false }
+  $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+  $principal = [Security.Principal.WindowsPrincipal]::new($identity)
+  return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Install-Sub2apiAutostartTask {
+  param(
+    [string]$ResolvedRepoRoot,
+    [string]$ResolvedProfileDir
+  )
+
+  if (-not (Test-IsWindowsHost)) {
+    Write-Warning "Autostart task installation is Windows-only; skipping."
+    return
+  }
+
+  $installer = Join-Path $PSScriptRoot "install-sub2api-autostart-task.ps1"
+  if (-not (Test-Path -LiteralPath $installer)) {
+    Write-Warning "Autostart installer not found: $installer"
+    return
+  }
+
+  $installerArgs = @(
+    "-NoProfile",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    $installer,
+    "-RepoRoot",
+    $ResolvedRepoRoot,
+    "-ProfileDir",
+    $ResolvedProfileDir,
+    "-ProjectName",
+    $ProjectName,
+    "-Distro",
+    "Ubuntu-24.04",
+    "-HeadroomPort",
+    ([string]$HeadroomPort),
+    "-Sub2apiPort",
+    ([string]$Sub2apiPort)
+  )
+
+  if (Test-IsElevated) {
+    & powershell.exe @installerArgs
+    if ($LASTEXITCODE -ne 0) {
+      throw "Autostart installer failed with exit code $LASTEXITCODE"
+    }
+    return
+  }
+
+  Write-Host "Installing autostart task through UAC: Sub2API Codex Proxy Stack Autostart"
+  $process = Start-Process -FilePath "powershell.exe" -ArgumentList $installerArgs -Verb RunAs -WindowStyle Hidden -Wait -PassThru
+  if ($process.ExitCode -ne 0) {
+    throw "Elevated autostart installer failed with exit code $($process.ExitCode)"
+  }
 }
 
 function Read-DotEnv([string]$Path) {
@@ -314,6 +378,10 @@ if (-not $SkipDockerUp) {
   }
 }
 
+if (-not $SkipAutostart) {
+  Install-Sub2apiAutostartTask -ResolvedRepoRoot $resolvedRepoRoot -ResolvedProfileDir $profileDir
+}
+
 if (-not $SkipClaudeConfig) {
   $settingsPath = Join-Path $env:USERPROFILE ".claude\settings.json"
   New-Item -ItemType Directory -Force -Path (Split-Path $settingsPath) | Out-Null
@@ -428,15 +496,15 @@ $Body
     }
 
     Set-ClaudeAgentOverride "general-purpose" `
-      "General-purpose agent for complex multi-step work that needs exploration, edits, command execution, or verification. User override pins the model to GPT-5.6 Terra with high effort while Spark is quota-limited." `
-      "You are the general-purpose Claude Code subagent.`n`nHandle the delegated task end to end inside your own context. Use tools when needed, keep scope tight, and return only the result the parent needs.`n`nDelegation guardrails:`n- Treat GPT-5.6 Terra high effort as the default model profile for delegated general-purpose work.`n- Do not launch more than 10 sibling subagents for one task.`n- Do not create agent chains deeper than two subagent levels below the lead session.`n- If a task needs more breadth or depth, summarize the remaining slices instead of spawning more agents.`n`nGround investigative answers in concrete file paths, commands, logs, or test results."
+      "General-purpose agent for complex multi-step work that needs exploration, edits, command execution, or verification. User override pins the model to GPT-5.6 Terra with medium effort while Spark is quota-limited." `
+      "You are the general-purpose Claude Code subagent.`n`nHandle the delegated task end to end inside your own context. Use tools when needed, keep scope tight, and return only the result the parent needs.`n`nDelegation guardrails:`n- Treat GPT-5.6 Terra medium effort as the default model profile for delegated general-purpose work.`n- Do not launch more than 10 sibling subagents for one task.`n- Do not create agent chains deeper than two subagent levels below the lead session.`n- If a task needs more breadth or depth, summarize the remaining slices instead of spawning more agents.`n`nGround investigative answers in concrete file paths, commands, logs, or test results."
 
     Set-ClaudeAgentOverride "Explore" `
-      "Exploration subagent for repository, log, transcript, and design-space investigation. User override pins this built-in workflow agent to GPT-5.6 Terra high effort." `
+      "Exploration subagent for repository, log, transcript, and design-space investigation. User override pins this built-in workflow agent to GPT-5.6 Terra medium effort." `
       "You are the Explore Claude Code subagent.`n`nInvestigate the delegated question in your own context and return only the evidence and conclusion the parent needs. Prefer concrete proof from files, logs, transcripts, commands, and observed runtime state over broad narrative.`n`nUse tools when they materially improve the answer, but keep the scope bounded. When the task is too broad for one pass, summarize the most important findings and name the exact remaining slices instead of recursively expanding the work."
 
     Set-ClaudeAgentOverride "workflow-subagent" `
-      "Claude Code workflow subagent override. Pins generated workflow worker agents to GPT-5.6 Terra high effort on the local proxy profile." `
+      "Claude Code workflow subagent override. Pins generated workflow worker agents to GPT-5.6 Terra medium effort on the local proxy profile." `
       "You are the workflow-subagent Claude Code worker.`n`nExecute the delegated workflow slice in your own context and return only the specific result the parent workflow needs. Keep the scope bounded, prefer concrete evidence from files, commands, logs, and tests, and avoid expanding a small slice into a broad investigation."
   }
 
@@ -467,6 +535,7 @@ Write-Host "Headroom image: headroom-sub2api:$HeadroomVersion"
 Write-Host "Headroom savings profile: $HeadroomSavingsProfile (target ratio $HeadroomTargetRatio)"
 Write-Host "Headroom embedding server: enabled (--embedding-server with patched watchdog/socket client)"
 Write-Host "Headroom persistent storage: /root/.headroom plus /root/.cache/headroom and /root/.cache/huggingface mounts"
+Write-Host "Windows autostart: Sub2API Codex Proxy Stack Autostart (single task, RunLevel=Highest, VHDX self-heal)"
 Write-Host "model: $Model"
 Write-Host "default effort: $DefaultEffort (use /effort inside Claude Code to change per session)"
 Write-Host "small-fast model: $SmallFastModel"

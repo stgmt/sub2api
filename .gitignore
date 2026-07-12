@@ -121,6 +121,8 @@ CLAUDE.md
 scripts
 !backend/scripts/
 !backend/scripts/resolve-version.sh
+!backend/docs/skills/sub2api-claude-code-codex/scripts/
+!backend/docs/skills/sub2api-claude-code-codex/scripts/**
 .code-review-state
 #openspec/
 code-reviews/

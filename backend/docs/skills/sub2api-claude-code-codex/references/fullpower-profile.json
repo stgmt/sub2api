@@ -1,6 +1,6 @@
 {
   "name": "sub2api-claude-code-codex-fullpower",
-  "last_updated": "2026-07-11",
+  "last_updated": "2026-07-13",
   "proxy": {
     "base_url": "http://127.0.0.1:8787",
     "chain": "Claude Code -> Headroom 127.0.0.1:8787 -> Docker DNS http://sub2api:8080 -> sub2api",
@@ -17,6 +17,8 @@
       "embedding_server": true,
       "embedding_server_socket": "/tmp/headroom-embed-8787.sock",
       "embedding_server_patch": "deploy/claude-code-codex-headroom/patch-headroom-embedding-server.py",
+      "claude_code_streaming_patch": "deploy/claude-code-codex-headroom/patch-headroom-claude-code-streaming.py",
+      "mid_turn_stream_wait_ms": 600000,
       "state_root": "${SUB2API_STATE_ROOT:-./data}",
       "state_storage": "host bind mounts only; do not use Docker named volumes for state",
       "persistent_mounts": {
@@ -54,6 +56,18 @@
     "account_concurrency": 32,
     "disable_nonstreaming_fallback": true
   },
+  "windows_autostart": {
+    "task_name": "Sub2API Codex Proxy Stack Autostart",
+    "single_owner": true,
+    "run_level": "Highest",
+    "action_script": "backend/docs/skills/sub2api-claude-code-codex/scripts/start-sub2api-proxy-stack.ps1",
+    "installer_script": "backend/docs/skills/sub2api-claude-code-codex/scripts/install-sub2api-autostart-task.ps1",
+    "removes_stale_task": "headroom-proxy",
+    "disables_startup_folder_launchers": true,
+    "wsl_vhdx_self_heal": true,
+    "compose_project": "sub2api-codex",
+    "profile_dir": "deploy/claude-code-codex-headroom"
+  },
   "official_model_windows": {
     "gpt-5.6-sol": {
       "context_tokens": 1050000,
@@ -89,9 +103,9 @@
   "claude_code": {
     "model": "gpt-5.6-sol",
     "small_fast_model": "gpt-5.3-codex-spark",
-    "default_haiku_model": "gpt-5.6-terra-high",
-    "general_purpose_subagent_model": "gpt-5.6-terra-high",
-    "subagent_effort": "high",
+    "default_haiku_model": "gpt-5.6-terra-medium",
+    "general_purpose_subagent_model": "gpt-5.6-terra-medium",
+    "subagent_effort": "medium",
     "effort": "max",
     "max_context_tokens": 370000,
     "auto_compact_window": 340000,
@@ -121,10 +135,10 @@
       "For a single-user local setup with multiple Claude Code windows, set accounts.concurrency=32; the default 3/12 can produce account_slot_acquire_failed under parallel subagent load.",
       "If Claude Code reports 429 rate_limit_error or legacy 503 Service temporarily unavailable while /health is ok, check for openai_messages.account_select_failed with no available accounts.",
       "Do not treat account cooldown 503 as a context-window, ghost-stream, or localhost routing failure.",
-      "Use gpt-5.3-codex-spark as ANTHROPIC_SMALL_FAST_MODEL for compact/small-fast routing, but use gpt-5.6-terra-high as ANTHROPIC_DEFAULT_HAIKU_MODEL while native Spark is quota-limited so delegated/default-Haiku paths do not hit Spark quota or inherit parent Sol/max.",
-      "Use gpt-5.6-terra-high with effort: high for the user-level Claude Code general-purpose, Explore, and workflow-subagent overrides while native Spark is quota-limited. The -high alias is intentionally normalized by patched sub2api to upstream gpt-5.6-terra with reasoning_effort=high so delegated agents do not inherit parent Sol/max. Add model_fallbacks from gpt-5.6-terra-high to gpt-5.6-sol-medium so empty Terra tool turns fall back to Sol at medium effort instead of looping or inheriting high. This is a model/effort override, not a global Agent-blocking hook.",
+      "Use gpt-5.3-codex-spark as ANTHROPIC_SMALL_FAST_MODEL for compact/small-fast routing, but use gpt-5.6-terra-medium as ANTHROPIC_DEFAULT_HAIKU_MODEL while native Spark is quota-limited so delegated/default-Haiku paths do not hit Spark quota or inherit parent Sol/max.",
+      "Use gpt-5.6-terra-medium with effort: medium for the user-level Claude Code general-purpose, Explore, and workflow-subagent overrides while native Spark is quota-limited. The -medium alias is intentionally normalized by patched sub2api to upstream gpt-5.6-terra with reasoning_effort=medium so delegated agents do not inherit parent Sol/max. Add model_fallbacks from gpt-5.6-terra-medium to gpt-5.6-sol-medium so empty Terra tool turns fall back to Sol at medium effort instead of looping or inheriting the wrong parent effort. This is a model/effort override, not a global Agent-blocking hook.",
       "Do not install PreToolUse/SubagentStart/SubagentStop state-file hooks to block Agent calls unless the user explicitly asks for a hard cap. Current fan-out control is advisory through workflowSizeGuideline=small and general-purpose.md guardrails. Do not claim a built-in depth cap prevents hundreds of spawned descendants; local sessions showed one parent line reaching hundreds of spawned agents.",
-      "Use messages_dispatch_model_config.model_fallbacks for normal small-fast/Haiku fallback: gpt-5.3-codex-spark -> gpt-5.6-luna -> gpt-5.4-mini. Direct gpt-5.6-luna requests fall back to gpt-5.3-codex-spark -> gpt-5.4-mini. Delegated gpt-5.6-terra-high falls back to gpt-5.6-sol-medium.",
+      "Use messages_dispatch_model_config.model_fallbacks for normal small-fast/Haiku fallback: gpt-5.3-codex-spark -> gpt-5.6-luna -> gpt-5.4-mini. Direct gpt-5.6-luna requests fall back to gpt-5.3-codex-spark -> gpt-5.4-mini. Delegated gpt-5.6-terra-medium falls back to gpt-5.6-sol-medium.",
       "Fresh 2026-07-10 Luna re-probe returned HTTP 200 but usage_logs showed gpt-5.6-luna -> gpt-5.4-mini and ops_error_logs recorded recovered upstream 429. Treat Luna as unavailable until the mapping chain ends at gpt-5.6-luna.",
       "Set compact_model_fallbacks so Spark compact failures caused by rate limit, quota, unknown/unsupported model, or service-unavailable class errors continue through gpt-5.6-luna, then gpt-5.4-mini.",
       "Manual /compact may ignore ANTHROPIC_SMALL_FAST_MODEL in some Claude Code builds and use the session main model. Verify compact routing via usage_logs.requested_model/upstream_model."
@@ -210,7 +224,7 @@
           "gpt-5.3-codex-spark",
           "gpt-5.4-mini"
         ],
-        "gpt-5.6-terra-high": [
+        "gpt-5.6-terra-medium": [
           "gpt-5.6-sol-medium"
         ],
         "claude-haiku-*": [
