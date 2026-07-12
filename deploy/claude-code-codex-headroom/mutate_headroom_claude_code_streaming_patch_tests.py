@@ -28,8 +28,19 @@ MUTATIONS = [
     ),
     Mutation(
         name="ignore_claude_agent_id",
-        target='claude_agent = request.headers.get("x-claude-code-agent-id") or "main"',
-        replacement='claude_agent = "main"',
+        target=(
+            '    claude_agent = request.headers.get("x-claude-code-agent-id") or "main"\n'
+            '    return f"claude-code:{{claude_session}}:{{claude_agent}}"\n'
+        ),
+        replacement=(
+            '    claude_agent = "main"\n'
+            '    return f"claude-code:{{claude_session}}:{{claude_agent}}"\n'
+        ),
+    ),
+    Mutation(
+        name="skip_handler_watchdog_patch",
+        target="if ANTHROPIC_HANDLER_WATCHDOG_SENTINEL not in text:",
+        replacement="if False and ANTHROPIC_HANDLER_WATCHDOG_SENTINEL not in text:",
     ),
     Mutation(
         name="skip_active_stream_refcount_patch",
@@ -50,13 +61,22 @@ MUTATIONS = [
 
 
 def run_test(workdir: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [sys.executable, str(workdir / TEST.name)],
-        cwd=workdir,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    try:
+        return subprocess.run(
+            [sys.executable, str(workdir / TEST.name)],
+            cwd=workdir,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=20,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return subprocess.CompletedProcess(
+            args=exc.cmd,
+            returncode=124,
+            stdout=exc.stdout or "",
+            stderr=(exc.stderr or "") + "\nmutation test timed out",
+        )
 
 
 def copy_case(root: Path) -> Path:

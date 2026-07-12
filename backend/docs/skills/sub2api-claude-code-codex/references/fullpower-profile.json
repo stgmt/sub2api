@@ -19,6 +19,7 @@
       "embedding_server_patch": "deploy/claude-code-codex-headroom/patch-headroom-embedding-server.py",
       "claude_code_streaming_patch": "deploy/claude-code-codex-headroom/patch-headroom-claude-code-streaming.py",
       "mid_turn_stream_wait_ms": 600000,
+      "claude_code_handler_watchdog_ms": 540000,
       "state_root": "${SUB2API_STATE_ROOT:-./data}",
       "state_storage": "host bind mounts only; do not use Docker named volumes for state",
       "persistent_mounts": {

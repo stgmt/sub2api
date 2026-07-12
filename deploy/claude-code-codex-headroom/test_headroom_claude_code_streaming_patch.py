@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import importlib.util
 import os
@@ -8,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import types
 import unittest
 
 
@@ -75,14 +77,27 @@ class StreamingHandler:
 
 
 ANTHROPIC_FIXTURE = """
+import asyncio
 import logging
 from typing import Any
 
 logger = logging.getLogger("headroom.proxy")
 
 
-class AnthropicHandler:
-    async def handle(self, request: Any, body: dict, stream: bool, buffered_stream_ccr: bool):
+class AnthropicHandlerMixin:
+    async def handle_anthropic_messages(
+        self,
+        request: Any,
+        upstream_base_url: str | None = None,
+        provider_name: str = "anthropic",
+        model_override: str | None = None,
+        force_stream: bool = False,
+    ):
+        body = getattr(request, "body", {"stream": True})
+        stream = body.get("stream", True)
+        buffered_stream_ccr = body.get("buffered_stream_ccr", False)
+        if body.get("sleep_forever"):
+            await asyncio.sleep(3600)
         if stream and not buffered_stream_ccr:
                     session_key = self._get_session_key(
                         body,
@@ -169,6 +184,7 @@ class HeadroomClaudeCodeStreamingPatchTest(unittest.TestCase):
             self.assertIn("self._mark_mid_turn_stream_active(session_key)", streaming_text)
             self.assertIn("sub2api downstream Claude Code session key patch", anthropic_text)
             self.assertIn("sub2api downstream Claude Code no-202 overlap patch", anthropic_text)
+            self.assertIn("sub2api downstream Claude Code handler watchdog patch", anthropic_text)
             self.assertNotIn("return JSONResponse(content=queued, status_code=202)", anthropic_text)
             self.assertNotIn("HEADROOM_ANTHROPIC_MID_TURN_WAIT_TIMEOUT_SECONDS", anthropic_text)
 
@@ -212,6 +228,61 @@ class HeadroomClaudeCodeStreamingPatchTest(unittest.TestCase):
                 "claude-code:session-1:main",
             )
             self.assertIsNone(helper(Request({})))
+
+    def test_handler_watchdog_returns_anthropic_sse_error_for_claude_code(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _, anthropic = write_fake_headroom(root)
+            result = run_patch(root)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            spec = importlib.util.spec_from_file_location("patched_anthropic_watchdog", anthropic)
+            self.assertIsNotNone(spec)
+            module = importlib.util.module_from_spec(spec)
+            assert spec and spec.loader
+            spec.loader.exec_module(module)
+
+            class Handler(module.AnthropicHandlerMixin):
+                _active_streams: set[str] = set()
+
+                def _get_session_key(self, body: dict, session_header: str | None = None) -> str:
+                    return session_header or "derived-session"
+
+                async def _stream_response(self, *args, **kwargs):
+                    return "ok"
+
+            class Request:
+                headers = {"x-claude-code-session-id": "session-1"}
+                body = {"stream": True, "sleep_forever": True}
+
+            async def run() -> object:
+                old_timeout = os.environ.get("HEADROOM_CLAUDE_CODE_HANDLER_WATCHDOG_MS")
+                os.environ["HEADROOM_CLAUDE_CODE_HANDLER_WATCHDOG_MS"] = "10"
+                try:
+                    return await Handler().handle_anthropic_messages(Request())
+                finally:
+                    if old_timeout is None:
+                        os.environ.pop("HEADROOM_CLAUDE_CODE_HANDLER_WATCHDOG_MS", None)
+                    else:
+                        os.environ["HEADROOM_CLAUDE_CODE_HANDLER_WATCHDOG_MS"] = old_timeout
+
+            class FakeStreamingResponse:
+                def __init__(self, _body, media_type: str, status_code: int) -> None:
+                    self.body = _body
+                    self.media_type = media_type
+                    self.status_code = status_code
+
+            old_fastapi_responses = sys.modules.get("fastapi.responses")
+            sys.modules["fastapi.responses"] = types.SimpleNamespace(
+                StreamingResponse=FakeStreamingResponse
+            )
+            response = asyncio.run(run())
+            if old_fastapi_responses is None:
+                sys.modules.pop("fastapi.responses", None)
+            else:
+                sys.modules["fastapi.responses"] = old_fastapi_responses
+            self.assertEqual(getattr(response, "status_code", None), 504)
+            self.assertEqual(getattr(response, "media_type", None), "text/event-stream")
 
     def test_refuses_unknown_anthropic_overlap_shape(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

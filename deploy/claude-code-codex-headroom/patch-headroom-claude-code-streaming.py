@@ -13,7 +13,9 @@ This downstream image patch makes the path Claude Code-safe:
 * wait for the active stream to close instead of returning the private 202
   queue response;
 * keep a small active-stream reference count so an emergency overlap forward
-  cannot let an older stream cleanup clear a newer stream's active marker.
+  cannot let an older stream cleanup clear a newer stream's active marker;
+* bound the whole Claude Code Anthropic handler so a pre-upstream Headroom
+  deadlock/cancellation cannot leave Claude Code waiting for an empty stream.
 """
 
 from __future__ import annotations
@@ -30,6 +32,9 @@ STREAMING_ACTIVE_COUNT_SENTINEL = (
 STREAMING_WAIT_SENTINEL = "# sub2api downstream Claude Code overlap wait patch"
 ANTHROPIC_SESSION_SENTINEL = "# sub2api downstream Claude Code session key patch"
 ANTHROPIC_NO_202_SENTINEL = "# sub2api downstream Claude Code no-202 overlap patch"
+ANTHROPIC_HANDLER_WATCHDOG_SENTINEL = (
+    "# sub2api downstream Claude Code handler watchdog patch"
+)
 
 
 def _replace_once(text: str, old: str, new: str, path: Path) -> str:
@@ -218,6 +223,104 @@ def _headroom_session_header_from_request(request: Any) -> str | None:
 
     if "return JSONResponse(content=queued, status_code=202)" in text:
         raise RuntimeError(f"unsafe 202 queue response still present in {path}")
+
+    if ANTHROPIC_HANDLER_WATCHDOG_SENTINEL not in text:
+        text += f'''
+
+
+{ANTHROPIC_HANDLER_WATCHDOG_SENTINEL}
+_sub2api_original_handle_anthropic_messages = (
+    AnthropicHandlerMixin.handle_anthropic_messages
+)
+
+
+async def _sub2api_handle_anthropic_messages_with_watchdog(
+    self,
+    request,
+    upstream_base_url=None,
+    provider_name="anthropic",
+    model_override=None,
+    force_stream=False,
+):
+    import asyncio as _sub2api_asyncio
+    import json as _sub2api_json
+    import os as _sub2api_os
+
+    claude_session = request.headers.get("x-claude-code-session-id")
+    if not claude_session:
+        return await _sub2api_original_handle_anthropic_messages(
+            self,
+            request,
+            upstream_base_url=upstream_base_url,
+            provider_name=provider_name,
+            model_override=model_override,
+            force_stream=force_stream,
+        )
+
+    raw_timeout_ms = _sub2api_os.environ.get(
+        "HEADROOM_CLAUDE_CODE_HANDLER_WATCHDOG_MS",
+        "540000",
+    )
+    try:
+        timeout_ms = max(1000, int(raw_timeout_ms))
+    except (TypeError, ValueError):
+        timeout_ms = 540000
+
+    async def _run_original():
+        return await _sub2api_original_handle_anthropic_messages(
+            self,
+            request,
+            upstream_base_url=upstream_base_url,
+            provider_name=provider_name,
+            model_override=model_override,
+            force_stream=force_stream,
+        )
+
+    try:
+        return await _sub2api_asyncio.wait_for(
+            _run_original(),
+            timeout=timeout_ms / 1000.0,
+        )
+    except _sub2api_asyncio.TimeoutError:
+        from fastapi.responses import StreamingResponse
+
+        claude_agent = request.headers.get("x-claude-code-agent-id") or "main"
+        logger.error(
+            "event=claude_code_handler_watchdog_timeout "
+            "session_id=%s agent_id=%s timeout_ms=%s",
+            claude_session,
+            claude_agent,
+            timeout_ms,
+        )
+
+        async def _timeout_sse():
+            error_event = {{
+                "type": "error",
+                "error": {{
+                    "type": "api_error",
+                    "message": (
+                        "Headroom timed out before producing an Anthropic "
+                        "stream event. The request was cancelled by the "
+                        "local proxy watchdog."
+                    ),
+                }},
+            }}
+            yield (
+                "event: error\\n"
+                f"data: {{_sub2api_json.dumps(error_event)}}\\n\\n"
+            ).encode()
+
+        return StreamingResponse(
+            _timeout_sse(),
+            media_type="text/event-stream",
+            status_code=504,
+        )
+
+
+AnthropicHandlerMixin.handle_anthropic_messages = (
+    _sub2api_handle_anthropic_messages_with_watchdog
+)
+'''
 
     path.write_text(text, encoding="utf-8")
     py_compile.compile(str(path), doraise=True)

@@ -271,7 +271,7 @@ files = {
 }
 texts = {name: path.read_text() for name, path in files.items()}
 required = {
-  "anthropic": ["Claude Code session key patch", "Claude Code no-202 overlap patch"],
+  "anthropic": ["Claude Code session key patch", "Claude Code no-202 overlap patch", "Claude Code handler watchdog patch"],
   "streaming": ["active-stream refcount patch", "overlap wait patch"],
 }
 missing = [
@@ -292,9 +292,9 @@ print("SOURCE_OK")
   }
   Write-Host "source: $sourceOutput"
 
-  $envOutput = (Invoke-DockerCommand -Args @("exec", "headroom-sub2api", "python", "-c", "import os; print('MID_TURN_WAIT_MS=' + os.environ.get('HEADROOM_MID_TURN_STREAM_WAIT_MS',''))") 2>&1) -join "`n"
-  if ($LASTEXITCODE -ne 0 -or $envOutput -notmatch "MID_TURN_WAIT_MS=\d+") {
-    throw "HEADROOM_MID_TURN_STREAM_WAIT_MS is missing in headroom-sub2api. Output: $envOutput"
+  $envOutput = (Invoke-DockerCommand -Args @("exec", "headroom-sub2api", "python", "-c", "import os; print('MID_TURN_WAIT_MS=' + os.environ.get('HEADROOM_MID_TURN_STREAM_WAIT_MS','') + '; HANDLER_WATCHDOG_MS=' + os.environ.get('HEADROOM_CLAUDE_CODE_HANDLER_WATCHDOG_MS',''))") 2>&1) -join "`n"
+  if ($LASTEXITCODE -ne 0 -or $envOutput -notmatch "MID_TURN_WAIT_MS=\d+" -or $envOutput -notmatch "HANDLER_WATCHDOG_MS=\d+") {
+    throw "Headroom Claude Code timeout env is missing in headroom-sub2api. Output: $envOutput"
   }
   Write-Host "env: $envOutput"
 
@@ -338,6 +338,45 @@ asyncio.run(main())
     throw "Headroom Claude Code overlap wait regression failed. Output: $regressionOutput"
   }
   Write-Host "regression: $regressionOutput"
+
+  $watchdogProbe = @'
+import asyncio
+import logging
+import os
+from headroom.proxy.handlers import anthropic
+
+logging.disable(logging.CRITICAL)
+
+async def slow_original(*args, **kwargs):
+  await asyncio.sleep(3600)
+
+class Request:
+  headers = {"x-claude-code-session-id": "verify-session", "x-claude-code-agent-id": "verify-agent"}
+
+async def main():
+  old_original = anthropic._sub2api_original_handle_anthropic_messages
+  old_timeout = os.environ.get("HEADROOM_CLAUDE_CODE_HANDLER_WATCHDOG_MS")
+  anthropic._sub2api_original_handle_anthropic_messages = slow_original
+  os.environ["HEADROOM_CLAUDE_CODE_HANDLER_WATCHDOG_MS"] = "1000"
+  try:
+    response = await anthropic.AnthropicHandlerMixin().handle_anthropic_messages(Request())
+    assert response.status_code == 504, response.status_code
+    assert response.media_type == "text/event-stream", response.media_type
+    print(f"WATCHDOG_OK status={response.status_code} media={response.media_type}")
+  finally:
+    anthropic._sub2api_original_handle_anthropic_messages = old_original
+    if old_timeout is None:
+      os.environ.pop("HEADROOM_CLAUDE_CODE_HANDLER_WATCHDOG_MS", None)
+    else:
+      os.environ["HEADROOM_CLAUDE_CODE_HANDLER_WATCHDOG_MS"] = old_timeout
+
+asyncio.run(main())
+'@
+  $watchdogOutput = (Invoke-DockerCommand -Args @("exec", "headroom-sub2api", "python", "-c", (ConvertTo-PythonBase64Command $watchdogProbe)) 2>&1) -join "`n"
+  if ($LASTEXITCODE -ne 0 -or $watchdogOutput -notmatch "WATCHDOG_OK") {
+    throw "Headroom Claude Code handler watchdog regression failed. Output: $watchdogOutput"
+  }
+  Write-Host "watchdog: $watchdogOutput"
 }
 
 function Test-HeadroomPersistentStorage {
