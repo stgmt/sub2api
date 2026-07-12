@@ -154,9 +154,11 @@ For the Headroom Claude Code streaming-overlap downstream patch:
 
 ```powershell
 python .\deploy\claude-code-codex-headroom\test_headroom_claude_code_streaming_patch.py
+python .\deploy\claude-code-codex-headroom\mutate_headroom_claude_code_streaming_patch_tests.py
 ```
 
 Expected: the test builds a fake `headroom-ai==0.31.0` install layout, applies `patch-headroom-claude-code-streaming.py`, proves the unsafe `return JSONResponse(content=queued, status_code=202)` branch is gone, proves the patch is idempotent, proves `x-claude-code-session-id` plus `x-claude-code-agent-id` becomes the active stream key, and proves a mutated/unknown Anthropic overlap branch fails closed instead of silently producing a partial patch.
+Mutation expected: all bundled mutants are killed. The suite intentionally breaks the Anthropic no-202 patch, Claude agent-id session key, active-stream refcount patch, unknown-shape fail-closed guard, and idempotency guard.
 
 For the current sub2api source path:
 
