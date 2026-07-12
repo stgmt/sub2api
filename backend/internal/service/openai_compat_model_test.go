@@ -78,6 +78,7 @@ func TestNormalizeOpenAICompatRequestedModel(t *testing.T) {
 	}{
 		{name: "gpt reasoning alias strips xhigh", input: "gpt-5.4-xhigh", want: "gpt-5.4"},
 		{name: "gpt reasoning alias strips mid", input: "gpt-5.6-sol-mid", want: "gpt-5.6-sol"},
+		{name: "gpt reasoning alias strips medium", input: "gpt-5.6-terra-medium", want: "gpt-5.6-terra"},
 		{name: "gpt reasoning alias strips none", input: "gpt-5.4-none", want: "gpt-5.4"},
 		{name: "codex max model stays intact", input: "gpt-5.1-codex-max", want: "gpt-5.1-codex-max"},
 		{name: "non openai model unchanged", input: "claude-opus-4-6", want: "claude-opus-4-6"},
@@ -103,9 +104,9 @@ func TestApplyOpenAICompatModelNormalization(t *testing.T) {
 		require.Equal(t, "max", req.OutputConfig.Effort)
 	})
 
-	t.Run("model suffix overrides inherited output config effort", func(t *testing.T) {
+	t.Run("medium model suffix overrides inherited output config effort", func(t *testing.T) {
 		req := &apicompat.AnthropicRequest{
-			Model:        "gpt-5.6-terra-high",
+			Model:        "gpt-5.6-terra-medium",
 			OutputConfig: &apicompat.AnthropicOutputConfig{Effort: "max"},
 		}
 
@@ -113,7 +114,7 @@ func TestApplyOpenAICompatModelNormalization(t *testing.T) {
 
 		require.Equal(t, "gpt-5.6-terra", req.Model)
 		require.NotNil(t, req.OutputConfig)
-		require.Equal(t, "high", req.OutputConfig.Effort)
+		require.Equal(t, "medium", req.OutputConfig.Effort)
 	})
 
 	t.Run("mid alias maps to medium effort", func(t *testing.T) {
@@ -300,7 +301,7 @@ func TestForwardAsAnthropic_ModelEffortAliasOverridesInheritedMax(t *testing.T) 
 
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
-	body := []byte(`{"model":"gpt-5.6-terra-high","max_tokens":16,"output_config":{"effort":"max"},"messages":[{"role":"user","content":"hello"}],"stream":false}`)
+	body := []byte(`{"model":"gpt-5.6-terra-medium","max_tokens":16,"output_config":{"effort":"max"},"messages":[{"role":"user","content":"hello"}],"stream":false}`)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -312,7 +313,7 @@ func TestForwardAsAnthropic_ModelEffortAliasOverridesInheritedMax(t *testing.T) 
 	}, "\n")
 	upstream := &httpUpstreamRecorder{resp: &http.Response{
 		StatusCode: http.StatusOK,
-		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"rid_compat_high"}},
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"rid_compat_medium"}},
 		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
 	}}
 
@@ -335,16 +336,16 @@ func TestForwardAsAnthropic_ModelEffortAliasOverridesInheritedMax(t *testing.T) 
 		},
 	}
 
-	result, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "gpt-5.6-terra-high")
+	result, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "gpt-5.6-terra-medium")
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.Equal(t, "gpt-5.6-terra-high", result.Model)
+	require.Equal(t, "gpt-5.6-terra-medium", result.Model)
 	require.Equal(t, "gpt-5.6-terra", result.UpstreamModel)
 	require.NotNil(t, result.ReasoningEffort)
-	require.Equal(t, "high", *result.ReasoningEffort)
+	require.Equal(t, "medium", *result.ReasoningEffort)
 
 	require.Equal(t, "gpt-5.6-terra", gjson.GetBytes(upstream.lastBody, "model").String())
-	require.Equal(t, "high", gjson.GetBytes(upstream.lastBody, "reasoning.effort").String())
+	require.Equal(t, "medium", gjson.GetBytes(upstream.lastBody, "reasoning.effort").String())
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 

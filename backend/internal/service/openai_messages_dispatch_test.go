@@ -17,9 +17,9 @@ func TestNormalizeOpenAIMessagesDispatchModelConfig(t *testing.T) {
 			"claude-opus-4-6":              " ",
 		},
 		ModelFallbacks: map[string][]string{
-			" gpt-5.3-codex-spark ": []string{" gpt-5.6-luna ", "gpt-5.4-mini", "gpt-5.4-mini", " "},
-			" gpt-5.6-terra-high ":  []string{" gpt-5.6-sol-medium "},
-			"":                      []string{"gpt-5.4"},
+			" gpt-5.3-codex-spark ":  []string{" gpt-5.6-luna ", "gpt-5.4-mini", "gpt-5.4-mini", " "},
+			" gpt-5.6-terra-medium ": []string{" gpt-5.6-sol-medium "},
+			"":                       []string{"gpt-5.4"},
 		},
 	})
 
@@ -30,8 +30,8 @@ func TestNormalizeOpenAIMessagesDispatchModelConfig(t *testing.T) {
 		"claude-sonnet-4-5-20250929": "gpt-5.2",
 	}, cfg.ExactModelMappings)
 	require.Equal(t, map[string][]string{
-		"gpt-5.3-codex-spark": []string{"gpt-5.6-luna", "gpt-5.4-mini"},
-		"gpt-5.6-terra-high":  []string{"gpt-5.6-sol-medium"},
+		"gpt-5.3-codex-spark":  []string{"gpt-5.6-luna", "gpt-5.4-mini"},
+		"gpt-5.6-terra-medium": []string{"gpt-5.6-sol-medium"},
 	}, cfg.ModelFallbacks)
 }
 
@@ -55,9 +55,9 @@ func TestResolveMessagesDispatchFallbackModels(t *testing.T) {
 		MessagesDispatchModelConfig: OpenAIMessagesDispatchModelConfig{
 			HaikuMappedModel: "gpt-5.3-codex-spark",
 			ModelFallbacks: map[string][]string{
-				"gpt-5.3-codex-spark": []string{" gpt-5.6-luna ", "gpt-5.4-mini", "gpt-5.4-mini"},
-				"claude-haiku-*":      []string{"gpt-5.4-mini"},
-				"gpt-5.6-terra-high":  []string{"gpt-5.6-sol-medium"},
+				"gpt-5.3-codex-spark":  []string{" gpt-5.6-luna ", "gpt-5.4-mini", "gpt-5.4-mini"},
+				"claude-haiku-*":       []string{"gpt-5.4-mini"},
+				"gpt-5.6-terra-medium": []string{"gpt-5.6-sol-medium"},
 			},
 		},
 	}
@@ -65,6 +65,6 @@ func TestResolveMessagesDispatchFallbackModels(t *testing.T) {
 	got := group.ResolveMessagesDispatchFallbackModels("claude-haiku-4-5", "gpt-5.3-codex-spark")
 	require.Equal(t, []string{"gpt-5.6-luna", "gpt-5.4-mini"}, got)
 
-	got = group.ResolveMessagesDispatchFallbackModels("gpt-5.6-terra-high", "")
+	got = group.ResolveMessagesDispatchFallbackModels("gpt-5.6-terra-medium", "")
 	require.Equal(t, []string{"gpt-5.6-sol-medium"}, got)
 }
