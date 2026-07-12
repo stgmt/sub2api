@@ -96,6 +96,11 @@ class AnthropicHandlerMixin:
         body = getattr(request, "body", {"stream": True})
         stream = body.get("stream", True)
         buffered_stream_ccr = body.get("buffered_stream_ccr", False)
+        if (
+            request.headers.get("x-sub2api-headroom-watchdog-retry") == "1"
+            and not body.get("sleep_forever_after_retry")
+        ):
+            return "retry-ok"
         if body.get("sleep_forever"):
             await asyncio.sleep(3600)
         if stream and not buffered_stream_ccr:
@@ -229,7 +234,7 @@ class HeadroomClaudeCodeStreamingPatchTest(unittest.TestCase):
             )
             self.assertIsNone(helper(Request({})))
 
-    def test_handler_watchdog_returns_anthropic_sse_error_for_claude_code(self) -> None:
+    def test_handler_watchdog_retries_claude_code_request_with_bypass(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _, anthropic = write_fake_headroom(root)
@@ -254,6 +259,50 @@ class HeadroomClaudeCodeStreamingPatchTest(unittest.TestCase):
             class Request:
                 headers = {"x-claude-code-session-id": "session-1"}
                 body = {"stream": True, "sleep_forever": True}
+
+            async def run() -> object:
+                old_timeout = os.environ.get("HEADROOM_CLAUDE_CODE_HANDLER_WATCHDOG_MS")
+                os.environ["HEADROOM_CLAUDE_CODE_HANDLER_WATCHDOG_MS"] = "10"
+                try:
+                    return await Handler().handle_anthropic_messages(Request())
+                finally:
+                    if old_timeout is None:
+                        os.environ.pop("HEADROOM_CLAUDE_CODE_HANDLER_WATCHDOG_MS", None)
+                    else:
+                        os.environ["HEADROOM_CLAUDE_CODE_HANDLER_WATCHDOG_MS"] = old_timeout
+
+            response = asyncio.run(run())
+            self.assertEqual(response, "retry-ok")
+
+    def test_handler_watchdog_returns_sse_error_if_bypass_retry_also_times_out(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _, anthropic = write_fake_headroom(root)
+            result = run_patch(root)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            spec = importlib.util.spec_from_file_location("patched_anthropic_watchdog_retry_fail", anthropic)
+            self.assertIsNotNone(spec)
+            module = importlib.util.module_from_spec(spec)
+            assert spec and spec.loader
+            spec.loader.exec_module(module)
+
+            class Handler(module.AnthropicHandlerMixin):
+                _active_streams: set[str] = set()
+
+                def _get_session_key(self, body: dict, session_header: str | None = None) -> str:
+                    return session_header or "derived-session"
+
+                async def _stream_response(self, *args, **kwargs):
+                    return "ok"
+
+            class Request:
+                headers = {"x-claude-code-session-id": "session-1"}
+                body = {
+                    "stream": True,
+                    "sleep_forever": True,
+                    "sleep_forever_after_retry": True,
+                }
 
             async def run() -> object:
                 old_timeout = os.environ.get("HEADROOM_CLAUDE_CODE_HANDLER_WATCHDOG_MS")

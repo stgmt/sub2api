@@ -20,6 +20,7 @@
       "claude_code_streaming_patch": "deploy/claude-code-codex-headroom/patch-headroom-claude-code-streaming.py",
       "mid_turn_stream_wait_ms": 600000,
       "claude_code_handler_watchdog_ms": 540000,
+      "claude_code_handler_watchdog_action": "cancel hung primary handler, retry once with Headroom bypass/passthrough headers, return 504 SSE only if bypass retry also times out",
       "state_root": "${SUB2API_STATE_ROOT:-./data}",
       "state_storage": "host bind mounts only; do not use Docker named volumes for state",
       "persistent_mounts": {
@@ -143,6 +144,8 @@
       "Fresh 2026-07-10 Luna re-probe returned HTTP 200 but usage_logs showed gpt-5.6-luna -> gpt-5.4-mini and ops_error_logs recorded recovered upstream 429. Treat Luna as unavailable until the mapping chain ends at gpt-5.6-luna.",
       "Set compact_model_fallbacks so Spark compact failures caused by rate limit, quota, unknown/unsupported model, or service-unavailable class errors continue through gpt-5.6-luna, then gpt-5.4-mini.",
       "Manual /compact may ignore ANTHROPIC_SMALL_FAST_MODEL in some Claude Code builds and use the session main model. Verify compact routing via usage_logs.requested_model/upstream_model."
+      ,
+      "If Headroom stalls inside the Anthropic handler before sub2api sees a request, the watchdog must not immediately return 504 to Claude Code. It should cancel the hung primary handler and retry once with x-headroom-bypass=true, x-headroom-mode=passthrough, and x-sub2api-headroom-watchdog-retry=1. Treat event=claude_code_handler_watchdog_retry_ok as the desired recovery proof; 504 event:error is only the final fallback after retry timeout."
       ,
       "Headroom embeddings/memory must be persisted through /root/.headroom as a host bind mount. Verify /root/.headroom/ccr_store.db after memory traffic, and keep /root/.cache/headroom plus /root/.cache/huggingface mounted so warmed tool/model/embedding caches survive container recreation."
       ,

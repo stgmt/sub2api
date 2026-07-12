@@ -347,8 +347,16 @@ from headroom.proxy.handlers import anthropic
 
 logging.disable(logging.CRITICAL)
 
-async def slow_original(*args, **kwargs):
-  await asyncio.sleep(3600)
+attempts = {"count": 0}
+
+async def slow_then_retry_ok(self, request, *args, **kwargs):
+  attempts["count"] += 1
+  if attempts["count"] == 1:
+    await asyncio.sleep(3600)
+  assert request.headers.get("x-headroom-bypass") == "true", request.headers
+  assert request.headers.get("x-headroom-mode") == "passthrough", request.headers
+  assert request.headers.get("x-sub2api-headroom-watchdog-retry") == "1", request.headers
+  return "WATCHDOG_RETRY_RESPONSE"
 
 class Request:
   headers = {"x-claude-code-session-id": "verify-session", "x-claude-code-agent-id": "verify-agent"}
@@ -356,13 +364,13 @@ class Request:
 async def main():
   old_original = anthropic._sub2api_original_handle_anthropic_messages
   old_timeout = os.environ.get("HEADROOM_CLAUDE_CODE_HANDLER_WATCHDOG_MS")
-  anthropic._sub2api_original_handle_anthropic_messages = slow_original
+  anthropic._sub2api_original_handle_anthropic_messages = slow_then_retry_ok
   os.environ["HEADROOM_CLAUDE_CODE_HANDLER_WATCHDOG_MS"] = "1000"
   try:
     response = await anthropic.AnthropicHandlerMixin().handle_anthropic_messages(Request())
-    assert response.status_code == 504, response.status_code
-    assert response.media_type == "text/event-stream", response.media_type
-    print(f"WATCHDOG_OK status={response.status_code} media={response.media_type}")
+    assert response == "WATCHDOG_RETRY_RESPONSE", response
+    assert attempts["count"] == 2, attempts
+    print(f"WATCHDOG_RETRY_OK attempts={attempts['count']} response={response}")
   finally:
     anthropic._sub2api_original_handle_anthropic_messages = old_original
     if old_timeout is None:
@@ -373,7 +381,7 @@ async def main():
 asyncio.run(main())
 '@
   $watchdogOutput = (Invoke-DockerCommand -Args @("exec", "headroom-sub2api", "python", "-c", (ConvertTo-PythonBase64Command $watchdogProbe)) 2>&1) -join "`n"
-  if ($LASTEXITCODE -ne 0 -or $watchdogOutput -notmatch "WATCHDOG_OK") {
+  if ($LASTEXITCODE -ne 0 -or $watchdogOutput -notmatch "WATCHDOG_RETRY_OK") {
     throw "Headroom Claude Code handler watchdog regression failed. Output: $watchdogOutput"
   }
   Write-Host "watchdog: $watchdogOutput"

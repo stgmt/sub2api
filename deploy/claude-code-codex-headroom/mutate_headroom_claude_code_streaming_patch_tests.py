@@ -43,6 +43,11 @@ MUTATIONS = [
         replacement="if False and ANTHROPIC_HANDLER_WATCHDOG_SENTINEL not in text:",
     ),
     Mutation(
+        name="break_watchdog_retry_header",
+        target='retry_headers["x-sub2api-headroom-watchdog-retry"] = "1"',
+        replacement='retry_headers["x-sub2api-headroom-watchdog-retry"] = "0"',
+    ),
+    Mutation(
         name="skip_active_stream_refcount_patch",
         target="if STREAMING_ACTIVE_COUNT_SENTINEL not in text:",
         replacement="if False and STREAMING_ACTIVE_COUNT_SENTINEL not in text:",

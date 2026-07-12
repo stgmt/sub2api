@@ -266,55 +266,122 @@ async def _sub2api_handle_anthropic_messages_with_watchdog(
     except (TypeError, ValueError):
         timeout_ms = 540000
 
-    async def _run_original():
+    claude_agent = request.headers.get("x-claude-code-agent-id") or "main"
+
+    class _Sub2apiWatchdogRetryRequest:
+        def __init__(self, original_request, retry_headers):
+            self._original_request = original_request
+            self.headers = retry_headers
+
+        def __getattr__(self, name):
+            return getattr(self._original_request, name)
+
+    def _consume_late_task_result(task):
+        try:
+            task.result()
+        except _sub2api_asyncio.CancelledError:
+            pass
+        except Exception as exc:
+            logger.warning(
+                "event=claude_code_handler_watchdog_late_task_error "
+                "session_id=%s agent_id=%s error=%r",
+                claude_session,
+                claude_agent,
+                exc,
+            )
+
+    async def _run_original(current_request):
         return await _sub2api_original_handle_anthropic_messages(
             self,
-            request,
+            current_request,
             upstream_base_url=upstream_base_url,
             provider_name=provider_name,
             model_override=model_override,
             force_stream=force_stream,
         )
 
-    try:
-        return await _sub2api_asyncio.wait_for(
-            _run_original(),
+    async def _run_with_watchdog(current_request, attempt):
+        task = _sub2api_asyncio.create_task(_run_original(current_request))
+        done, _ = await _sub2api_asyncio.wait(
+            {{task}},
             timeout=timeout_ms / 1000.0,
         )
-    except _sub2api_asyncio.TimeoutError:
-        from fastapi.responses import StreamingResponse
+        if task in done:
+            return False, await task
 
-        claude_agent = request.headers.get("x-claude-code-agent-id") or "main"
+        task.cancel()
+        task.add_done_callback(_consume_late_task_result)
         logger.error(
             "event=claude_code_handler_watchdog_timeout "
-            "session_id=%s agent_id=%s timeout_ms=%s",
+            "session_id=%s agent_id=%s timeout_ms=%s attempt=%s",
             claude_session,
             claude_agent,
             timeout_ms,
+            attempt,
         )
+        return True, None
 
-        async def _timeout_sse():
-            error_event = {{
-                "type": "error",
-                "error": {{
-                    "type": "api_error",
-                    "message": (
-                        "Headroom timed out before producing an Anthropic "
-                        "stream event. The request was cancelled by the "
-                        "local proxy watchdog."
-                    ),
-                }},
-            }}
-            yield (
-                "event: error\\n"
-                f"data: {{_sub2api_json.dumps(error_event)}}\\n\\n"
-            ).encode()
+    timed_out, response = await _run_with_watchdog(request, "primary")
+    if not timed_out:
+        return response
 
-        return StreamingResponse(
-            _timeout_sse(),
-            media_type="text/event-stream",
-            status_code=504,
+    retry_headers = dict(request.headers.items())
+    retry_headers["x-headroom-bypass"] = "true"
+    retry_headers["x-headroom-mode"] = "passthrough"
+    retry_headers["x-sub2api-headroom-watchdog-retry"] = "1"
+    retry_request = _Sub2apiWatchdogRetryRequest(request, retry_headers)
+    logger.warning(
+        "event=claude_code_handler_watchdog_retry "
+        "session_id=%s agent_id=%s mode=bypass",
+        claude_session,
+        claude_agent,
+    )
+
+    retry_timed_out, retry_response = await _run_with_watchdog(
+        retry_request,
+        "bypass",
+    )
+    if not retry_timed_out:
+        logger.warning(
+            "event=claude_code_handler_watchdog_retry_ok "
+            "session_id=%s agent_id=%s",
+            claude_session,
+            claude_agent,
         )
+        return retry_response
+
+    from fastapi.responses import StreamingResponse
+
+    logger.error(
+        "event=claude_code_handler_watchdog_retry_timeout "
+        "session_id=%s agent_id=%s timeout_ms=%s",
+        claude_session,
+        claude_agent,
+        timeout_ms,
+    )
+
+    async def _timeout_sse():
+        error_event = {{
+            "type": "error",
+            "error": {{
+                "type": "api_error",
+                "message": (
+                    "Headroom timed out before producing an Anthropic stream "
+                    "event. A local bypass retry was attempted and also timed "
+                    "out."
+                ),
+            }},
+        }}
+        yield (
+            "event: error\\n"
+            f"data: {{_sub2api_json.dumps(error_event)}}\\n\\n"
+        ).encode()
+
+    return StreamingResponse(
+        _timeout_sse(),
+        media_type="text/event-stream",
+        status_code=504,
+    )
 
 
 AnthropicHandlerMixin.handle_anthropic_messages = (
