@@ -12,7 +12,7 @@ Source fork: https://github.com/stgmt/sub2api
 Source branch: main
 Verified fork baseline: main; embedding-server patch landed in 84917aec fix: enable headroom embedding sidecar
 Fixed issue: https://github.com/stgmt/sub2api/issues/1
-Headroom image: headroom-sub2api:0.31.0 built from headroom-ai[proxy,code,relevance,html,spreadsheet,otel,reports,mcp] on PyPI plus RTK, lean-ctx, TokenSave, ast-grep, difft, scc, and downstream embedding-server plus Claude Code streaming-overlap patches
+Headroom image: headroom-sub2api:0.31.0 built from `HEADROOM_GIT_REPO=https://github.com/stgmt/headroom.git` at pinned `HEADROOM_GIT_REF` with `HEADROOM_RUST_TOOLCHAIN=1.88.0`, plus RTK, lean-ctx, TokenSave, ast-grep, difft, scc, and idempotent downstream embedding-server plus Claude Code streaming-overlap patch guardrails
 Headroom profile: agent-90, target ratio 0.10, context tool RTK, code-aware compression enabled, output shaper enabled
 Headroom embedding server: enabled via `--embedding-server`; Dockerfile applies `deploy/claude-code-codex-headroom/patch-headroom-embedding-server.py`, adding `headroom.memory.adapters.watchdog`, `EmbeddingServerWatchdog`, and `SocketEmbedderClient` so memory workers use `/tmp/headroom-embed-8787.sock` instead of per-worker embedders
 Headroom Claude Code stream safety: Dockerfile also applies `deploy/claude-code-codex-headroom/patch-headroom-claude-code-streaming.py`; this prevents Headroom from returning private HTTP 202 `headroom_queued` responses to Claude Code streaming `/v1/messages` requests, keys active streams by Claude session plus agent id, and waits up to `HEADROOM_MID_TURN_STREAM_WAIT_MS=600000` for overlap drain

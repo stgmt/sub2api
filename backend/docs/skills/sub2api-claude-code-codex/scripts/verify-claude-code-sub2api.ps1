@@ -201,7 +201,7 @@ function Test-AllStateOnHostBinds {
   Assert-DockerBindMount -Container "headroom-sub2api" -Destinations @("/root/.cache/headroom")
   Assert-DockerBindMount -Container "headroom-sub2api" -Destinations @("/root/.cache/huggingface")
   Assert-DockerBindMount -Container "sub2api-codex" -Destinations @("/app/data")
-  Assert-DockerBindMount -Container "sub2api-codex-postgres" -Destinations @("/var/lib/postgresql/data", "/var/lib/postgresql")
+  Assert-DockerBindMount -Container "sub2api-codex-postgres" -Destinations @("/var/lib/postgresql")
   Assert-DockerBindMount -Container "sub2api-codex-redis" -Destinations @("/data")
 }
 

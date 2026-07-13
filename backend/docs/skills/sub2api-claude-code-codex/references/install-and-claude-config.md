@@ -73,7 +73,7 @@ Host persistence is part of the profile. The compose stack writes state under `$
 - `/root/.cache/headroom`: warmed Headroom tool/model cache.
 - `/root/.cache/huggingface`: warmed HuggingFace/ONNX embedding model cache.
 - `/app/data`: sub2api local app data.
-- `/var/lib/postgresql/data`: Postgres database.
+- `/var/lib/postgresql`: Postgres parent directory. Keep `PGDATA=/var/lib/postgresql/data`; do not bind the host directory directly to `/var/lib/postgresql/data` because `postgres:18-alpine` declares `/var/lib/postgresql` as a volume and the nested bind can make `initdb` loop on a non-empty data dir.
 - `/data`: Redis appendonly data.
 
 Do not delete the state root unless the user explicitly wants to wipe Headroom memory/embeddings, sub2api state, Postgres, Redis, and warmed caches.
