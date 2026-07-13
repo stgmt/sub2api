@@ -33,6 +33,8 @@ def test_sub2api_service_records_fork_provenance() -> None:
     assert "org.opencontainers.image.revision: ${SUB2API_GIT_REF:-local}" in compose
     assert "SUB2API_GIT_REPO=https://github.com/stgmt/sub2api.git" in env_example
     assert "SUB2API_GIT_REF=local" in env_example
+    assert "${SUB2API_STATE_ROOT:-./data}/postgres:/var/lib/postgresql" in compose
+    assert "${SUB2API_STATE_ROOT:-./data}/postgres:/var/lib/postgresql/data" not in compose
 
 
 def test_setup_script_preserves_fork_source_values() -> None:

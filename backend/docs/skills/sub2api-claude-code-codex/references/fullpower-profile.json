@@ -55,7 +55,7 @@
       "git_ref": "local",
       "persistent_mounts": {
         "/app/data": "sub2api app data",
-        "/var/lib/postgresql/data": "Postgres database",
+        "/var/lib/postgresql": "Postgres parent directory; PGDATA stays /var/lib/postgresql/data",
         "/data": "Redis appendonly data"
       }
     },
