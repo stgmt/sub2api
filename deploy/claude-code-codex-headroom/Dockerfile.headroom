@@ -2,17 +2,35 @@ ARG HEADROOM_PYTHON_VERSION=3.12
 FROM python:${HEADROOM_PYTHON_VERSION}-slim
 
 ARG HEADROOM_VERSION=0.31.0
+ARG HEADROOM_GIT_REPO=https://github.com/stgmt/headroom.git
+ARG HEADROOM_GIT_REF=5a313c2e5bbf22c87b55efb8737cf2a4cd7ed54d
+ARG HEADROOM_RUST_TOOLCHAIN=1.88.0
+
+LABEL org.opencontainers.image.source="${HEADROOM_GIT_REPO}" \
+      org.opencontainers.image.revision="${HEADROOM_GIT_REF}" \
+      org.opencontainers.image.title="stgmt Headroom for Claude Code through sub2api"
 
 ENV PIP_NO_CACHE_DIR=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    HEADROOM_TELEMETRY=off
+    HEADROOM_TELEMETRY=off \
+    PATH="/root/.cargo/bin:${PATH}"
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates git build-essential curl pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+    | sh -s -- -y --profile minimal --default-toolchain "${HEADROOM_RUST_TOOLCHAIN}" \
+    && rustc --version \
+    && cargo --version
 
 # Install the full local-runtime stack, not only the HTTP proxy. The MCP/CCR,
 # code-aware compression, reports, OTEL, and bundled CLI tools are all used by
 # the Claude Code profile and should survive image rebuilds.
 RUN python -m pip install --upgrade pip \
-    && python -m pip install "headroom-ai[proxy,code,relevance,html,spreadsheet,otel,reports,mcp]==${HEADROOM_VERSION}" \
+    && python -m pip install "headroom-ai[proxy,code,relevance,html,spreadsheet,otel,reports,mcp] @ git+${HEADROOM_GIT_REPO}@${HEADROOM_GIT_REF}" \
+    && python -c "import headroom; print('headroom', getattr(headroom, '__version__', 'unknown'), 'from', '${HEADROOM_GIT_REPO}', '${HEADROOM_GIT_REF}', 'expected-compatible-version', '${HEADROOM_VERSION}')" \
     && headroom tools install \
     && python -c "from headroom.rtk.installer import ensure_rtk; from headroom.lean_ctx.installer import ensure_lean_ctx; from headroom.graph.tokensave_installer import ensure_tokensave; print('rtk', ensure_rtk()); print('lean-ctx', ensure_lean_ctx()); print('tokensave', ensure_tokensave())"
 

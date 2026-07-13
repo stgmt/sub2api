@@ -10,9 +10,16 @@ services:
       args:
         HEADROOM_VERSION: ${HEADROOM_VERSION:-0.31.0}
         HEADROOM_PYTHON_VERSION: ${HEADROOM_PYTHON_VERSION:-3.12}
+        HEADROOM_GIT_REPO: ${HEADROOM_GIT_REPO:-https://github.com/stgmt/headroom.git}
+        HEADROOM_GIT_REF: ${HEADROOM_GIT_REF:-5a313c2e5bbf22c87b55efb8737cf2a4cd7ed54d}
+        HEADROOM_RUST_TOOLCHAIN: ${HEADROOM_RUST_TOOLCHAIN:-1.88.0}
     image: headroom-sub2api:${HEADROOM_VERSION:-0.31.0}
     container_name: headroom-sub2api
     restart: unless-stopped
+    labels:
+      org.opencontainers.image.source: ${HEADROOM_GIT_REPO:-https://github.com/stgmt/headroom.git}
+      org.opencontainers.image.revision: ${HEADROOM_GIT_REF:-5a313c2e5bbf22c87b55efb8737cf2a4cd7ed54d}
+      stgmt.sub2api.profile: claude-code-codex-headroom
     depends_on:
       sub2api:
         condition: service_healthy
@@ -98,6 +105,10 @@ services:
     image: ${SUB2API_IMAGE:-sub2api-codex:local-token-usage}
     container_name: sub2api-codex
     restart: unless-stopped
+    labels:
+      org.opencontainers.image.source: ${SUB2API_GIT_REPO:-https://github.com/stgmt/sub2api.git}
+      org.opencontainers.image.revision: ${SUB2API_GIT_REF:-local}
+      stgmt.sub2api.profile: claude-code-codex-headroom
     depends_on:
       postgres:
         condition: service_healthy

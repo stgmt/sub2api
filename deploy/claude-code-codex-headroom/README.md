@@ -8,23 +8,28 @@ Claude Code -> Headroom on 127.0.0.1:8787 -> sub2api on Docker DNS sub2api:8080 
 
 Headroom is the Claude Code-facing endpoint. sub2api still exposes `127.0.0.1:18081` for the admin UI, diagnostics, and non-Claude clients.
 
-The Headroom image is deliberately more than a bare HTTP proxy. It installs the
-full local optimization stack in Docker: `headroom-ai[proxy,code,relevance,html,spreadsheet,otel,reports,mcp]`,
+The Headroom image is deliberately more than a bare HTTP proxy. It builds
+`headroom-ai[proxy,code,relevance,html,spreadsheet,otel,reports,mcp]` from the
+controlled `stgmt/headroom` fork and pinned `HEADROOM_GIT_REF`, then installs
 RTK, lean-ctx, TokenSave, ast-grep, difft, and scc. Claude Code should not point
 at stale host binaries for these tools; the setup script registers the
 `headroom` MCP as a Docker-backed stdio command:
+
+The Dockerfile installs pinned Rust `HEADROOM_RUST_TOOLCHAIN=1.88.0` via rustup
+because the fork source builds through `maturin` and ships Headroom's Rust
+extension in the Python wheel. Debian's older distro Rust may fail this build.
 
 ```text
 wsl.exe -e docker exec -i headroom-sub2api headroom mcp serve --proxy-url http://127.0.0.1:8787
 ```
 
-The image also applies downstream patches for `headroom-ai==0.31.0`:
+The fork already carries our Claude Code recovery fixes. The image still applies
+the local patch scripts as idempotent guardrails so an overridden older ref does
+not silently regress:
 
 - `patch-headroom-embedding-server.py` makes `headroom proxy
-  --embedding-server` actually start a Unix-socket embedding sidecar. The
-  published wheel exposes the flag but omits
-  `headroom.memory.adapters.watchdog`; the local patch adds the watchdog and a
-  socket embedder client used by Headroom memory workers.
+  --embedding-server` start a Unix-socket embedding sidecar and keep memory
+  workers on the sidecar-backed `SocketEmbedderClient`.
 - `patch-headroom-claude-code-streaming.py` makes the Anthropic streaming path
   Claude Code-safe. The upstream wheel can return private HTTP 202
   `headroom_queued` responses during mid-turn overlap; Claude Code expects
@@ -86,6 +91,10 @@ The autostart task runs `start-sub2api-proxy-stack.ps1` with `RunLevel=Highest`,
 It also writes the full Headroom agent profile into `.env`:
 
 ```text
+HEADROOM_GIT_REPO=https://github.com/stgmt/headroom.git
+HEADROOM_GIT_REF=<pinned stgmt/headroom commit>
+SUB2API_GIT_REPO=https://github.com/stgmt/sub2api.git
+SUB2API_GIT_REF=<current stgmt/sub2api commit or local>
 HEADROOM_SAVINGS_PROFILE=agent-90
 HEADROOM_TARGET_RATIO=0.10
 HEADROOM_CONTEXT_TOOL=rtk

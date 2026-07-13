@@ -24,7 +24,15 @@ The script writes `deploy/claude-code-codex-headroom/.env`, starts the compose p
 
 Run it from a cloned `stgmt/sub2api` checkout, or pass `-RepoRoot` so it can find `deploy/claude-code-codex-headroom/docker-compose.yml`.
 
-The Headroom image is the full local optimization stack, not a bare proxy:
+The Headroom image is the full local optimization stack, not a bare proxy. It
+builds Headroom from the controlled fork by default:
+
+```text
+HEADROOM_GIT_REPO=https://github.com/stgmt/headroom.git
+HEADROOM_GIT_REF=<pinned stgmt/headroom commit>
+```
+
+Then it installs:
 
 ```text
 headroom-ai[proxy,code,relevance,html,spreadsheet,otel,reports,mcp]
@@ -36,12 +44,16 @@ difft
 scc
 ```
 
-It also applies `deploy/claude-code-codex-headroom/patch-headroom-embedding-server.py`.
-This downstream patch is required for `headroom-ai==0.31.0`: the upstream CLI
-has `--embedding-server`, but the published wheel omits
-`headroom.memory.adapters.watchdog`. The patch adds a Unix-socket watchdog and
-socket embedder client so Headroom memory workers use `/tmp/headroom-embed-8787.sock`
-instead of falling back to per-worker embedders.
+The Dockerfile installs pinned Rust `HEADROOM_RUST_TOOLCHAIN=1.88.0` via rustup
+during image construction because the fork source builds through `maturin` and
+includes Headroom's Rust extension in the generated Python wheel. Debian's
+older distro Rust may fail with `rustc ... is not supported`.
+
+It also applies `deploy/claude-code-codex-headroom/patch-headroom-embedding-server.py`
+and `patch-headroom-claude-code-streaming.py` as idempotent guardrails. The
+fork should already contain these fixes; the scripts exist so a deliberately
+overridden older ref does not silently regress into per-worker embedding fallback
+or private `headroom_queued` 202 responses.
 
 It also applies `deploy/claude-code-codex-headroom/patch-headroom-claude-code-streaming.py`.
 This downstream patch is required for Claude Code streaming stability with

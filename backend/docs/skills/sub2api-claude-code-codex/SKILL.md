@@ -14,11 +14,12 @@ Use this profile unless the user explicitly asks for a different model, port, or
 
 ```text
 Fork: https://github.com/stgmt/sub2api
+Headroom fork: https://github.com/stgmt/headroom
 Branch: main
 Verified main commit: use `git log -1 --oneline` on https://github.com/stgmt/sub2api main after each stack update
 Fixed issue: https://github.com/stgmt/sub2api/issues/1
 Image: sub2api-codex:local-token-usage
-Headroom image: headroom-sub2api:0.31.0 built from headroom-ai[proxy,code,relevance,html,spreadsheet,otel,reports,mcp] plus RTK, lean-ctx, TokenSave, ast-grep, difft, scc, and the downstream embedding-server plus Claude Code streaming-overlap patches
+Headroom image: headroom-sub2api:0.31.0 built from `HEADROOM_GIT_REPO=https://github.com/stgmt/headroom.git` at pinned `HEADROOM_GIT_REF` using `HEADROOM_RUST_TOOLCHAIN=1.88.0`, plus RTK, lean-ctx, TokenSave, ast-grep, difft, scc, and idempotent downstream embedding-server plus Claude Code streaming-overlap patch guardrails
 Docker compose project: sub2api-codex
 Deploy profile: deploy/claude-code-codex-headroom
 Claude base URL: http://127.0.0.1:8787
@@ -81,7 +82,7 @@ Read only the file needed for the current task:
 - Treat `stale fake 429/503` as a proxy state bug first: issue #1 fixed quota-origin cooldown recovery, so stale recurrence usually means an old image, stale container, or non-quota cooldown reason.
 - For Docker-in-WSL, verify both Headroom and sub2api health plus the Windows route. If Windows cannot reach `127.0.0.1:8787` but WSL/Docker can, publish Headroom on `0.0.0.0` and use the WSL eth0 IP on port `8787`; do not point Claude Code directly at sub2api `18081` except as a temporary diagnostic bypass.
 - Keep Headroom/RTK/lean-ctx/TokenSave binaries inside Docker for this profile. If `claude mcp list` shows `headroom` or `tokensave` pointing at missing `%USERPROFILE%\.local\bin\*.exe`, remove those stale user MCP entries. Re-add only `headroom` as a Docker-backed stdio server unless the user explicitly asks for a host install.
-- Keep `--embedding-server` enabled. The upstream `headroom-ai==0.31.0` wheel exposes the flag but omits `headroom.memory.adapters.watchdog`; this image patches in a Unix-socket `EmbeddingServerWatchdog` and `SocketEmbedderClient` so memory workers use the sidecar instead of silently falling back to per-worker embedders. If startup logs show `Falling back to per-worker embedder`, rebuild from the patched Dockerfile.
+- Keep `--embedding-server` enabled. The Headroom image must build from `stgmt/headroom` by `HEADROOM_GIT_REPO/HEADROOM_GIT_REF`; the local patch scripts remain as idempotent guardrails for overridden refs. If startup logs show `Falling back to per-worker embedder`, rebuild from the fork-aware Dockerfile and verify the ref labels.
 - Keep all service state on host bind mounts under `${SUB2API_STATE_ROOT:-./data}`. Headroom uses `headroom`, `headroom-cache`, and `headroom-huggingface`; sub2api uses `sub2api`; Postgres uses `postgres`; Redis uses `redis`. Do not replace these with Docker named volumes. Do not delete the state root unless the user explicitly wants to wipe memory, embeddings, accounts, database, and cache.
 - Keep Windows autostart single-owner. Remove or disable stale `headroom-proxy` scheduled tasks and Startup-folder `sub2api/headroom` `.cmd` launchers. The surviving scheduled task must start the whole Docker compose project, not a host `headroom.exe`, and must be `RunLevel=Highest` when the start script includes WSL VHDX-lock self-heal.
 - Keep the Headroom image bootstrap wrapper. `/usr/local/bin/start-headroom-proxy` seeds fresh persistent mounts from `/opt/headroom-seed` before starting `headroom proxy`, so a clean volume preserves memory without hiding bundled RTK/lean-ctx/difft/scc assets.

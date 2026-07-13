@@ -22,9 +22,14 @@ param(
   [int]$MaxThinkingTokens = 8000,
   [string]$HeadroomVersion = "0.31.0",
   [string]$HeadroomPythonVersion = "3.12",
+  [string]$HeadroomGitRepo = "https://github.com/stgmt/headroom.git",
+  [string]$HeadroomGitRef = "5a313c2e5bbf22c87b55efb8737cf2a4cd7ed54d",
+  [string]$HeadroomRustToolchain = "1.88.0",
   [string]$HeadroomSavingsProfile = "agent-90",
   [string]$HeadroomTargetRatio = "0.10",
   [string]$Sub2apiImage = "sub2api-codex:local-token-usage",
+  [string]$Sub2apiGitRepo = "https://github.com/stgmt/sub2api.git",
+  [string]$Sub2apiGitRef = "",
   [string]$ApiKey = "",
   [switch]$ForceRegenerateSecrets,
   [switch]$SkipDockerUp,
@@ -189,6 +194,9 @@ function Write-DotEnv([System.Collections.IDictionary]$Map, [string]$Path) {
   $order = @(
     "HEADROOM_VERSION",
     "HEADROOM_PYTHON_VERSION",
+    "HEADROOM_GIT_REPO",
+    "HEADROOM_GIT_REF",
+    "HEADROOM_RUST_TOOLCHAIN",
     "HEADROOM_BIND_HOST",
     "HEADROOM_PORT",
     "SUB2API_STATE_ROOT",
@@ -225,6 +233,8 @@ function Write-DotEnv([System.Collections.IDictionary]$Map, [string]$Path) {
     "SUB2API_BIND_HOST",
     "SUB2API_PORT",
     "SUB2API_IMAGE",
+    "SUB2API_GIT_REPO",
+    "SUB2API_GIT_REF",
     "SUB2API_BUILD_CONTEXT",
     "SUB2API_DOCKERFILE",
     "TZ",
@@ -275,6 +285,15 @@ $profileDir = Join-Path $resolvedRepoRoot "deploy\claude-code-codex-headroom"
 $composePath = Join-Path $profileDir "docker-compose.yml"
 $envPath = Join-Path $profileDir ".env"
 
+if (-not $Sub2apiGitRef.Trim()) {
+  try {
+    $Sub2apiGitRef = (& git -C $resolvedRepoRoot rev-parse HEAD 2>$null).Trim()
+  } catch {
+    $Sub2apiGitRef = "local"
+  }
+  if (-not $Sub2apiGitRef.Trim()) { $Sub2apiGitRef = "local" }
+}
+
 if (-not (Test-Path -LiteralPath $composePath)) {
   throw "Missing compose profile: $composePath"
 }
@@ -288,6 +307,9 @@ if ((Test-Path -LiteralPath $envPath) -and -not $ForceRegenerateSecrets) {
 
 Set-DotEnvValue $envMap "HEADROOM_VERSION" $HeadroomVersion
 Set-DotEnvValue $envMap "HEADROOM_PYTHON_VERSION" $HeadroomPythonVersion
+Set-DotEnvValue $envMap "HEADROOM_GIT_REPO" $HeadroomGitRepo
+Set-DotEnvValue $envMap "HEADROOM_GIT_REF" $HeadroomGitRef
+Set-DotEnvValue $envMap "HEADROOM_RUST_TOOLCHAIN" $HeadroomRustToolchain
 Set-DotEnvValue $envMap "HEADROOM_BIND_HOST" $HeadroomBindHost
 Set-DotEnvValue $envMap "HEADROOM_PORT" ([string]$HeadroomPort)
 Set-DotEnvValue $envMap "SUB2API_STATE_ROOT" $StateRoot
@@ -324,6 +346,8 @@ Set-DotEnvValue $envMap "HEADROOM_KOMPRESS_BATCH_SIZE" "16"
 Set-DotEnvValue $envMap "SUB2API_BIND_HOST" $Sub2apiBindHost
 Set-DotEnvValue $envMap "SUB2API_PORT" ([string]$Sub2apiPort)
 Set-DotEnvValue $envMap "SUB2API_IMAGE" $Sub2apiImage
+Set-DotEnvValue $envMap "SUB2API_GIT_REPO" $Sub2apiGitRepo
+Set-DotEnvValue $envMap "SUB2API_GIT_REF" $Sub2apiGitRef
 Set-DotEnvValue $envMap "SUB2API_BUILD_CONTEXT" "../.."
 Set-DotEnvValue $envMap "SUB2API_DOCKERFILE" "Dockerfile"
 Set-DotEnvValue $envMap "TZ" $TimeZone

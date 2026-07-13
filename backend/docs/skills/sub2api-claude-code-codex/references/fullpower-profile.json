@@ -8,7 +8,11 @@
     "windows_localhost_fallback": "If Windows cannot reach 127.0.0.1:8787 but WSL/Docker can, publish Headroom on 0.0.0.0 and use http://<wsl-primary-ip>:8787. Do not use :18081 as the normal Claude Code endpoint.",
     "headroom": {
       "docker_image": "headroom-sub2api:0.31.0",
-      "package": "headroom-ai[proxy,code,relevance,html,spreadsheet,otel,reports,mcp]==0.31.0",
+      "fork": "https://github.com/stgmt/headroom",
+      "git_repo": "https://github.com/stgmt/headroom.git",
+      "git_ref": "5a313c2e5bbf22c87b55efb8737cf2a4cd7ed54d",
+      "rust_toolchain": "1.88.0",
+      "package": "headroom-ai[proxy,code,relevance,html,spreadsheet,otel,reports,mcp] @ git+https://github.com/stgmt/headroom.git@5a313c2e5bbf22c87b55efb8737cf2a4cd7ed54d",
       "docker_bind": "127.0.0.1:8787->8787",
       "upstream": "http://sub2api:8080",
       "savings_profile": "agent-90",
@@ -46,6 +50,9 @@
       "direct_port_use": "admin UI, diagnostics, and non-Claude clients only",
       "docker_bind": "127.0.0.1:18081->8080",
       "docker_image": "sub2api-codex:local-token-usage",
+      "fork": "https://github.com/stgmt/sub2api",
+      "git_repo": "https://github.com/stgmt/sub2api.git",
+      "git_ref": "local",
       "persistent_mounts": {
         "/app/data": "sub2api app data",
         "/var/lib/postgresql/data": "Postgres database",
@@ -150,7 +157,8 @@
       "Headroom embeddings/memory must be persisted through /root/.headroom as a host bind mount. Verify /root/.headroom/ccr_store.db after memory traffic, and keep /root/.cache/headroom plus /root/.cache/huggingface mounted so warmed tool/model/embedding caches survive container recreation."
       ,
       "All stateful services must use host bind mounts under SUB2API_STATE_ROOT, not Docker named volumes. Verify docker inspect mount Type=bind for headroom-sub2api, sub2api-codex, sub2api-codex-postgres, and sub2api-codex-redis.",
-      "Headroom image startup must go through /usr/local/bin/start-headroom-proxy so fresh persistent volumes are seeded from /opt/headroom-seed before headroom proxy starts. This prevents clean volumes from hiding bundled RTK/lean-ctx/difft/scc assets."
+      "Headroom image startup must go through /usr/local/bin/start-headroom-proxy so fresh persistent volumes are seeded from /opt/headroom-seed before headroom proxy starts. This prevents clean volumes from hiding bundled RTK/lean-ctx/difft/scc assets.",
+      "Compose must be fork-owned on both sides: Headroom builds from HEADROOM_GIT_REPO=https://github.com/stgmt/headroom.git at pinned HEADROOM_GIT_REF with HEADROOM_RUST_TOOLCHAIN=1.88.0, and sub2api labels record SUB2API_GIT_REPO=https://github.com/stgmt/sub2api.git plus the local SUB2API_GIT_REF."
     ]
   },
   "sub2api_account_credentials": {
