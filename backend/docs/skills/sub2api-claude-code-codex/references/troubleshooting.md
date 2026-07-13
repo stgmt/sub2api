@@ -124,6 +124,20 @@ If Claude Code reports `API Error: 503 Service temporarily unavailable` or `API 
   curl.exe --max-time 90 -sS -w "`nHTTP_STATUS=%{http_code}`n" -H "x-api-key: $tok" -H "anthropic-version: 2023-06-01" -H "content-type: application/json" -d $body "$base/v1/messages"
   ```
   If the probe immediately returns another upstream 403, leave the account in temporary cooldown and treat it as a real OpenAI/Codex auth, edge, or anti-abuse block. Re-import/refresh the OAuth account or wait/change network; do not convert it to permanent account disable for OAuth.
+- OAuth 401 / revoked-token recovery has a separate failure shape:
+  ```text
+  upstream 401 "Your authentication token has been invalidated"
+  -> logs show account_disabled_auth_error
+  -> credentials are re-imported with apply-oauth-credentials
+  -> account status becomes active, but old images can leave schedulable=false
+  -> account selection still fails with no available accounts / 503
+  -> Claude Code may spin through retries and end as Request timed out
+  ```
+  Fixed fork behavior: `ClearAccountError` also calls `SetSchedulable(..., true)`, so `apply-oauth-credentials` and manual clear-error paths put a refreshed OAuth account back into the scheduler. Verify with Postgres before blaming Headroom or context:
+  ```powershell
+  wsl.exe -- docker exec sub2api-codex-postgres psql -U sub2api -d sub2api -F " | " -Atc "select id, name, platform, type, status, schedulable, coalesce(error_message,''), expires_at from accounts where platform='openai' order by id;"
+  ```
+  Expected recovered state is `active | t` with a non-expired `expires_at`. If the runtime image is stale, set schedulable manually once, rebuild/recreate `sub2api-codex` from the fork, then run a tiny Headroom `/v1/messages` probe and a `claude --print --no-session-persistence` probe.
 - Interpret a global cooldown pattern this way:
   ```text
   upstream 429 "The usage limit has been reached"

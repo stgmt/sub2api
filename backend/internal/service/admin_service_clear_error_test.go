@@ -18,6 +18,8 @@ type accountRepoStubForClearAccountError struct {
 	clearAntigravityCalls    int
 	clearModelRateLimitCalls int
 	clearTempUnschedCalls    int
+	setSchedulableCalls      int
+	lastSchedulable          bool
 }
 
 func (r *accountRepoStubForClearAccountError) GetByID(ctx context.Context, id int64) (*Account, error) {
@@ -55,6 +57,13 @@ func (r *accountRepoStubForClearAccountError) ClearTempUnschedulable(ctx context
 	return nil
 }
 
+func (r *accountRepoStubForClearAccountError) SetSchedulable(ctx context.Context, id int64, schedulable bool) error {
+	r.setSchedulableCalls++
+	r.lastSchedulable = schedulable
+	r.account.Schedulable = schedulable
+	return nil
+}
+
 func TestAdminService_ClearAccountError_AlsoClearsRecoverableRuntimeState(t *testing.T) {
 	until := time.Now().Add(10 * time.Minute)
 	resetAt := time.Now().Add(5 * time.Minute)
@@ -64,6 +73,7 @@ func TestAdminService_ClearAccountError_AlsoClearsRecoverableRuntimeState(t *tes
 			Platform:                PlatformOpenAI,
 			Type:                    AccountTypeOAuth,
 			Status:                  StatusError,
+			Schedulable:             false,
 			ErrorMessage:            "refresh failed",
 			RateLimitResetAt:        &resetAt,
 			TempUnschedulableUntil:  &until,
@@ -81,8 +91,11 @@ func TestAdminService_ClearAccountError_AlsoClearsRecoverableRuntimeState(t *tes
 	require.Equal(t, 1, repo.clearAntigravityCalls)
 	require.Equal(t, 1, repo.clearModelRateLimitCalls)
 	require.Equal(t, 1, repo.clearTempUnschedCalls)
+	require.Equal(t, 1, repo.setSchedulableCalls)
+	require.True(t, repo.lastSchedulable)
 	require.Nil(t, updated.RateLimitResetAt)
 	require.Nil(t, updated.TempUnschedulableUntil)
 	require.Empty(t, updated.TempUnschedulableReason)
+	require.True(t, updated.Schedulable)
 	require.Equal(t, []int64{31}, blocker.clearedIDs)
 }
