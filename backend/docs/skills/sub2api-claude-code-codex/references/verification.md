@@ -111,7 +111,7 @@ Expected compact row after the local patch:
 
 ```text
 requested_model=gpt-5.6-sol, gpt-5.3-codex-spark, gpt-5.6-luna, or a Claude alias
-upstream_model=gpt-5.3-codex-spark normally, or gpt-5.6-luna when Spark was rate-limited/unavailable and Luna is schedulable
+upstream_model=gpt-5.3-codex-spark normally, or gpt-5.6-luna when Spark was rate-limited/unavailable, rejected image inputs, and Luna is schedulable
 model_mapping_chain=gpt-5.6-sol->gpt-5.3-codex-spark, gpt-5.6-terra->gpt-5.3-codex-spark, or gpt-5.6-luna->gpt-5.3-codex-spark normally, with ->gpt-5.6-luna when the fallback chain takes over
 ```
 
@@ -128,13 +128,21 @@ openai_messages.compact_context_length_fallback
 ```
 
 For a pure context-overflow fallback while Spark is available, the final `usage_logs` row should still be successful with `upstream_model=gpt-5.3-codex-spark`; the aggregate input/output tokens include the chunk summaries and merge pass.
-If Spark was unavailable or quota-limited, the final successful compact row should use `gpt-5.6-luna`; logs should include the compact model fallback event. There is no mini-model fallback.
+If Spark was unavailable, quota-limited, or rejected image blocks, the final successful compact row should use `gpt-5.6-luna`; logs should include `openai_messages.compact_model_unavailable_fallback`. For image-bearing transcripts the logged upstream message should contain `does not support image inputs`. There is no mini-model fallback.
+
+Headroom proof for the same native request:
+
+```powershell
+wsl.exe -- docker exec headroom-sub2api python -c "import json,pathlib; rows=[json.loads(x) for x in pathlib.Path('/root/.headroom/logs/proxy-requests.jsonl').read_text(encoding='utf-8').splitlines()[-300:] if x.strip()]; print(next((r for r in reversed(rows) if 'headroom:claude_code_compact_prompt_preserved' in str(r)), None))"
+```
+
+The matching record must contain `headroom:claude_code_compact_prompt_preserved` and must not contain an output-shaper transform. Correlate its UTC timestamp with the fork session JSONL `/compact` command and the final `usage_logs` row. The Claude Code status-line model remains the session model and is not evidence of the compact upstream model.
 
 For source-level compact fallback evals and micro-benchmarks in the local fork:
 
 ```powershell
 cd .\backend
-go test .\internal\service -run 'Test(RetryAnthropicCompactFallbackSummaries|BuildAnthropicCompact|AnthropicCompactQualityContract|ForwardAsAnthropic_ClaudeCodeCompact)' -bench BenchmarkAnthropicCompactFallbackGrouping -benchtime=200ms -count=1
+go test .\internal\service -run 'Test(OpenAICompactModelUnavailableHTTPFallsBackForSparkImageInput|RetryAnthropicCompactFallbackSummaries|BuildAnthropicCompact|AnthropicCompactQualityContract|ForwardAsAnthropic_ClaudeCodeCompact|ForwardAsAnthropic_HeadroomCompactHeader)' -bench BenchmarkAnthropicCompactFallbackGrouping -benchtime=200ms -count=1
 go test .\internal\pkg\apicompat -run 'Anthropic|Responses' -count=1
 ```
 

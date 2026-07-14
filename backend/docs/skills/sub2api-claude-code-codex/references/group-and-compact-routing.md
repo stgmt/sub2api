@@ -81,6 +81,17 @@ Also set compact-only mapping on the OpenAI/Codex OAuth account credentials, not
 }
 ```
 
+The native Claude Code compact route also depends on the paired Headroom
+contract. Headroom detects the compact instruction before compression, restores
+the exact final message after transforms, skips output shaping, and sends
+`x-sub2api-claude-compact: 1`. sub2api accepts that header as authoritative.
+Do not rely only on matching prompt text after Headroom optimization.
+
+Spark does not accept image inputs. If an otherwise valid compact transcript
+contains image blocks, the exact Spark HTTP 400 (`does not support image
+inputs`) is treated as compact-model unavailability and the configured
+`gpt-5.6-luna` fallback performs the compact.
+
 For the local Docker/Postgres install, patch the field without exposing tokens:
 
 ```powershell

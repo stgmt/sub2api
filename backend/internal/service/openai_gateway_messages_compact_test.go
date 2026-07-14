@@ -1,9 +1,22 @@
 package service
 
 import (
+	"net/http"
 	"strings"
 	"testing"
 )
+
+func TestOpenAICompactModelUnavailableHTTPFallsBackForSparkImageInput(t *testing.T) {
+	message := "Model 'gpt-5.3-codex-spark' doesn't support image inputs. Try again with a vision model."
+	body := []byte(`{"error":{"message":"Model 'gpt-5.3-codex-spark' doesn't support image inputs. Try again with a vision model."}}`)
+
+	if !isOpenAICompactModelUnavailableHTTP(http.StatusBadRequest, message, body) {
+		t.Fatal("Spark image-input rejection must activate the configured compact fallback model")
+	}
+	if isOpenAICompactModelUnavailableHTTP(http.StatusBadRequest, "invalid request", []byte(`{"error":{"message":"invalid request"}}`)) {
+		t.Fatal("generic HTTP 400 must not activate compact model fallback")
+	}
+}
 
 func TestRetryAnthropicCompactFallbackSummariesSplitsSingleOversizedSummary(t *testing.T) {
 	oversized := strings.Repeat("important-state ", 1200)

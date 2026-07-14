@@ -850,6 +850,8 @@ func isOpenAICompactUnavailableText(text string) bool {
 		"slow_down",
 		"unsupported model",
 		"unknown model",
+		"doesn't support image inputs",
+		"does not support image inputs",
 	} {
 		if strings.Contains(lower, pattern) {
 			return true
