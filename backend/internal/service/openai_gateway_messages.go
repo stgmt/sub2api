@@ -73,7 +73,8 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	// 2. Model mapping
 	billingModel := resolveOpenAIForwardModel(account, normalizedModel, defaultMappedModel)
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
-	anthropicCompactRequest := isClaudeCodeCompactAnthropicRequest(&anthropicReq)
+	anthropicCompactRequest := isClaudeCodeCompactAnthropicRequest(&anthropicReq) ||
+		strings.TrimSpace(c.GetHeader("x-sub2api-claude-compact")) == "1"
 	anthropicCompactModelMapped := false
 	anthropicCompactRequestedModel := billingModel
 	var anthropicCompactFallbackUpstreamModels []string

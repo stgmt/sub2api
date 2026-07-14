@@ -421,6 +421,46 @@ func TestForwardAsAnthropic_ClaudeCodeCompactUsesCompactModelMapping(t *testing.
 	require.Equal(t, "gpt-5.3-codex-spark", gjson.GetBytes(upstream.lastBody, "model").String())
 }
 
+func TestForwardAsAnthropic_HeadroomCompactHeaderUsesCompactModelMapping(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{"model":"gpt-5.5","max_tokens":16,"messages":[{"role":"user","content":"[headroom optimized transcript]"}],"stream":true}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Request.Header.Set("x-sub2api-claude-compact", "1")
+
+	upstream := &httpUpstreamRecorder{resp: testOpenAICompatSSECompletedResponse(
+		"resp_headroom_compact", "gpt-5.3-codex-spark", "ok", 31, 9,
+	)}
+	svc := &OpenAIGatewayService{
+		httpUpstream: upstream,
+		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
+	}
+	account := &Account{
+		ID:          1,
+		Name:        "openai-oauth",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"access_token":       "oauth-token",
+			"chatgpt_account_id": "chatgpt-acc",
+			"compact_model_mapping": map[string]any{
+				"gpt-5.5": "gpt-5.3-codex-spark",
+			},
+		},
+	}
+
+	result, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "gpt-5.5")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "gpt-5.3-codex-spark", result.UpstreamModel)
+	require.Equal(t, "gpt-5.3-codex-spark", gjson.GetBytes(upstream.lastBody, "model").String())
+}
+
 func TestForwardAsAnthropic_ClaudeCodeCompactFallsBackToLunaWhenSparkRateLimited(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
