@@ -80,10 +80,15 @@ function Invoke-Docker {
       if ($exit -eq 0) { return $output }
     }
     if (Get-Command wsl.exe -ErrorAction SilentlyContinue) {
-      $output = (& wsl.exe -d $Distro -- docker @Args 2>&1) -join "`n"
-      $exit = $LASTEXITCODE
-      if ($exit -eq 0) { return $output }
-      throw "WSL Docker command failed with exit code $exit`: $output"
+      $output = ""
+      $exit = -1
+      for ($attempt = 1; $attempt -le 3; $attempt++) {
+        $output = (& wsl.exe -d $Distro -- docker @Args 2>&1) -join "`n"
+        $exit = $LASTEXITCODE
+        if ($exit -eq 0) { return $output }
+        if ($attempt -lt 3) { Start-Sleep -Milliseconds (250 * $attempt) }
+      }
+      throw "WSL Docker command failed after 3 attempts with exit code $exit`: $output"
     }
   } finally {
     $ErrorActionPreference = $oldErrorActionPreference

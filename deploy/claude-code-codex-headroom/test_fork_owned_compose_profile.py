@@ -118,4 +118,7 @@ def test_gpu_research_and_manual_watchdog_are_repo_owned() -> None:
     assert "wsl.exe -d $Distro -- docker" in watchdog
     assert "PSNativeCommandUseErrorActionPreference" in watchdog
     assert "$exit = $LASTEXITCODE" in watchdog
+    assert "for ($attempt = 1; $attempt -le 3; $attempt++)" in watchdog
+    assert "Start-Sleep -Milliseconds (250 * $attempt)" in watchdog
+    assert "WSL Docker command failed after 3 attempts" in watchdog
     assert "Sub2API Codex Proxy Stack Autostart" not in watchdog
