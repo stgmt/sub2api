@@ -13,7 +13,7 @@ describe("groupsMessagesDispatch", () => {
       allow_messages_dispatch: false,
       opus_mapped_model: "gpt-5.4",
       sonnet_mapped_model: "gpt-5.3-codex",
-      haiku_mapped_model: "gpt-5.4-mini",
+			haiku_mapped_model: "gpt-5.3-codex-spark",
       exact_model_mappings: [],
     });
   });
@@ -23,7 +23,7 @@ describe("groupsMessagesDispatch", () => {
       allow_messages_dispatch: true,
       opus_mapped_model: " gpt-5.4 ",
       sonnet_mapped_model: "gpt-5.3-codex",
-      haiku_mapped_model: " gpt-5.4-mini ",
+		haiku_mapped_model: " gpt-5.3-codex-spark ",
       exact_model_mappings: [
         {
           claude_model: " claude-sonnet-4-5-20250929 ",
@@ -37,7 +37,7 @@ describe("groupsMessagesDispatch", () => {
     expect(config).toEqual({
       opus_mapped_model: "gpt-5.4",
       sonnet_mapped_model: "gpt-5.3-codex",
-      haiku_mapped_model: "gpt-5.4-mini",
+		haiku_mapped_model: "gpt-5.3-codex-spark",
       exact_model_mappings: {
         "claude-sonnet-4-5-20250929": "gpt-5.2",
       },
@@ -49,21 +49,21 @@ describe("groupsMessagesDispatch", () => {
       messagesDispatchConfigToFormState({
         opus_mapped_model: "gpt-5.4",
         sonnet_mapped_model: "gpt-5.2",
-        haiku_mapped_model: "gpt-5.4-mini",
+        haiku_mapped_model: "gpt-5.3-codex-spark",
         exact_model_mappings: {
           "claude-opus-4-6": "gpt-5.4",
-          "claude-haiku-4-5-20251001": "gpt-5.4-mini",
+			"claude-haiku-4-5-20251001": "gpt-5.3-codex-spark",
         },
       }),
     ).toEqual({
       allow_messages_dispatch: false,
       opus_mapped_model: "gpt-5.4",
       sonnet_mapped_model: "gpt-5.2",
-      haiku_mapped_model: "gpt-5.4-mini",
+		haiku_mapped_model: "gpt-5.3-codex-spark",
       exact_model_mappings: [
         {
           claude_model: "claude-haiku-4-5-20251001",
-          target_model: "gpt-5.4-mini",
+			target_model: "gpt-5.3-codex-spark",
         },
         { claude_model: "claude-opus-4-6", target_model: "gpt-5.4" },
       ],
@@ -87,7 +87,7 @@ describe("groupsMessagesDispatch", () => {
       allow_messages_dispatch: false,
       opus_mapped_model: "gpt-5.4",
       sonnet_mapped_model: "gpt-5.3-codex",
-      haiku_mapped_model: "gpt-5.4-mini",
+		haiku_mapped_model: "gpt-5.3-codex-spark",
       exact_model_mappings: [],
     });
   });

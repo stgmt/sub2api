@@ -455,57 +455,6 @@ func TestForwardAsAnthropic_ClaudeCodeCompactFallsBackToLunaWhenSparkRateLimited
 	require.Equal(t, "gpt-5.6-luna", gjson.GetBytes(upstream.bodies[2], "model").String())
 }
 
-func TestForwardAsAnthropic_ClaudeCodeCompactFallsBackToMiniWhenSparkAndLunaRateLimited(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	body := []byte(fmt.Sprintf(`{"model":"gpt-5.5","max_tokens":16,"messages":[{"role":"user","content":"active task: keep compact moving"},{"role":"user","content":[{"type":"text","text":%q}]}],"stream":true}`, testClaudeCodeCompactPrompt()))
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
-	c.Request.Header.Set("Content-Type", "application/json")
-
-	upstream := &httpUpstreamRecorder{responses: []*http.Response{
-		testOpenAICompatJSONErrorResponse(http.StatusTooManyRequests, "rate_limit_error", "The usage limit has been reached for gpt-5.3-codex-spark.", "rid_spark_rate_limited"),
-		testOpenAICompatJSONErrorResponse(http.StatusTooManyRequests, "rate_limit_error", "The usage limit has been reached for gpt-5.6-luna.", "rid_luna_rate_limited"),
-		testOpenAICompatSSECompletedResponse("resp_mini_chunk_1", "gpt-5.4-mini", "mini chunk summary", 120, 12),
-		testOpenAICompatSSECompletedResponse("resp_mini_merge", "gpt-5.4-mini", "mini merged compact summary", 180, 18),
-	}}
-
-	svc := &OpenAIGatewayService{
-		httpUpstream: upstream,
-		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
-	}
-	account := &Account{
-		ID:          1,
-		Name:        "openai-oauth",
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeOAuth,
-		Concurrency: 1,
-		Credentials: map[string]any{
-			"access_token":       "oauth-token",
-			"chatgpt_account_id": "chatgpt-acc",
-			"compact_model_mapping": map[string]any{
-				"gpt-5.5": "gpt-5.3-codex-spark",
-			},
-		},
-	}
-
-	result, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "gpt-5.5")
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.Contains(t, rec.Body.String(), "mini merged compact summary")
-	require.Equal(t, "resp_mini_merge", result.ResponseID)
-	require.Equal(t, "gpt-5.5", result.Model)
-	require.Equal(t, "gpt-5.4-mini", result.BillingModel)
-	require.Equal(t, "gpt-5.4-mini", result.UpstreamModel)
-	require.Len(t, upstream.bodies, 4)
-	require.Equal(t, "gpt-5.3-codex-spark", gjson.GetBytes(upstream.bodies[0], "model").String())
-	require.Equal(t, "gpt-5.6-luna", gjson.GetBytes(upstream.bodies[1], "model").String())
-	require.Equal(t, "gpt-5.4-mini", gjson.GetBytes(upstream.bodies[2], "model").String())
-	require.Equal(t, "gpt-5.4-mini", gjson.GetBytes(upstream.bodies[3], "model").String())
-}
-
 func TestForwardAsAnthropic_ClaudeCodeCompactChunksWhenCompactModelContextExceeded(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -1501,8 +1450,8 @@ func TestForwardAsAnthropic_APIKeyMetadataSessionSurvivesChangingCacheControlAnc
 	secondBody := []byte(`{"model":"claude-haiku-4-5-20251001","max_tokens":16,"metadata":` + metadata + `,"messages":[` + strings.Join(messages, ",") + `],"stream":false}`)
 
 	upstream := &httpUpstreamRecorder{responses: []*http.Response{
-		openAICompatSSECompletedResponse("resp_first", "gpt-5.4-mini"),
-		openAICompatSSECompletedResponse("resp_second", "gpt-5.4-mini"),
+		openAICompatSSECompletedResponse("resp_first", "gpt-5.6-luna"),
+		openAICompatSSECompletedResponse("resp_second", "gpt-5.6-luna"),
 	}}
 	svc := &OpenAIGatewayService{
 		httpUpstream: upstream,
@@ -1525,7 +1474,7 @@ func TestForwardAsAnthropic_APIKeyMetadataSessionSurvivesChangingCacheControlAnc
 	firstCtx.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(firstBody))
 	firstCtx.Request.Header.Set("Content-Type", "application/json")
 
-	firstResult, err := svc.ForwardAsAnthropic(context.Background(), firstCtx, account, firstBody, "", "gpt-5.4-mini")
+	firstResult, err := svc.ForwardAsAnthropic(context.Background(), firstCtx, account, firstBody, "", "gpt-5.6-luna")
 	require.NoError(t, err)
 	require.NotNil(t, firstResult)
 	firstKey := gjson.GetBytes(upstream.bodies[0], "prompt_cache_key").String()
@@ -1539,7 +1488,7 @@ func TestForwardAsAnthropic_APIKeyMetadataSessionSurvivesChangingCacheControlAnc
 	secondCtx.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(secondBody))
 	secondCtx.Request.Header.Set("Content-Type", "application/json")
 
-	secondResult, err := svc.ForwardAsAnthropic(context.Background(), secondCtx, account, secondBody, "", "gpt-5.4-mini")
+	secondResult, err := svc.ForwardAsAnthropic(context.Background(), secondCtx, account, secondBody, "", "gpt-5.6-luna")
 	require.NoError(t, err)
 	require.NotNil(t, secondResult)
 	require.Len(t, upstream.requests, 2)

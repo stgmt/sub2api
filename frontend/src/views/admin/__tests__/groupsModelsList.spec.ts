@@ -97,14 +97,14 @@ describe("groupsModelsList", () => {
     const state = hydrateModelsListState({
       enabled: true,
       models: ["gpt-5.5"],
-    }, ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]);
+	}, ["gpt-5.5", "gpt-5.4", "gpt-5.3-codex-spark"]);
 
     selectAllModelsListItems(state);
 
     expect(state.items).toEqual([
       { id: "gpt-5.5", selected: true },
       { id: "gpt-5.4", selected: true },
-      { id: "gpt-5.4-mini", selected: true },
+		{ id: "gpt-5.3-codex-spark", selected: true },
     ]);
   });
 
@@ -112,14 +112,14 @@ describe("groupsModelsList", () => {
     const state = hydrateModelsListState({
       enabled: true,
       models: ["gpt-5.5"],
-    }, ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]);
+	}, ["gpt-5.5", "gpt-5.4", "gpt-5.3-codex-spark"]);
 
     invertModelsListSelection(state);
 
     expect(state.items).toEqual([
       { id: "gpt-5.5", selected: false },
       { id: "gpt-5.4", selected: true },
-      { id: "gpt-5.4-mini", selected: true },
+		{ id: "gpt-5.3-codex-spark", selected: true },
     ]);
   });
 });

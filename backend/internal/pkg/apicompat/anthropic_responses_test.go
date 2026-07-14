@@ -1653,7 +1653,7 @@ func TestAnthropicToResponses_TemperatureStrippedForReasoningModel(t *testing.T)
 
 func TestAnthropicToResponses_TemperatureStrippedForAllGpt5Variants(t *testing.T) {
 	temp := 1.0
-	models := []string{"gpt-5.2", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.5"}
+	models := []string{"gpt-5.2", "gpt-5.4", "gpt-5.6-luna", "gpt-5.3-codex", "gpt-5.5"}
 	for _, model := range models {
 		t.Run(model, func(t *testing.T) {
 			req := &AnthropicRequest{

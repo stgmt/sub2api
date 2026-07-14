@@ -78,9 +78,9 @@ Expected:
 
 ```text
 requested_model = gpt-5.6-sol, gpt-5.3-codex-spark, legacy gpt-5.5[400k], or claude-opus/sonnet/haiku aliases for normal work
-upstream/response model = gpt-5.6-sol for main work, gpt-5.6-terra for Sonnet, gpt-5.3-codex-spark for small-fast/Haiku when schedulable, gpt-5.6-luna when Spark fallback takes over, or gpt-5.4-mini when both Spark and Luna are unavailable
+upstream/response model = gpt-5.6-sol for main work, gpt-5.6-terra for Sonnet, gpt-5.3-codex-spark for small-fast/Haiku when schedulable, or gpt-5.6-luna when Spark fallback takes over
 reasoning_effort = max for GPT-5.6 max requests on the current Codex/OpenAI Responses route; a clamp log with upstream_effort=xhigh means the running image or docs are stale
-model_mapping_chain includes -> gpt-5.6-sol, -> gpt-5.6-terra, -> gpt-5.3-codex-spark, -> gpt-5.6-luna for Spark fallback, and -> gpt-5.4-mini for final fallback
+model_mapping_chain includes -> gpt-5.6-sol, -> gpt-5.6-terra, -> gpt-5.3-codex-spark, and -> gpt-5.6-luna for Spark fallback
 ```
 
 For `general-purpose` subagent model checks:
@@ -111,8 +111,8 @@ Expected compact row after the local patch:
 
 ```text
 requested_model=gpt-5.6-sol, gpt-5.3-codex-spark, gpt-5.6-luna, or a Claude alias
-upstream_model=gpt-5.3-codex-spark normally, gpt-5.6-luna when Spark was rate-limited/unavailable and Luna is schedulable, or gpt-5.4-mini when both Spark and Luna fallback fail
-model_mapping_chain=gpt-5.6-sol->gpt-5.3-codex-spark, gpt-5.6-terra->gpt-5.3-codex-spark, or gpt-5.6-luna->gpt-5.3-codex-spark normally, with ->gpt-5.6-luna->gpt-5.4-mini when the fallback chain takes over
+upstream_model=gpt-5.3-codex-spark normally, or gpt-5.6-luna when Spark was rate-limited/unavailable and Luna is schedulable
+model_mapping_chain=gpt-5.6-sol->gpt-5.3-codex-spark, gpt-5.6-terra->gpt-5.3-codex-spark, or gpt-5.6-luna->gpt-5.3-codex-spark normally, with ->gpt-5.6-luna when the fallback chain takes over
 ```
 
 For large compact fallback specifically, also check logs:
@@ -128,7 +128,7 @@ openai_messages.compact_context_length_fallback
 ```
 
 For a pure context-overflow fallback while Spark is available, the final `usage_logs` row should still be successful with `upstream_model=gpt-5.3-codex-spark`; the aggregate input/output tokens include the chunk summaries and merge pass.
-If Spark was unavailable or quota-limited, the final successful compact row should use `gpt-5.6-luna` first, then `gpt-5.4-mini` only if Luna is also unavailable; logs should include the compact model fallback event. This is expected; do not change Claude Code global small-fast/subagent env to mini.
+If Spark was unavailable or quota-limited, the final successful compact row should use `gpt-5.6-luna`; logs should include the compact model fallback event. There is no mini-model fallback.
 
 For source-level compact fallback evals and micro-benchmarks in the local fork:
 

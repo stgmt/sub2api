@@ -430,19 +430,19 @@ func TestResolveOpenAIMessagesDispatchMappedModel(t *testing.T) {
 				MessagesDispatchModelConfig: service.OpenAIMessagesDispatchModelConfig{
 					SonnetMappedModel: "gpt-5.2",
 					ExactModelMappings: map[string]string{
-						"claude-sonnet-4-5-20250929": "gpt-5.4-mini-high",
+						"claude-sonnet-4-5-20250929": "gpt-5.6-luna-high",
 					},
 				},
 			},
 		}
-		require.Equal(t, "gpt-5.4-mini", resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-sonnet-4-5-20250929"))
+		require.Equal(t, "gpt-5.6-luna", resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-sonnet-4-5-20250929"))
 	})
 
 	t.Run("uses_family_default_when_no_override", func(t *testing.T) {
 		apiKey := &service.APIKey{Group: &service.Group{}}
 		require.Equal(t, "gpt-5.4", resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-opus-4-6"))
 		require.Equal(t, "gpt-5.3-codex", resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-sonnet-4-5-20250929"))
-		require.Equal(t, "gpt-5.4-mini", resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-haiku-4-5-20251001"))
+		require.Equal(t, "gpt-5.3-codex-spark", resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-haiku-4-5-20251001"))
 	})
 
 	t.Run("returns_empty_for_non_claude_or_missing_group", func(t *testing.T) {
@@ -479,15 +479,15 @@ func TestResolveOpenAIMessagesDispatchFallbackModels(t *testing.T) {
 			MessagesDispatchModelConfig: service.OpenAIMessagesDispatchModelConfig{
 				HaikuMappedModel: "gpt-5.3-codex-spark",
 				ModelFallbacks: map[string][]string{
-					"gpt-5.3-codex-spark": []string{"gpt-5.6-luna", "gpt-5.4-mini"},
-					"gpt-5.6-luna":        []string{"gpt-5.3-codex-spark", "gpt-5.4-mini"},
+					"gpt-5.3-codex-spark": []string{"gpt-5.6-luna"},
+					"gpt-5.6-luna":        []string{"gpt-5.3-codex-spark"},
 				},
 			},
 		},
 	}
 
-	require.Equal(t, []string{"gpt-5.6-luna", "gpt-5.4-mini"}, resolveOpenAIMessagesDispatchFallbackModels(apiKey, "claude-haiku-4-5", "gpt-5.3-codex-spark"))
-	require.Equal(t, []string{"gpt-5.3-codex-spark", "gpt-5.4-mini"}, resolveOpenAIMessagesDispatchFallbackModels(apiKey, "gpt-5.6-luna", "gpt-5.6-luna"))
+	require.Equal(t, []string{"gpt-5.6-luna"}, resolveOpenAIMessagesDispatchFallbackModels(apiKey, "claude-haiku-4-5", "gpt-5.3-codex-spark"))
+	require.Equal(t, []string{"gpt-5.3-codex-spark"}, resolveOpenAIMessagesDispatchFallbackModels(apiKey, "gpt-5.6-luna", "gpt-5.6-luna"))
 	require.Empty(t, resolveOpenAIMessagesDispatchFallbackModels(apiKey, "claude-opus-4-8", "gpt-5.6-sol"))
 }
 

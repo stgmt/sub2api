@@ -10,14 +10,14 @@ func TestNormalizeOpenAIMessagesDispatchModelConfig(t *testing.T) {
 	cfg := normalizeOpenAIMessagesDispatchModelConfig(OpenAIMessagesDispatchModelConfig{
 		OpusMappedModel:   " gpt-5.4-high ",
 		SonnetMappedModel: "gpt-5.3-codex",
-		HaikuMappedModel:  " gpt-5.4-mini-medium ",
+		HaikuMappedModel:  " gpt-5.3-codex-spark ",
 		ExactModelMappings: map[string]string{
 			" claude-sonnet-4-5-20250929 ": " gpt-5.2-high ",
 			"":                             "gpt-5.4",
 			"claude-opus-4-6":              " ",
 		},
 		ModelFallbacks: map[string][]string{
-			" gpt-5.3-codex-spark ":  []string{" gpt-5.6-luna ", "gpt-5.4-mini", "gpt-5.4-mini", " "},
+			" gpt-5.3-codex-spark ":  []string{" gpt-5.6-luna ", " "},
 			" gpt-5.6-terra-medium ": []string{" gpt-5.6-sol-medium "},
 			"":                       []string{"gpt-5.4"},
 		},
@@ -25,12 +25,12 @@ func TestNormalizeOpenAIMessagesDispatchModelConfig(t *testing.T) {
 
 	require.Equal(t, "gpt-5.4", cfg.OpusMappedModel)
 	require.Equal(t, "gpt-5.3-codex", cfg.SonnetMappedModel)
-	require.Equal(t, "gpt-5.4-mini", cfg.HaikuMappedModel)
+	require.Equal(t, "gpt-5.3-codex-spark", cfg.HaikuMappedModel)
 	require.Equal(t, map[string]string{
 		"claude-sonnet-4-5-20250929": "gpt-5.2",
 	}, cfg.ExactModelMappings)
 	require.Equal(t, map[string][]string{
-		"gpt-5.3-codex-spark":  []string{"gpt-5.6-luna", "gpt-5.4-mini"},
+		"gpt-5.3-codex-spark":  []string{"gpt-5.6-luna"},
 		"gpt-5.6-terra-medium": []string{"gpt-5.6-sol-medium"},
 	}, cfg.ModelFallbacks)
 }
@@ -55,15 +55,15 @@ func TestResolveMessagesDispatchFallbackModels(t *testing.T) {
 		MessagesDispatchModelConfig: OpenAIMessagesDispatchModelConfig{
 			HaikuMappedModel: "gpt-5.3-codex-spark",
 			ModelFallbacks: map[string][]string{
-				"gpt-5.3-codex-spark":  []string{" gpt-5.6-luna ", "gpt-5.4-mini", "gpt-5.4-mini"},
-				"claude-haiku-*":       []string{"gpt-5.4-mini"},
+				"gpt-5.3-codex-spark":  []string{" gpt-5.6-luna "},
+				"claude-haiku-*":       []string{"gpt-5.6-luna"},
 				"gpt-5.6-terra-medium": []string{"gpt-5.6-sol-medium"},
 			},
 		},
 	}
 
 	got := group.ResolveMessagesDispatchFallbackModels("claude-haiku-4-5", "gpt-5.3-codex-spark")
-	require.Equal(t, []string{"gpt-5.6-luna", "gpt-5.4-mini"}, got)
+	require.Equal(t, []string{"gpt-5.6-luna"}, got)
 
 	got = group.ResolveMessagesDispatchFallbackModels("gpt-5.6-terra-medium", "")
 	require.Equal(t, []string{"gpt-5.6-sol-medium"}, got)

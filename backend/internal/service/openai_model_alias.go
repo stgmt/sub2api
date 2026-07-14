@@ -37,7 +37,6 @@ func canonicalizeOpenAIModelAliasSpelling(model string) string {
 		from string
 		to   string
 	}{
-		{"gpt-5.4mini", "gpt-5.4-mini"},
 		{"gpt-5.4nano", "gpt-5.4-nano"},
 		{"gpt-5.3-codexspark", "gpt-5.3-codex-spark"},
 		{"gpt-5.3codexspark", "gpt-5.3-codex-spark"},
@@ -75,8 +74,6 @@ func normalizeKnownOpenAICodexModel(model string) string {
 		return "gpt-5.5-pro"
 	case isKnownOpenAIModelVariant(normalized, "gpt-5.5"):
 		return "gpt-5.5"
-	case isKnownOpenAIModelVariant(normalized, "gpt-5.4-mini"):
-		return "gpt-5.4-mini"
 	case isKnownOpenAIModelVariant(normalized, "gpt-5.4-nano"):
 		return "gpt-5.4-nano"
 	case isKnownOpenAIModelVariant(normalized, "gpt-5.4"):

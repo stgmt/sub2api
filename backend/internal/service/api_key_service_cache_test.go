@@ -260,7 +260,7 @@ func TestAPIKeyService_SnapshotRoundTrip_PreservesMessagesDispatchModelConfig(t 
 			MessagesDispatchModelConfig: OpenAIMessagesDispatchModelConfig{
 				OpusMappedModel:   "gpt-5.4-nano",
 				SonnetMappedModel: "gpt-5.3-codex",
-				HaikuMappedModel:  "gpt-5.4-mini",
+				HaikuMappedModel:  "gpt-5.3-codex-spark",
 				ExactModelMappings: map[string]string{
 					"claude-sonnet-4.5": "gpt-5.4-nano",
 				},

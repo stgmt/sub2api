@@ -11,7 +11,6 @@ describe('useModelWhitelist', () => {
     const models = getModelsByPlatform('openai')
 
     expect(models).toContain('gpt-5.4')
-    expect(models).toContain('gpt-5.4-mini')
     expect(models).toContain('gpt-5.4-2026-03-05')
     expect(models).toContain('codex-auto-review')
   })
@@ -79,12 +78,12 @@ describe('useModelWhitelist', () => {
     })
   })
 
-  it('whitelist keeps GPT-5.4 mini exact mappings', () => {
-    const mapping = buildModelMappingObject('whitelist', ['gpt-5.4-mini'], [])
+	it('whitelist keeps Codex Spark exact mappings', () => {
+		const mapping = buildModelMappingObject('whitelist', ['gpt-5.3-codex-spark'], [])
 
-    expect(mapping).toEqual({
-      'gpt-5.4-mini': 'gpt-5.4-mini'
-    })
+		expect(mapping).toEqual({
+			'gpt-5.3-codex-spark': 'gpt-5.3-codex-spark'
+		})
   })
 
   it('combined 模式会同时保留白名单身份映射和模型映射', () => {
@@ -93,12 +92,12 @@ describe('useModelWhitelist', () => {
       ['gpt-5.4', 'claude-*'],
       [
         { from: 'gpt-latest', to: 'gpt-5.4' },
-        { from: 'gpt-5.4', to: 'gpt-5.4-mini' }
+			{ from: 'gpt-5.4', to: 'gpt-5.6-luna' }
       ]
     )
 
     expect(mapping).toEqual({
-      'gpt-5.4': 'gpt-5.4-mini',
+			'gpt-5.4': 'gpt-5.6-luna',
       'gpt-latest': 'gpt-5.4'
     })
   })

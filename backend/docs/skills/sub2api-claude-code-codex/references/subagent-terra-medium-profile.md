@@ -10,7 +10,7 @@ Use it when installing, repairing, or updating Claude Code agent overrides. The 
 Main Claude Code model: gpt-5.6-sol
 Main effort: user/session controlled; do not persist CLAUDE_CODE_EFFORT_LEVEL
 Small-fast / compact first hop: gpt-5.3-codex-spark
-Small-fast fallback: gpt-5.6-luna, then gpt-5.4-mini
+Small-fast fallback: gpt-5.6-luna
 Default Haiku model while Spark is quota-limited: gpt-5.6-terra-medium
 Delegated subagent model: gpt-5.6-terra-medium
 Delegated subagent effort: medium
@@ -25,7 +25,7 @@ Local A/B on 2026-07-12 used the same Explore-style repository analysis prompt a
 
 Keep `high` and `max` available for explicit user requests or narrow quality-critical tasks. Do not make them the default for broad delegated fan-out.
 
-Do not use Spark as the default delegated agent while native Spark is quota-limited. Spark remains the compact/small-fast first hop, with Luna and then `gpt-5.4-mini` as fallback. Prior Explore-style probes showed Spark/Luna could fail or route away under repository-scale context, so Terra medium is the safer delegated-agent default.
+Do not use Spark as the default delegated agent while native Spark is quota-limited. Spark remains the compact/small-fast first hop, with Luna as fallback. Prior Explore-style probes showed Spark/Luna could fail or route away under repository-scale context, so Terra medium is the safer delegated-agent default.
 
 ## Where To Set It
 

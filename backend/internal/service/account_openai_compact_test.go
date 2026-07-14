@@ -321,12 +321,12 @@ func TestAccountResolveCompactMappedModel(t *testing.T) {
 			credentials: map[string]any{
 				"compact_model_mapping": map[string]any{
 					"gpt-*":         "fallback-compact",
-					"gpt-5.4*":      "gpt-5.4-openai-compact",
-					"gpt-5.4-mini*": "gpt-5.4-mini-openai-compact",
+					"gpt-5.6*":      "gpt-5.6-openai-compact",
+					"gpt-5.6-sol*":  "gpt-5.6-sol-openai-compact",
 				},
 			},
-			requestedModel: "gpt-5.4-mini",
-			expectedModel:  "gpt-5.4-mini-openai-compact",
+			requestedModel: "gpt-5.6-sol",
+			expectedModel:  "gpt-5.6-sol-openai-compact",
 			expectedMatch:  true,
 		},
 		{
@@ -360,16 +360,16 @@ func TestAccountCompactModelFallbacks(t *testing.T) {
 	t.Run("parses string array and preserves empty override", func(t *testing.T) {
 		account := &Account{Credentials: map[string]any{
 			"compact_model_fallbacks": map[string]any{
-				"gpt-5.3-codex-spark": []any{"gpt-5.4-mini", "gpt-5.4"},
-				"gpt-5.5":             "gpt-5.4-mini",
+				"gpt-5.3-codex-spark": []any{"gpt-5.6-luna", "gpt-5.4"},
+				"gpt-5.5":             "gpt-5.6-luna",
 				"disabled":            []any{},
 				"invalid":             7,
 			},
 		}}
 
 		want := map[string][]string{
-			"gpt-5.3-codex-spark": []string{"gpt-5.4-mini", "gpt-5.4"},
-			"gpt-5.5":             []string{"gpt-5.4-mini"},
+			"gpt-5.3-codex-spark": []string{"gpt-5.6-luna", "gpt-5.4"},
+			"gpt-5.5":             []string{"gpt-5.6-luna"},
 			"disabled":            []string{},
 		}
 		if got := account.GetCompactModelFallbacks(); !equalStringSliceMap(got, want) {
@@ -377,10 +377,10 @@ func TestAccountCompactModelFallbacks(t *testing.T) {
 		}
 	})
 
-	t.Run("defaults spark to luna then mini", func(t *testing.T) {
+	t.Run("defaults spark to luna", func(t *testing.T) {
 		account := &Account{Credentials: map[string]any{}}
 		got := account.ResolveCompactFallbackModels("gpt-5.5", "gpt-5.3-codex-spark")
-		if !equalStringSlice(got, []string{"gpt-5.6-luna", "gpt-5.4-mini"}) {
+		if !equalStringSlice(got, []string{"gpt-5.6-luna"}) {
 			t.Fatalf("ResolveCompactFallbackModels() = %#v", got)
 		}
 	})
@@ -399,13 +399,13 @@ func TestAccountCompactModelFallbacks(t *testing.T) {
 	t.Run("wildcard fallback dedupes primary and duplicate models", func(t *testing.T) {
 		account := &Account{Credentials: map[string]any{
 			"compact_model_fallbacks": map[string]any{
-				"gpt-*":             []any{"gpt-5.3-codex-spark", "gpt-5.4-mini"},
-				"gpt-5.3-codex-*":   []any{"gpt-5.4-mini", "gpt-5.4-mini", "gpt-5.4"},
+				"gpt-*":             []any{"gpt-5.3-codex-spark", "gpt-5.6-luna"},
+				"gpt-5.3-codex-*":   []any{"gpt-5.6-luna", "gpt-5.6-luna", "gpt-5.4"},
 				"gpt-5.3-codex-old": []any{"gpt-5.4"},
 			},
 		}}
 		got := account.ResolveCompactFallbackModels("gpt-5.5", "gpt-5.3-codex-spark")
-		want := []string{"gpt-5.4-mini", "gpt-5.4"}
+		want := []string{"gpt-5.6-luna", "gpt-5.4"}
 		if !equalStringSlice(got, want) {
 			t.Fatalf("ResolveCompactFallbackModels() = %#v, want %#v", got, want)
 		}

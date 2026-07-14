@@ -44,12 +44,12 @@ If sub2api returns unknown model:
 
 If count-tokens logs show upstream `401`:
 
-- sub2api may fall back to local token estimation. This is usually not fatal if `/v1/messages` requests succeed and usage logs show the expected route such as `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.3-codex-spark`, `gpt-5.6-luna` as Spark fallback, or `gpt-5.4-mini` as final fallback.
+- sub2api may fall back to local token estimation. This is usually not fatal if `/v1/messages` requests succeed and usage logs show the expected route such as `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.3-codex-spark`, or `gpt-5.6-luna` as Spark fallback.
 
 If Claude Code shows empty answers, "previous response had no visible output", or sub2api logs show `0/0` usage:
 
 - Query `usage_logs` for `stream=true AND input_tokens=0 AND output_tokens=0 AND duration_ms BETWEEN 500 AND 30000`.
-- If the affected rows are `gpt-5.6-sol`, `gpt-5.3-codex-spark`, `gpt-5.6-luna` Spark fallback, `gpt-5.4-mini` final fallback, `gpt-5.5`, or legacy `gpt-5.5[400k]` with weaker reasoning than expected, restart or fork the old Claude Code session with `--model gpt-5.6-sol --effort max`; new max requests should log the strongest supported effort for this route.
+- If the affected rows are `gpt-5.6-sol`, `gpt-5.3-codex-spark`, `gpt-5.6-luna` Spark fallback, `gpt-5.5`, or legacy `gpt-5.5[400k]` with weaker reasoning than expected, restart or fork the old Claude Code session with `--model gpt-5.6-sol --effort max`; new max requests should log the strongest supported effort for this route.
 - Ensure User env and `~/.claude/settings.json` contain `MAX_THINKING_TOKENS=8000`, but do not treat it as the Codex reasoning control. For GPT-5.6 max requests on the current Codex/OpenAI Responses route, verify `usage_logs.reasoning_effort=max`. If logs show `requested_effort=max` and `upstream_effort=xhigh`, the running image is stale or using the legacy fallback path.
 - Avoid ending a turn with a background shell command that produces no stdout. Claude Code has a known "no visible output" retry loop around empty tool output; emit a visible summary after background tasks.
 - A 0/0 row with HTTP 200 can be a Codex ghost stream. Do not solve it by switching Claude Code to `claude-opus-*` if the user needs the Codex route. Fix the proxy path first, then verify the real upstream context limit from logs.
@@ -164,7 +164,7 @@ If `/v1/models` lists `gpt-5.5-mini` or `gpt-5.6-*` but requests fail:
 
 - Trust the request-time upstream response over the model list. `/v1/models` is an advertisement/catalog surface; the ChatGPT/Codex account entitlement is enforced on `/v1/messages`.
 - Do not silently alias `gpt-5.5-mini` to `gpt-5.5`. That hides unsupported-model bugs and makes speed/quality tests invalid.
-- Current verified behavior on 2026-07-10: `gpt-5.6-sol` and `gpt-5.6-terra` returned 200; `gpt-5.3-codex-spark` is configured as small-fast/Haiku, with normal fallback chain `gpt-5.3-codex-spark -> gpt-5.6-luna -> gpt-5.4-mini`. Direct `gpt-5.6-luna` can return HTTP 200 while actually falling back. The 2026-07-10 11:47 MSK re-probe logged `requested_model=gpt-5.6-luna`, `model=gpt-5.4-mini`, `model_mapping_chain=gpt-5.6-luna->gpt-5.4-mini`, plus `ops_error_logs` recovered upstream 429 "The usage limit has been reached". Treat Luna as unavailable until `usage_logs.model_mapping_chain` ends at `gpt-5.6-luna`.
+- Current verified behavior on 2026-07-10: `gpt-5.6-sol` and `gpt-5.6-terra` returned 200; `gpt-5.3-codex-spark` is configured as small-fast/Haiku, with normal fallback chain `gpt-5.3-codex-spark -> gpt-5.6-luna`. Direct `gpt-5.6-luna` can return HTTP 200 while actually falling back. Treat Luna as unavailable until `usage_logs.model_mapping_chain` ends at `gpt-5.6-luna`.
 
 If Claude Code sub-agent status shows `0 tokens` but sub2api usage logs show nonzero tokens:
 

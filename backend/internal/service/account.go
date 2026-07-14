@@ -965,7 +965,7 @@ func (a *Account) ResolveCompactFallbackModels(requestedModel, mappedModel strin
 		}
 	}
 	if !configured && strings.EqualFold(mappedModel, "gpt-5.3-codex-spark") {
-		candidates = append(candidates, "gpt-5.6-luna", "gpt-5.4-mini")
+		candidates = append(candidates, "gpt-5.6-luna")
 	}
 
 	return compactModelFallbackCandidates(candidates, mappedModel)

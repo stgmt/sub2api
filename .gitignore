@@ -130,6 +130,8 @@ AGENTS.md
 backend/cmd/server/server
 deploy/docker-compose.override.yml
 .gocache/
+__pycache__/
+*.py[cod]
 vite.config.js
 docs/*
 !docs/PAYMENT.md

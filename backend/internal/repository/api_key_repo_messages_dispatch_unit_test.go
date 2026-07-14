@@ -22,7 +22,7 @@ func TestGroupEntityToService_PreservesMessagesDispatchModelConfig(t *testing.T)
 		MessagesDispatchModelConfig: service.OpenAIMessagesDispatchModelConfig{
 			OpusMappedModel:   "gpt-5.4-nano",
 			SonnetMappedModel: "gpt-5.3-codex",
-			HaikuMappedModel:  "gpt-5.4-mini",
+			HaikuMappedModel:  "gpt-5.3-codex-spark",
 			ExactModelMappings: map[string]string{
 				"claude-sonnet-4.5": "gpt-5.4-nano",
 			},
@@ -50,7 +50,7 @@ func TestAPIKeyRepository_GetByKeyForAuth_PreservesMessagesDispatchModelConfig_S
 		SetMessagesDispatchModelConfig(service.OpenAIMessagesDispatchModelConfig{
 			OpusMappedModel:   "gpt-5.4-nano",
 			SonnetMappedModel: "gpt-5.3-codex",
-			HaikuMappedModel:  "gpt-5.4-mini",
+			HaikuMappedModel:  "gpt-5.3-codex-spark",
 			ExactModelMappings: map[string]string{
 				"claude-sonnet-4.5": "gpt-5.4-nano",
 			},

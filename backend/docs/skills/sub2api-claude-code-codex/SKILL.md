@@ -31,11 +31,11 @@ Host state root: `${SUB2API_STATE_ROOT:-./data}` in the deploy profile. All stat
 Headroom persistence: `/root/.headroom` stores `ccr_store.db`, savings, and logs; `/root/.cache/headroom` and `/root/.cache/huggingface` store warmed local tool/model/embedding caches. These paths must be host bind mounts.
 Windows autostart: use one scheduled task named `Sub2API Codex Proxy Stack Autostart`, not a Startup-folder `.cmd` and not a separate `headroom-proxy` task. The task must run the canonical stack start script with `RunLevel=Highest` so it can self-heal stale WSL `ext4.vhdx` attach locks.
 Main model: gpt-5.6-sol
-Small-fast/compact first hop: gpt-5.3-codex-spark with normal model_fallbacks to gpt-5.6-luna, then gpt-5.4-mini
+Small-fast/compact first hop: gpt-5.3-codex-spark with normal model_fallbacks to gpt-5.6-luna
 Default Haiku and subagent overrides: gpt-5.6-terra-medium while native Spark is quota-limited, with model_fallbacks to gpt-5.6-sol-medium so empty Terra tool turns do not loop on the same account
 Official model windows: GPT-5.6 Sol/Terra/Luna = 1.05M; Claude Fable 5/Opus 4.8/Sonnet 5 = 1M; Claude Haiku 4.5 = 200k
 Client context target: CLAUDE_CODE_MAX_CONTEXT_TOKENS=370000, CLAUDE_CODE_AUTO_COMPACT_WINDOW=340000 (Claude Code client compact/display target; lower than the official 1.05M GPT-5.6 window to avoid late upstream overflow and max-output failures)
-Compact model: gpt-5.3-codex-spark, fallback gpt-5.6-luna, then gpt-5.4-mini
+Compact model: gpt-5.3-codex-spark, fallback gpt-5.6-luna
 Reasoning: main GPT-5.6 uses max; delegated Terra subagents use medium unless explicitly raised
 ```
 
@@ -46,14 +46,14 @@ claude-opus-*   -> gpt-5.6-sol
 opus            -> gpt-5.6-sol
 claude-sonnet-* -> gpt-5.6-terra
 sonnet          -> gpt-5.6-terra
-claude-haiku-*  -> gpt-5.3-codex-spark, fallback gpt-5.6-luna, then gpt-5.4-mini
-haiku           -> gpt-5.3-codex-spark, fallback gpt-5.6-luna, then gpt-5.4-mini
-gpt-5.3-codex-spark -> gpt-5.3-codex-spark, fallback gpt-5.6-luna, then gpt-5.4-mini
+claude-haiku-*  -> gpt-5.3-codex-spark, fallback gpt-5.6-luna
+haiku           -> gpt-5.3-codex-spark, fallback gpt-5.6-luna
+gpt-5.3-codex-spark -> gpt-5.3-codex-spark, fallback gpt-5.6-luna
 gpt-5.6         -> gpt-5.6-sol
 gpt-5.6-sol     -> gpt-5.6-sol
 gpt-5.6-terra   -> gpt-5.6-terra
 gpt-5.6-terra-medium -> gpt-5.6-terra, fallback gpt-5.6-sol-medium
-gpt-5.6-luna    -> gpt-5.6-luna, fallback gpt-5.3-codex-spark, then gpt-5.4-mini
+gpt-5.6-luna    -> gpt-5.6-luna, fallback gpt-5.3-codex-spark
 ```
 
 ## Reference Map
@@ -75,7 +75,7 @@ Read only the file needed for the current task:
 - Do not wait for the user to catch persistence regressions. For every install, repair, Docker compose, Headroom, embedding-server, cache, Postgres, Redis, or "make reusable" task, proactively audit persistence before claiming done. The required proof is `docker inspect` showing `Type=bind` for Headroom `/root/.headroom`, `/root/.cache/headroom`, `/root/.cache/huggingface`, sub2api `/app/data`, Postgres parent `/var/lib/postgresql`, and Redis `/data`, plus `CCR_STORE True <nonzero>` after memory traffic. If any state path is a Docker named volume, fix the compose/profile/scripts first, recreate only the affected services, rerun `scripts/verify-claude-code-sub2api.ps1`, sync the local skill, commit, and push when repo changes were made.
 - Prefer request-time `/v1/messages` probes and `usage_logs.upstream_model` over `/v1/models` catalog output.
 - Keep Spark as Claude Code small-fast and compact first hop. While native Spark is quota-limited, keep Claude Code `ANTHROPIC_DEFAULT_HAIKU_MODEL` and `CLAUDE_CODE_SUBAGENT_MODEL` on `gpt-5.6-terra-medium` so delegated/default-Haiku paths do not accidentally hit Spark and do not inherit parent Sol/max. Set normal messages `model_fallbacks` so `gpt-5.6-terra-medium` falls back to `gpt-5.6-sol-medium` on empty-output or unavailable-model failures. Pin frequent subagents with frontmatter `model: gpt-5.6-terra-medium` and `effort: medium`.
-- Keep Luna as the second hop after Spark for small-fast/Haiku and compact fallbacks, with `gpt-5.4-mini` as the last-resort fallback. Direct `gpt-5.6-luna` requests fall back to `gpt-5.3-codex-spark`, then `gpt-5.4-mini`.
+- Keep Luna as the second hop after Spark for small-fast/Haiku and compact fallbacks. Direct `gpt-5.6-luna` requests fall back to `gpt-5.3-codex-spark`.
 - For Claude Code `general-purpose`, `Explore`, and `workflow-subagent`, use user-level overrides at `%USERPROFILE%\.claude\agents\*.md` with `model: gpt-5.6-terra-medium` and `effort: medium` while Spark is quota-limited. The `-medium` alias is intentional: patched sub2api strips it to upstream `gpt-5.6-terra` and records `reasoning_effort=medium`, overriding inherited parent `max`. If Terra returns a 0-visible-output turn, patched sub2api must preserve fallback effort aliases and switch to `gpt-5.6-sol-medium` (`reasoning_effort=medium`), not bare Sol/medium. Project-specific agents such as `agent-marketplace-agent` should get the same frontmatter when they fan out heavily. Verify with agent JSONL and `usage_logs.reasoning_effort`, not with the Claude UI label alone.
 - Do not persist `CLAUDE_CODE_EFFORT_LEVEL` in Windows User/System env or `~/.claude/settings.json env`. It overrides Claude Code's interactive `/effort` command for every session. Use `effortLevel` only as a soft startup default, and prefer `xhigh` for the profile default so users can switch to `max`, `high`, or lower efforts in-session.
 - Do not install a global `PreToolUse` / `SubagentStart` / `SubagentStop` hook that blocks Agent calls unless the user explicitly asks for it. Current policy is advisory only: `workflowSizeGuideline=small` plus the `general-purpose` prompt asks for no more than 10 sibling agents and no deep chains. Do not claim Claude Code has a reliable built-in depth cap that prevents hundreds of descendants; local evidence has shown a single parent line can grow into hundreds of spawned agents.
@@ -126,7 +126,7 @@ For install/config/debug tasks, do not call it done until these are true or expl
 - On Windows/WSL installs, exactly one user autostart remains: `Sub2API Codex Proxy Stack Autostart`, `LastTaskResult=0`, `RunLevel=Highest`, action points at the canonical stack start script, and any old `headroom-proxy` task or Startup-folder launcher is absent/disabled.
 - `claude mcp list` shows `headroom` connected through Docker, not a missing host executable; stale host `tokensave` MCP is removed unless deliberately installed on host.
 - `docker exec headroom-sub2api headroom tools doctor` shows RTK-related bundled tools available, and `headroom savings --json` / `headroom perf --format json` prove the optimization layer is recording traffic.
-- A tiny `/v1/messages` request through `http://127.0.0.1:8787` succeeds for `gpt-5.6-sol` and for Haiku/small-fast through `gpt-5.3-codex-spark` or the configured `gpt-5.6-luna -> gpt-5.4-mini` fallback chain, or a current upstream quota/cooldown blocker is proven as `429`.
-- Claude aliases route as expected in `usage_logs` or response/model mapping evidence: Opus -> Sol, Sonnet -> Terra, Haiku -> Spark -> Luna -> mini.
+- A tiny `/v1/messages` request through `http://127.0.0.1:8787` succeeds for `gpt-5.6-sol` and for Haiku/small-fast through `gpt-5.3-codex-spark` or the configured `gpt-5.6-luna` fallback, or a current upstream quota/cooldown blocker is proven as `429`.
+- Claude aliases route as expected in `usage_logs` or response/model mapping evidence: Opus -> Sol, Sonnet -> Terra, Haiku -> Spark -> Luna.
 - `~/.claude/settings.json` and User env agree on main/small models and Claude Code client context target.
 - Any GitHub issue or fork change the user asked for is pushed and linked.

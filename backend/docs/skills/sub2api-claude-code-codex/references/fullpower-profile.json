@@ -97,7 +97,7 @@
       "context_tokens": 1050000,
       "max_output_tokens": 128000,
       "default_allowed": false,
-      "note": "Use as the second fallback after gpt-5.3-codex-spark for Claude Code small-fast/Haiku; direct Luna requests fall back to gpt-5.3-codex-spark, then gpt-5.4-mini when the local OAuth route cannot schedule Luna."
+      "note": "Use as the second fallback after gpt-5.3-codex-spark for Claude Code small-fast/Haiku; direct Luna requests fall back to gpt-5.3-codex-spark when the local OAuth route cannot schedule Luna."
     },
     "claude-fable-5": {
       "context_tokens": 1000000,
@@ -142,7 +142,7 @@
     "account_cooldown_sql": "select id, status, schedulable, concurrency, rate_limited_at, rate_limit_reset_at, temp_unschedulable_until, session_window_status, last_used_at, updated_at from accounts where platform='openai' order by id",
     "recent_proxy_error_sql": "select id, created_at, status_code, upstream_status_code, error_type, left(coalesce(error_message,''),140), left(coalesce(upstream_error_message,''),140), account_id, requested_model from ops_error_logs where created_at > now() - interval '4 hours' order by id desc limit 40",
     "notes": [
-      "Use clean gpt-5.6-sol for main work and gpt-5.3-codex-spark for Claude Code small-fast/Haiku, with fallback chain gpt-5.6-luna then gpt-5.4-mini. Legacy gpt-5.5[400k] is cosmetic only and must not be treated as the model window.",
+      "Use clean gpt-5.6-sol for main work and gpt-5.3-codex-spark for Claude Code small-fast/Haiku, with fallback chain gpt-5.6-luna. Legacy gpt-5.5[400k] is cosmetic only and must not be treated as the model window.",
       "Claude Code may still report maxOutputTokens as 32000 on custom/proxy models even when CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000 is set.",
       "On sub2api's Anthropic-to-OpenAI Responses route, thinking.budget_tokens is parsed but not forwarded as an OpenAI reasoning budget.",
       "Codex/GPT-5.6 reasoning is requested with output_config.effort=max when the session or probe explicitly asks for max and should reach upstream as reasoning.effort=max. If structured logs show requested_effort=max plus upstream_effort=xhigh, the running image is stale or using a legacy fallback path.",
@@ -154,9 +154,9 @@
       "Use gpt-5.3-codex-spark as ANTHROPIC_SMALL_FAST_MODEL for compact/small-fast routing, but use gpt-5.6-terra-medium as ANTHROPIC_DEFAULT_HAIKU_MODEL while native Spark is quota-limited so delegated/default-Haiku paths do not hit Spark quota or inherit parent Sol/max.",
       "Use gpt-5.6-terra-medium with effort: medium for the user-level Claude Code general-purpose, Explore, and workflow-subagent overrides while native Spark is quota-limited. The -medium alias is intentionally normalized by patched sub2api to upstream gpt-5.6-terra with reasoning_effort=medium so delegated agents do not inherit parent Sol/max. Add model_fallbacks from gpt-5.6-terra-medium to gpt-5.6-sol-medium so empty Terra tool turns fall back to Sol at medium effort instead of looping or inheriting the wrong parent effort. This is a model/effort override, not a global Agent-blocking hook.",
       "Do not install PreToolUse/SubagentStart/SubagentStop state-file hooks to block Agent calls unless the user explicitly asks for a hard cap. Current fan-out control is advisory through workflowSizeGuideline=small and general-purpose.md guardrails. Do not claim a built-in depth cap prevents hundreds of spawned descendants; local sessions showed one parent line reaching hundreds of spawned agents.",
-      "Use messages_dispatch_model_config.model_fallbacks for normal small-fast/Haiku fallback: gpt-5.3-codex-spark -> gpt-5.6-luna -> gpt-5.4-mini. Direct gpt-5.6-luna requests fall back to gpt-5.3-codex-spark -> gpt-5.4-mini. Delegated gpt-5.6-terra-medium falls back to gpt-5.6-sol-medium.",
-      "Fresh 2026-07-10 Luna re-probe returned HTTP 200 but usage_logs showed gpt-5.6-luna -> gpt-5.4-mini and ops_error_logs recorded recovered upstream 429. Treat Luna as unavailable until the mapping chain ends at gpt-5.6-luna.",
-      "Set compact_model_fallbacks so Spark compact failures caused by rate limit, quota, unknown/unsupported model, or service-unavailable class errors continue through gpt-5.6-luna, then gpt-5.4-mini.",
+      "Use messages_dispatch_model_config.model_fallbacks for normal small-fast/Haiku fallback: gpt-5.3-codex-spark -> gpt-5.6-luna. Direct gpt-5.6-luna requests fall back to gpt-5.3-codex-spark. Delegated gpt-5.6-terra-medium falls back to gpt-5.6-sol-medium.",
+      "Fresh 2026-07-10 Luna re-probe returned HTTP 200 but usage_logs showed a fallback and ops_error_logs recorded recovered upstream 429. Treat Luna as unavailable until the mapping chain ends at gpt-5.6-luna.",
+      "Set compact_model_fallbacks so Spark compact failures caused by rate limit, quota, unknown/unsupported model, or service-unavailable class errors continue through gpt-5.6-luna; do not configure a mini-model fallback.",
       "Manual /compact may ignore ANTHROPIC_SMALL_FAST_MODEL in some Claude Code builds and use the session main model. Verify compact routing via usage_logs.requested_model/upstream_model."
       ,
       "If Headroom stalls inside the Anthropic handler before sub2api sees a request, the watchdog must not immediately return 504 to Claude Code. It should cancel the hung primary handler and retry once with x-headroom-bypass=true, x-headroom-mode=passthrough, and x-sub2api-headroom-watchdog-retry=1. Treat event=claude_code_handler_watchdog_retry_ok as the desired recovery proof; 504 event:error is only the final fallback after retry timeout."
@@ -176,32 +176,24 @@
       "gpt-5.6-luna": "gpt-5.3-codex-spark",
       "gpt-5.5": "gpt-5.3-codex-spark",
       "gpt-5.5[400k]": "gpt-5.3-codex-spark",
-      "gpt-5.4": "gpt-5.3-codex-spark",
-      "gpt-5.4-mini": "gpt-5.3-codex-spark"
+      "gpt-5.4": "gpt-5.3-codex-spark"
     },
     "compact_model_fallbacks": {
       "gpt-5.3-codex-spark": [
-        "gpt-5.6-luna",
-        "gpt-5.4-mini"
+        "gpt-5.6-luna"
       ],
       "gpt-5.6": [
-        "gpt-5.4-mini"
       ],
       "gpt-5.6-sol": [
-        "gpt-5.4-mini"
       ],
       "gpt-5.6-terra": [
-        "gpt-5.4-mini"
       ],
       "gpt-5.6-luna": [
-        "gpt-5.3-codex-spark",
-        "gpt-5.4-mini"
+        "gpt-5.3-codex-spark"
       ],
       "gpt-5.5": [
-        "gpt-5.4-mini"
       ],
       "gpt-5.5[400k]": [
-        "gpt-5.4-mini"
       ]
     }
   },
@@ -236,23 +228,19 @@
       },
       "model_fallbacks": {
         "gpt-5.3-codex-spark": [
-          "gpt-5.6-luna",
-          "gpt-5.4-mini"
+          "gpt-5.6-luna"
         ],
         "gpt-5.6-luna": [
-          "gpt-5.3-codex-spark",
-          "gpt-5.4-mini"
+          "gpt-5.3-codex-spark"
         ],
         "gpt-5.6-terra-medium": [
           "gpt-5.6-sol-medium"
         ],
         "claude-haiku-*": [
-          "gpt-5.6-luna",
-          "gpt-5.4-mini"
+          "gpt-5.6-luna"
         ],
         "haiku": [
-          "gpt-5.6-luna",
-          "gpt-5.4-mini"
+          "gpt-5.6-luna"
         ]
       }
     }

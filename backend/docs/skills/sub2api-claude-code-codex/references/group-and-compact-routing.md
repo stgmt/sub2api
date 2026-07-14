@@ -41,11 +41,11 @@ Use these fields:
       "gpt-5.5": "gpt-5.5"
     },
     "model_fallbacks": {
-      "gpt-5.3-codex-spark": ["gpt-5.6-luna", "gpt-5.4-mini"],
-      "claude-haiku-*": ["gpt-5.6-luna", "gpt-5.4-mini"],
-      "haiku": ["gpt-5.6-luna", "gpt-5.4-mini"],
+      "gpt-5.3-codex-spark": ["gpt-5.6-luna"],
+      "claude-haiku-*": ["gpt-5.6-luna"],
+      "haiku": ["gpt-5.6-luna"],
       "gpt-5.6-terra-medium": ["gpt-5.6-sol-medium"],
-      "gpt-5.6-luna": ["gpt-5.3-codex-spark", "gpt-5.4-mini"]
+      "gpt-5.6-luna": ["gpt-5.3-codex-spark"]
     }
   }
 }
@@ -67,17 +67,16 @@ Also set compact-only mapping on the OpenAI/Codex OAuth account credentials, not
     "gpt-5.5": "gpt-5.3-codex-spark",
     "gpt-5.5[400k]": "gpt-5.3-codex-spark",
     "gpt-5.4": "gpt-5.3-codex-spark",
-    "gpt-5.4-mini": "gpt-5.3-codex-spark"
   },
   "compact_model_fallbacks": {
-    "gpt-5.3-codex-spark": ["gpt-5.6-luna", "gpt-5.4-mini"],
-    "gpt-5.6": ["gpt-5.6-luna", "gpt-5.4-mini"],
-    "gpt-5.6-sol": ["gpt-5.6-luna", "gpt-5.4-mini"],
-    "gpt-5.6-terra": ["gpt-5.6-luna", "gpt-5.4-mini"],
-    "gpt-5.6-luna": ["gpt-5.4-mini"],
-    "gpt-5.5": ["gpt-5.6-luna", "gpt-5.4-mini"],
-    "gpt-5.5[400k]": ["gpt-5.6-luna", "gpt-5.4-mini"],
-    "gpt-5.4": ["gpt-5.6-luna", "gpt-5.4-mini"]
+    "gpt-5.3-codex-spark": ["gpt-5.6-luna"],
+    "gpt-5.6": ["gpt-5.6-luna"],
+    "gpt-5.6-sol": ["gpt-5.6-luna"],
+    "gpt-5.6-terra": ["gpt-5.6-luna"],
+    "gpt-5.6-luna": ["gpt-5.3-codex-spark"],
+    "gpt-5.5": ["gpt-5.6-luna"],
+    "gpt-5.5[400k]": ["gpt-5.6-luna"],
+    "gpt-5.4": ["gpt-5.6-luna"]
   }
 }
 ```
@@ -91,11 +90,11 @@ set credentials = jsonb_set(
   jsonb_set(
     coalesce(credentials, '{}'::jsonb),
     '{compact_model_mapping}',
-    '{"gpt-5.6":"gpt-5.3-codex-spark","gpt-5.6-sol":"gpt-5.3-codex-spark","gpt-5.6-terra":"gpt-5.3-codex-spark","gpt-5.6-luna":"gpt-5.3-codex-spark","gpt-5.5":"gpt-5.3-codex-spark","gpt-5.5[400k]":"gpt-5.3-codex-spark","gpt-5.4":"gpt-5.3-codex-spark","gpt-5.4-mini":"gpt-5.3-codex-spark"}'::jsonb,
+    '{"gpt-5.6":"gpt-5.3-codex-spark","gpt-5.6-sol":"gpt-5.3-codex-spark","gpt-5.6-terra":"gpt-5.3-codex-spark","gpt-5.6-luna":"gpt-5.3-codex-spark","gpt-5.5":"gpt-5.3-codex-spark","gpt-5.5[400k]":"gpt-5.3-codex-spark","gpt-5.4":"gpt-5.3-codex-spark"}'::jsonb,
     true
   ),
   '{compact_model_fallbacks}',
-    '{"gpt-5.3-codex-spark":["gpt-5.6-luna","gpt-5.4-mini"],"gpt-5.6":["gpt-5.6-luna","gpt-5.4-mini"],"gpt-5.6-sol":["gpt-5.6-luna","gpt-5.4-mini"],"gpt-5.6-terra":["gpt-5.6-luna","gpt-5.4-mini"],"gpt-5.6-luna":["gpt-5.4-mini"],"gpt-5.5":["gpt-5.6-luna","gpt-5.4-mini"],"gpt-5.5[400k]":["gpt-5.6-luna","gpt-5.4-mini"],"gpt-5.4":["gpt-5.6-luna","gpt-5.4-mini"]}'::jsonb,
+    '{"gpt-5.3-codex-spark":["gpt-5.6-luna"],"gpt-5.6":["gpt-5.6-luna"],"gpt-5.6-sol":["gpt-5.6-luna"],"gpt-5.6-terra":["gpt-5.6-luna"],"gpt-5.6-luna":["gpt-5.3-codex-spark"],"gpt-5.5":["gpt-5.6-luna"],"gpt-5.5[400k]":["gpt-5.6-luna"],"gpt-5.4":["gpt-5.6-luna"]}'::jsonb,
   true
 ), updated_at = now()
 where platform='openai';
