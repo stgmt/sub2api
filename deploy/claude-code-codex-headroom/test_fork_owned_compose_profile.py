@@ -103,3 +103,19 @@ def test_autostart_retries_transient_wsl_service_failures() -> None:
     assert "Wsl/Service" in start
     assert "0x8007274c" in start
     assert "WSL service transient on attempt $attempt; retrying" in start
+
+
+def test_gpu_research_and_manual_watchdog_are_repo_owned() -> None:
+    skill = (ROOT / "../../backend/docs/skills/sub2api-claude-code-codex").resolve()
+    reference = (skill / "references/headroom-gpu-kompress.md").read_text(encoding="utf-8")
+    watchdog = (skill / "scripts/watch-claude-proxy-stack.ps1").read_text(encoding="utf-8")
+
+    assert "CPU ONNX" in reference
+    assert "CUDA PyTorch" in reference
+    assert "Known Remaining Work" in reference
+    assert "[switch]$RequireCuda" in watchdog
+    assert "Get-HeadroomGpuRuntime" in watchdog
+    assert "wsl.exe -d $Distro -- docker" in watchdog
+    assert "PSNativeCommandUseErrorActionPreference" in watchdog
+    assert "$exit = $LASTEXITCODE" in watchdog
+    assert "Sub2API Codex Proxy Stack Autostart" not in watchdog

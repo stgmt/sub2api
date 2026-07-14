@@ -66,6 +66,7 @@ Read only the file needed for the current task:
 - `references/subagent-terra-medium-profile.md`: current delegated-agent profile, exact files/env knobs to set, missing-override behavior, and future GPT-5.7 migration checklist.
 - `references/verification.md`: health probes, Claude Code probes, `/v1/messages` checks, usage_logs queries, compact verification, and expected evidence.
 - `references/troubleshooting.md`: 429/503/no-available-accounts, stale cooldowns, empty streams, context overflow, Luna availability, localhost relay, and usage-display bugs.
+- `references/headroom-gpu-kompress.md`: GPU backend research, fork ownership, implementation, reproducible CPU/CUDA benchmark, autostart failure, live proof, and remaining architecture work.
 - `references/fullpower-profile.json`: machine-readable profile snapshot when scripts or exact config values are useful.
 
 ## Operating Rules
@@ -106,6 +107,7 @@ Read only the file needed for the current task:
 - `scripts/setup-sub2api-claude-code.ps1`: create/update `deploy/claude-code-codex-headroom/.env`, auto-detect CUDA unless explicitly set to CPU, select the matching compose overlay/image target/backend, start the Headroom + sub2api compose project, install/update the single Windows scheduled-task autostart unless `-SkipAutostart` is passed, register the Docker-backed Headroom MCP, remove stale host `tokensave` MCP, and configure Claude Code settings. Defaults to `gpt-5.6-sol`, `gpt-5.3-codex-spark`, `HEADROOM_SAVINGS_PROFILE=agent-90`, `HEADROOM_TARGET_RATIO=0.10`, `CLAUDE_CODE_MAX_CONTEXT_TOKENS=370000`, and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=340000`.
 - `scripts/verify-claude-code-sub2api.ps1`: verify Headroom health/upstream, host bind state mounts, persistent memory/cache mounts, embedding-server logs/socket/factory/direct embed probe, sub2api health, Claude Code settings, and expected upstream model behavior.
 - `scripts/start-sub2api-proxy-stack.ps1`: idempotent scheduled-task target that starts the WSL Docker compose stack, refreshes Claude Code `ANTHROPIC_BASE_URL` from WSL IP when needed, and self-heals stale WSL VHDX attach locks.
+- `scripts/watch-claude-proxy-stack.ps1`: one-shot or bounded manual health diagnostic with optional `-RequireCuda`; never register it as a second autostart owner.
 - `scripts/install-sub2api-autostart-task.ps1`: installs the single `Sub2API Codex Proxy Stack Autostart` scheduled task with `RunLevel=Highest`, removes stale `headroom-proxy`, and disables Startup-folder proxy launchers.
 - `scripts/install-claude-compact-recovery.ps1`: install Claude Code compact recovery hooks.
 - `scripts/compact-recovery.mjs`: lightweight compact recovery hook implementation.

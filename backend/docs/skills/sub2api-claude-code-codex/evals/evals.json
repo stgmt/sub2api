@@ -42,6 +42,18 @@
       "prompt": "Почини Headroom/sub2api persistence так, чтобы я больше не пинал за Docker volumes и чтобы эмбеддинги не терялись.",
       "expected_output": "Proactively audits Docker inspect mounts before claiming done, refuses Docker named volumes for state, configures SUB2API_STATE_ROOT host bind mounts for Headroom /root/.headroom, /root/.cache/headroom, /root/.cache/huggingface, sub2api /app/data, Postgres data, and Redis /data, keeps the start-headroom-proxy bootstrap seed path, recreates only affected services, verifies Type=bind for every stateful container, verifies CCR_STORE True with nonzero size after memory traffic, verifies embedding-server SocketEmbedderClient and EMBED_OK, syncs the installed local skill, and commits/pushes repo skill/docs/script changes.",
       "files": []
+    },
+    {
+      "id": 8,
+      "prompt": "Мне нужен GPU для Headroom в Docker/WSL. Настрой, сравни с CPU и докажи, что Kompress реально работает на видеокарте.",
+      "expected_output": "Keeps CPU as the portable default, selects the opt-in gpu image stage and docker-compose.gpu.yml on NVIDIA hosts, installs the pinned official CUDA PyTorch wheel, persists HEADROOM_ACCELERATOR=cuda plus HEADROOM_DOCKER_TARGET=gpu and HEADROOM_KOMPRESS_BACKEND=pytorch, proves non-empty Docker DeviceRequests, torch.cuda.is_available(), the expected device name, and Kompress preload backend pytorch, runs benchmark-headroom-kompress on identical CPU/GPU payloads, compares latency, throughput, compression ratio, and sentinel retention, verifies a real Headroom request and executor health, syncs repo/local skills, and does not claim that GPU alone solves partial-result compression, per-session singleflight, or unsafe oversized fail-open.",
+      "files": []
+    },
+    {
+      "id": 9,
+      "prompt": "После перезагрузки Sub2API Codex Proxy Stack Autostart падает с Wsl/Service/0x8007274c, хотя контейнеры потом живые. Почини без второго автозапуска.",
+      "expected_output": "Finds the exact scheduled-task log, normalizes UTF-16/NUL WSL output before classifying it, retries transient Wsl/Service/0x8007274c connection failures on every WSL command within a bounded deadline, preserves the single scheduled-task owner and GPU compose overlay, runs the real Scheduled Task, requires LastTaskResult=0, and rechecks Headroom health, Docker DeviceRequests, and CUDA after the task path.",
+      "files": []
     }
   ]
 }
