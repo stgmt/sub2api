@@ -2487,19 +2487,30 @@ func anthropicStreamEventHasVisibleOutput(evt apicompat.AnthropicStreamEvent) bo
 }
 
 func isClaudeCodeCompactAnthropicRequest(req *apicompat.AnthropicRequest) bool {
-	if req == nil || len(req.Messages) == 0 {
+	if req == nil {
 		return false
+	}
+	// Claude Code 2.1.x can place the generated summary instruction in the
+	// top-level system blocks while its user turn remains only /compact.
+	if looksLikeClaudeCodeCompactPrompt(anthropicMessageText(req.System)) {
+		return true
 	}
 	for i := len(req.Messages) - 1; i >= 0; i-- {
 		msg := req.Messages[i]
 		if strings.TrimSpace(msg.Role) != "user" {
 			continue
 		}
-		if looksLikeClaudeCodeCompactPrompt(anthropicMessageText(msg.Content)) {
+		text := anthropicMessageText(msg.Content)
+		if isClaudeCodeCompactCommand(text) || looksLikeClaudeCodeCompactPrompt(text) {
 			return true
 		}
 	}
 	return false
+}
+
+func isClaudeCodeCompactCommand(text string) bool {
+	lower := strings.ToLower(strings.TrimSpace(text))
+	return strings.Contains(lower, "<command-name>/compact</command-name>")
 }
 
 func anthropicMessageText(raw json.RawMessage) string {

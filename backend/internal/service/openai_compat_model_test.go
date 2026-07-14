@@ -167,6 +167,21 @@ func TestIsClaudeCodeCompactAnthropicRequest(t *testing.T) {
 	}
 	require.True(t, isClaudeCodeCompactAnthropicRequest(modernCompact))
 
+	compactInSystemBlocks := &apicompat.AnthropicRequest{
+		System: json.RawMessage(fmt.Sprintf(`[{"type":"text","text":%q}]`, testClaudeCodeModernCompactPrompt())),
+		Messages: []apicompat.AnthropicMessage{
+			{Role: "user", Content: []byte(`"<command-name>/compact</command-name>"`)},
+		},
+	}
+	require.True(t, isClaudeCodeCompactAnthropicRequest(compactInSystemBlocks))
+
+	compactCommand := &apicompat.AnthropicRequest{
+		Messages: []apicompat.AnthropicMessage{
+			{Role: "user", Content: []byte(`"<command-name>/compact</command-name>"`)},
+		},
+	}
+	require.True(t, isClaudeCodeCompactAnthropicRequest(compactCommand))
+
 	postCompactSummary := &apicompat.AnthropicRequest{
 		Messages: []apicompat.AnthropicMessage{
 			{Role: "user", Content: []byte(`"This session is being continued from a previous conversation that ran out of context. Summary:\nPending Tasks:\nCurrent Work:\nContinue from where you left off."`)},
