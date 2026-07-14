@@ -191,8 +191,8 @@ describe('PaymentResultView', () => {
     expect(pollOrderStatus).not.toHaveBeenCalled()
     expect(resolveOrderPublicByResumeToken).toHaveBeenCalledWith('resume-authoritative')
     expect(wrapper.text()).toContain('payment.result.success')
-    expect(wrapper.text()).toContain('103.00')
-    expect(wrapper.text()).toContain('100.00')
+    expect(wrapper.text()).toContain(formatPaymentAmount(103, 'CNY'))
+    expect(wrapper.text()).toContain('$100.00')
     expect(window.localStorage.getItem(PAYMENT_RECOVERY_STORAGE_KEY)).toBeNull()
   })
 

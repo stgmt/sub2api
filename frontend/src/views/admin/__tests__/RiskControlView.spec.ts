@@ -304,7 +304,7 @@ describe('admin RiskControlView', () => {
     expect(wrapper.text()).not.toContain('admin.riskControl.preBlockSyncStatus')
     expect(wrapper.text()).toContain('admin.riskControl.records')
     expect(wrapper.text()).toContain('12')
-    expect(wrapper.text()).toContain('2 / 32,768')
+    expect(wrapper.text()).toContain(`2 / ${(32768).toLocaleString()}`)
   })
 
   it('shows pre-block synchronous moderation metrics separately from worker queue', async () => {

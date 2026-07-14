@@ -110,6 +110,7 @@ describe('KeyUsageView daily detail', () => {
       value: vi.fn().mockReturnValue({ matches: false }),
     })
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => window.setTimeout(() => cb(0), 0))
+    vi.stubGlobal('cancelAnimationFrame', (handle: number) => window.clearTimeout(handle))
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
