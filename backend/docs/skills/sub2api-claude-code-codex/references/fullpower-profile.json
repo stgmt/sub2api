@@ -1,6 +1,6 @@
 {
   "name": "sub2api-claude-code-codex-fullpower",
-  "last_updated": "2026-07-13",
+  "last_updated": "2026-07-14",
   "proxy": {
     "base_url": "http://127.0.0.1:8787",
     "chain": "Claude Code -> Headroom 127.0.0.1:8787 -> Docker DNS http://sub2api:8080 -> sub2api",
@@ -12,6 +12,13 @@
       "git_repo": "https://github.com/stgmt/headroom.git",
       "git_ref": "5a313c2e5bbf22c87b55efb8737cf2a4cd7ed54d",
       "rust_toolchain": "1.88.0",
+      "accelerator": "auto detects CUDA; cpu remains the portable fallback",
+      "gpu_compose_overlay": "deploy/claude-code-codex-headroom/docker-compose.gpu.yml",
+      "gpu_docker_target": "gpu",
+      "gpu_backend": "pytorch",
+      "gpu_torch": "2.11.0+cu128",
+      "gpu_verification": "torch.cuda.is_available plus Kompress preload backend=pytorch",
+      "gpu_benchmark": "benchmark-headroom-kompress",
       "package": "headroom-ai[proxy,code,relevance,html,spreadsheet,otel,reports,mcp] @ git+https://github.com/stgmt/headroom.git@5a313c2e5bbf22c87b55efb8737cf2a4cd7ed54d",
       "docker_bind": "127.0.0.1:8787->8787",
       "upstream": "http://sub2api:8080",

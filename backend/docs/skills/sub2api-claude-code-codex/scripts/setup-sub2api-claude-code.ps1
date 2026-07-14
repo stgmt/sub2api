@@ -25,6 +25,10 @@ param(
   [string]$HeadroomGitRepo = "https://github.com/stgmt/headroom.git",
   [string]$HeadroomGitRef = "5a313c2e5bbf22c87b55efb8737cf2a4cd7ed54d",
   [string]$HeadroomRustToolchain = "1.88.0",
+  [ValidateSet("auto", "cpu", "cuda")]
+  [string]$HeadroomAccelerator = "auto",
+  [string]$HeadroomTorchVersion = "2.11.0+cu128",
+  [string]$HeadroomTorchIndexUrl = "https://download.pytorch.org/whl/cu128",
   [string]$HeadroomSavingsProfile = "agent-90",
   [string]$HeadroomTargetRatio = "0.10",
   [string]$Sub2apiImage = "sub2api-codex:local-token-usage",
@@ -115,6 +119,22 @@ function Test-IsWindowsHost {
   return [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)
 }
 
+function Resolve-HeadroomAccelerator([string]$Requested) {
+  if ($Requested -ne "auto") { return $Requested }
+
+  if (Get-Command wsl.exe -ErrorAction SilentlyContinue) {
+    & wsl.exe -- bash -lc "command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1"
+    if ($LASTEXITCODE -eq 0) { return "cuda" }
+  }
+
+  if (Get-Command nvidia-smi.exe -ErrorAction SilentlyContinue) {
+    & nvidia-smi.exe -L *> $null
+    if ($LASTEXITCODE -eq 0) { return "cuda" }
+  }
+
+  return "cpu"
+}
+
 function Test-IsElevated {
   if (-not (Test-IsWindowsHost)) { return $false }
   $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -197,6 +217,11 @@ function Write-DotEnv([System.Collections.IDictionary]$Map, [string]$Path) {
     "HEADROOM_GIT_REPO",
     "HEADROOM_GIT_REF",
     "HEADROOM_RUST_TOOLCHAIN",
+    "HEADROOM_ACCELERATOR",
+    "HEADROOM_DOCKER_TARGET",
+    "HEADROOM_KOMPRESS_BACKEND",
+    "HEADROOM_TORCH_VERSION",
+    "HEADROOM_TORCH_INDEX_URL",
     "HEADROOM_BIND_HOST",
     "HEADROOM_PORT",
     "SUB2API_STATE_ROOT",
@@ -299,6 +324,9 @@ if (-not (Test-Path -LiteralPath $composePath)) {
 }
 
 $ClaudeBaseUrl = if ($BaseUrl.Trim()) { $BaseUrl.Trim().TrimEnd("/") } else { "http://127.0.0.1`:$HeadroomPort" }
+$resolvedHeadroomAccelerator = Resolve-HeadroomAccelerator $HeadroomAccelerator
+$headroomDockerTarget = if ($resolvedHeadroomAccelerator -eq "cuda") { "gpu" } else { "cpu" }
+$headroomKompressBackend = if ($resolvedHeadroomAccelerator -eq "cuda") { "pytorch" } else { "auto" }
 
 $envMap = Read-DotEnv -Path $envPath
 if ((Test-Path -LiteralPath $envPath) -and -not $ForceRegenerateSecrets) {
@@ -310,6 +338,11 @@ Set-DotEnvValue $envMap "HEADROOM_PYTHON_VERSION" $HeadroomPythonVersion
 Set-DotEnvValue $envMap "HEADROOM_GIT_REPO" $HeadroomGitRepo
 Set-DotEnvValue $envMap "HEADROOM_GIT_REF" $HeadroomGitRef
 Set-DotEnvValue $envMap "HEADROOM_RUST_TOOLCHAIN" $HeadroomRustToolchain
+Set-DotEnvValue $envMap "HEADROOM_ACCELERATOR" $resolvedHeadroomAccelerator
+Set-DotEnvValue $envMap "HEADROOM_DOCKER_TARGET" $headroomDockerTarget
+Set-DotEnvValue $envMap "HEADROOM_KOMPRESS_BACKEND" $headroomKompressBackend
+Set-DotEnvValue $envMap "HEADROOM_TORCH_VERSION" $HeadroomTorchVersion
+Set-DotEnvValue $envMap "HEADROOM_TORCH_INDEX_URL" $HeadroomTorchIndexUrl
 Set-DotEnvValue $envMap "HEADROOM_BIND_HOST" $HeadroomBindHost
 Set-DotEnvValue $envMap "HEADROOM_PORT" ([string]$HeadroomPort)
 Set-DotEnvValue $envMap "SUB2API_STATE_ROOT" $StateRoot
@@ -389,16 +422,28 @@ foreach ($stateSubdir in @("headroom", "headroom-cache", "headroom-huggingface",
 }
 
 if (-not $SkipDockerUp) {
+  $gpuComposePath = Join-Path $profileDir "docker-compose.gpu.yml"
+  if ($resolvedHeadroomAccelerator -eq "cuda" -and -not (Test-Path -LiteralPath $gpuComposePath)) {
+    throw "CUDA was selected but the GPU compose overlay is missing: $gpuComposePath"
+  }
+  $composeFiles = @("-f", "docker-compose.yml")
+  if ($resolvedHeadroomAccelerator -eq "cuda") {
+    $composeFiles += @("-f", "docker-compose.gpu.yml")
+  }
   if (Get-Command docker -ErrorAction SilentlyContinue) {
     Push-Location $profileDir
     try {
-      docker compose --env-file .env -f docker-compose.yml -p $ProjectName up -d --build
+      $dockerArgs = @("compose", "--env-file", ".env") + $composeFiles + @("-p", $ProjectName, "up", "-d", "--build")
+      & docker @dockerArgs
+      if ($LASTEXITCODE -ne 0) { throw "docker compose failed with exit code $LASTEXITCODE" }
     } finally {
       Pop-Location
     }
   } elseif (Get-Command wsl.exe -ErrorAction SilentlyContinue) {
     $wslProfileDir = ConvertTo-WslPath $profileDir
-    wsl.exe -- bash -lc "cd '$wslProfileDir' && docker compose --env-file .env -f docker-compose.yml -p '$ProjectName' up -d --build"
+    $wslComposeFiles = if ($resolvedHeadroomAccelerator -eq "cuda") { "-f docker-compose.yml -f docker-compose.gpu.yml" } else { "-f docker-compose.yml" }
+    wsl.exe -- bash -lc "cd '$wslProfileDir' && docker compose --env-file .env $wslComposeFiles -p '$ProjectName' up -d --build"
+    if ($LASTEXITCODE -ne 0) { throw "WSL docker compose failed with exit code $LASTEXITCODE" }
   } else {
     throw "Neither docker nor wsl.exe was found. Install Docker Desktop or run docker compose manually in $profileDir."
   }

@@ -219,6 +219,32 @@ function Test-HeadroomImageBootstrap {
   Write-Host "seed: $bootstrapOutput"
 }
 
+function Test-HeadroomGpuRuntime {
+  if (-not (Test-DockerRuntimeAvailable)) {
+    Write-Warning "docker and wsl.exe not found; skipping Headroom GPU checks."
+    return
+  }
+
+  $envOutput = (Invoke-DockerCommand -Args @("inspect", "headroom-sub2api", "--format", "{{range .Config.Env}}{{println .}}{{end}}") 2>&1) -join "`n"
+  if ($envOutput -notmatch "(?m)^HEADROOM_KOMPRESS_BACKEND=pytorch$") {
+    Write-Host "`nHeadroom accelerator: CPU profile (GPU verification skipped)"
+    return
+  }
+
+  Write-Host "`nHeadroom accelerator: CUDA"
+  $deviceRequests = (Invoke-DockerCommand -Args @("inspect", "headroom-sub2api", "--format", "{{json .HostConfig.DeviceRequests}}") 2>&1) -join "`n"
+  if ($LASTEXITCODE -ne 0 -or $deviceRequests -eq "[]" -or $deviceRequests -eq "null") {
+    throw "Headroom selected the PyTorch backend without Docker GPU device requests. Output: $deviceRequests"
+  }
+
+  $probe = "import torch; from headroom.transforms.kompress_compressor import KompressCompressor; assert torch.cuda.is_available(); c=KompressCompressor(); b=c.preload(allow_download=False); assert b=='pytorch'; print('CUDA_OK', torch.cuda.get_device_name(0), torch.__version__, torch.version.cuda, b)"
+  $probeOutput = (Invoke-DockerCommand -Args @("exec", "headroom-sub2api", "python", "-c", $probe) 2>&1) -join "`n"
+  if ($LASTEXITCODE -ne 0 -or $probeOutput -notmatch "CUDA_OK.+pytorch") {
+    throw "Headroom CUDA probe failed. Output: $probeOutput"
+  }
+  Write-Host $probeOutput
+}
+
 function Test-HeadroomEmbeddingServer {
   if (-not (Test-DockerRuntimeAvailable)) {
     Write-Warning "docker and wsl.exe not found; skipping Headroom embedding-server checks."
@@ -533,6 +559,7 @@ if (-not $SkipDockerLogs) {
     docker exec headroom-sub2api headroom tools doctor
 
 Test-HeadroomImageBootstrap
+Test-HeadroomGpuRuntime
 Test-HeadroomEmbeddingServer
 Test-HeadroomClaudeCodeStreamingPatch
 Test-HeadroomPersistentStorage

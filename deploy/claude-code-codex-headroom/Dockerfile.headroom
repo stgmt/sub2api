@@ -1,5 +1,5 @@
 ARG HEADROOM_PYTHON_VERSION=3.12
-FROM python:${HEADROOM_PYTHON_VERSION}-slim
+FROM python:${HEADROOM_PYTHON_VERSION}-slim AS headroom-base
 
 ARG HEADROOM_VERSION=0.31.0
 ARG HEADROOM_GIT_REPO=https://github.com/stgmt/headroom.git
@@ -39,7 +39,8 @@ RUN python /tmp/patch-headroom-embedding-server.py
 COPY patch-headroom-claude-code-streaming.py /tmp/patch-headroom-claude-code-streaming.py
 RUN python /tmp/patch-headroom-claude-code-streaming.py
 COPY start-headroom-proxy.sh /usr/local/bin/start-headroom-proxy
-RUN chmod +x /usr/local/bin/start-headroom-proxy
+COPY benchmark-headroom-kompress.py /usr/local/bin/benchmark-headroom-kompress
+RUN chmod +x /usr/local/bin/start-headroom-proxy /usr/local/bin/benchmark-headroom-kompress
 
 RUN set -eux; \
     ln -sf /root/.headroom/bin/rtk /usr/local/bin/rtk; \
@@ -65,3 +66,15 @@ WORKDIR /home/headroom
 
 ENTRYPOINT ["/usr/local/bin/start-headroom-proxy"]
 CMD ["--host", "0.0.0.0", "--port", "8787"]
+
+# CUDA is opt-in so CPU-only installations keep the smaller image. The
+# PyTorch backend is already implemented by Headroom and batches Kompress
+# chunks on CUDA; compose selects this stage through docker-compose.gpu.yml.
+FROM headroom-base AS gpu
+ARG HEADROOM_TORCH_VERSION=2.11.0+cu128
+ARG HEADROOM_TORCH_INDEX_URL=https://download.pytorch.org/whl/cu128
+RUN python -m pip install "torch==${HEADROOM_TORCH_VERSION}" --index-url "${HEADROOM_TORCH_INDEX_URL}" \
+    && python -c "import torch; assert torch.version.cuda; print('torch', torch.__version__, 'cuda', torch.version.cuda, 'build_gpu_visible', torch.cuda.is_available())"
+
+# Keep this as the final stage so a plain `docker build` remains CPU-safe.
+FROM headroom-base AS cpu

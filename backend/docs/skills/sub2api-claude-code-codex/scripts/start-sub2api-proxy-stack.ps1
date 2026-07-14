@@ -152,7 +152,10 @@ function Invoke-WslBash {
     }
     $text = ""
     if ($output) {
-      $text = $output -join [Environment]::NewLine
+      # Scheduled tasks can receive WSL service errors as UTF-16 text with
+      # embedded NULs. Normalize before matching or the retry classifier misses
+      # errors such as Wsl/Service/0x8007274c.
+      $text = (($output -join [Environment]::NewLine) -replace "`0", "")
       Add-Content -Path $LogPath -Value $text
     }
     if ($exit -eq 0) {
@@ -161,6 +164,11 @@ function Invoke-WslBash {
     if ($text -match "ERROR_SHARING_VIOLATION|being used by another process|Failed to attach disk|MountDisk") {
       Write-StackLog "WSL attach busy on attempt $attempt; retrying"
       Repair-WslAttachBusy -Attempt $attempt
+      Start-Sleep -Seconds ([Math]::Min(10, 2 * $attempt))
+      continue
+    }
+    if ($text -match "Wsl/Service|0x8007274c|connection attempt failed|connected host has failed to respond|The service cannot be started") {
+      Write-StackLog "WSL service transient on attempt $attempt; retrying"
       Start-Sleep -Seconds ([Math]::Min(10, 2 * $attempt))
       continue
     }
@@ -252,6 +260,15 @@ try {
   $WslRoot = ConvertTo-WslPath $Root
   $envPath = Join-Path $Root ".env"
   $StateRoot = Get-DotEnvValue -Path $envPath -Name "SUB2API_STATE_ROOT" -Fallback "./data"
+  $HeadroomAccelerator = Get-DotEnvValue -Path $envPath -Name "HEADROOM_ACCELERATOR" -Fallback "cpu"
+  $ComposeFiles = "-f docker-compose.yml"
+  if ($HeadroomAccelerator -eq "cuda") {
+    $gpuComposePath = Join-Path $Root "docker-compose.gpu.yml"
+    if (-not (Test-Path -LiteralPath $gpuComposePath)) {
+      throw "CUDA was selected but the GPU compose overlay is missing: $gpuComposePath"
+    }
+    $ComposeFiles += " -f docker-compose.gpu.yml"
+  }
   $WslStateRoot = if ($StateRoot -match '^/') {
     $StateRoot
   } else {
@@ -260,8 +277,8 @@ try {
   }
 
   Invoke-WslBash "mkdir -p '$WslStateRoot/headroom' '$WslStateRoot/headroom-cache' '$WslStateRoot/headroom-huggingface' '$WslStateRoot/sub2api' '$WslStateRoot/postgres' '$WslStateRoot/redis'"
-  Invoke-WslBash "cd '$WslRoot' && docker compose --env-file .env -p '$ProjectName' -f docker-compose.yml up -d --remove-orphans"
-  Invoke-WslBash "cd '$WslRoot' && docker compose --env-file .env -p '$ProjectName' -f docker-compose.yml ps"
+  Invoke-WslBash "cd '$WslRoot' && docker compose --env-file .env -p '$ProjectName' $ComposeFiles up -d --remove-orphans"
+  Invoke-WslBash "cd '$WslRoot' && docker compose --env-file .env -p '$ProjectName' $ComposeFiles ps"
 
   $baseUrl = Set-ClaudeBaseUrlFromWsl
   $healthUrls = @("http://127.0.0.1:$HeadroomPort")

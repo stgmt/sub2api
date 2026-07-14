@@ -61,3 +61,45 @@ def test_fullpower_profile_tracks_both_forks() -> None:
     assert profile["proxy"]["headroom"]["git_ref"] == "5a313c2e5bbf22c87b55efb8737cf2a4cd7ed54d"
     assert profile["proxy"]["headroom"]["rust_toolchain"] == "1.88.0"
     assert profile["proxy"]["sub2api"]["fork"] == "https://github.com/stgmt/sub2api"
+
+
+def test_headroom_gpu_stage_and_overlay_are_explicit() -> None:
+    dockerfile = read("Dockerfile.headroom")
+    compose = read("docker-compose.yml")
+    gpu_compose = read("docker-compose.gpu.yml")
+
+    assert "FROM headroom-base AS cpu" in dockerfile
+    assert "FROM headroom-base AS gpu" in dockerfile
+    assert "ARG HEADROOM_TORCH_VERSION=" in dockerfile
+    assert "ARG HEADROOM_TORCH_INDEX_URL=" in dockerfile
+    assert 'python -m pip install "torch==${HEADROOM_TORCH_VERSION}"' in dockerfile
+    assert "torch.cuda.is_available()" in dockerfile
+    assert "target: ${HEADROOM_DOCKER_TARGET:-cpu}" in compose
+    assert "HEADROOM_KOMPRESS_BACKEND: ${HEADROOM_KOMPRESS_BACKEND:-auto}" in compose
+    assert "gpus: all" in gpu_compose
+    assert "target: gpu" in gpu_compose
+    assert "HEADROOM_KOMPRESS_BACKEND: pytorch" in gpu_compose
+
+
+def test_setup_and_autostart_select_gpu_overlay_from_env() -> None:
+    scripts = (ROOT / "../../backend/docs/skills/sub2api-claude-code-codex/scripts").resolve()
+    setup = (scripts / "setup-sub2api-claude-code.ps1").read_text(encoding="utf-8")
+    start = (scripts / "start-sub2api-proxy-stack.ps1").read_text(encoding="utf-8")
+
+    assert 'ValidateSet("auto", "cpu", "cuda")' in setup
+    assert 'Set-DotEnvValue $envMap "HEADROOM_ACCELERATOR"' in setup
+    assert 'Set-DotEnvValue $envMap "HEADROOM_DOCKER_TARGET"' in setup
+    assert 'Set-DotEnvValue $envMap "HEADROOM_KOMPRESS_BACKEND"' in setup
+    assert 'docker-compose.gpu.yml' in setup
+    assert 'Get-DotEnvValue -Path $envPath -Name "HEADROOM_ACCELERATOR"' in start
+    assert 'docker-compose.gpu.yml' in start
+
+
+def test_autostart_retries_transient_wsl_service_failures() -> None:
+    scripts = (ROOT / "../../backend/docs/skills/sub2api-claude-code-codex/scripts").resolve()
+    start = (scripts / "start-sub2api-proxy-stack.ps1").read_text(encoding="utf-8")
+
+    assert '-replace "`0", ""' in start
+    assert "Wsl/Service" in start
+    assert "0x8007274c" in start
+    assert "WSL service transient on attempt $attempt; retrying" in start

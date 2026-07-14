@@ -75,6 +75,37 @@ Invoke-RestMethod http://127.0.0.1:18081/health
 
 The Headroom health response should report `ready: true`, version `0.31.0`, and upstream `http://sub2api:8080`.
 
+## CUDA Acceleration
+
+The default image target remains CPU-compatible. On an NVIDIA host, select the
+CUDA profile in `.env` and include the GPU overlay:
+
+```text
+HEADROOM_ACCELERATOR=cuda
+HEADROOM_DOCKER_TARGET=gpu
+HEADROOM_KOMPRESS_BACKEND=pytorch
+```
+
+```powershell
+docker compose --env-file deploy\claude-code-codex-headroom\.env `
+  -f deploy\claude-code-codex-headroom\docker-compose.yml `
+  -f deploy\claude-code-codex-headroom\docker-compose.gpu.yml `
+  -p sub2api-codex up -d --build
+```
+
+The GPU stage installs pinned CUDA 12.8 PyTorch, while the overlay requests all
+Docker GPUs and selects Headroom's native batched PyTorch Kompress path. The
+setup script auto-detects NVIDIA in WSL/Windows unless `-HeadroomAccelerator
+cpu` is passed. The autostart script reads `HEADROOM_ACCELERATOR` from `.env`
+and reapplies the overlay after reboot.
+
+Verify the runtime and run the deterministic benchmark:
+
+```powershell
+docker exec headroom-sub2api python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+docker exec headroom-sub2api benchmark-headroom-kompress --require-cuda
+```
+
 ## Skill-Assisted Setup
 
 The Codex/Claude skill in `backend/docs/skills/sub2api-claude-code-codex` contains scripts and troubleshooting references for this profile:
@@ -93,6 +124,9 @@ It also writes the full Headroom agent profile into `.env`:
 ```text
 HEADROOM_GIT_REPO=https://github.com/stgmt/headroom.git
 HEADROOM_GIT_REF=<pinned stgmt/headroom commit>
+HEADROOM_ACCELERATOR=<auto|cpu|cuda>
+HEADROOM_DOCKER_TARGET=<cpu|gpu>
+HEADROOM_KOMPRESS_BACKEND=<auto|pytorch>
 SUB2API_GIT_REPO=https://github.com/stgmt/sub2api.git
 SUB2API_GIT_REF=<current stgmt/sub2api commit or local>
 HEADROOM_SAVINGS_PROFILE=agent-90
