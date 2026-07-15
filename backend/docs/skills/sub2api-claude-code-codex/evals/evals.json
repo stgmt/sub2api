@@ -60,6 +60,12 @@
       "prompt": "RTK способен сильно резать вывод, но Headroom показывает RTK 0 commands / 0 tokens saved. Настрой автоматическое участие в Claude Code и закрепи в skill.",
       "expected_output": "Explains that container-only RTK cannot rewrite Claude Code Bash commands executed on Windows, installs pinned RTK on Windows plus WSL, keeps exactly one global PreToolUse(Bash) bridge with MSYS2_ARG_CONV_EXCL so Git Bash cannot corrupt Linux paths, preserves cat/git diff/git show/curl accuracy exclusions and RTK_DISABLED bypass, mounts the host RTK history into Headroom /root/.local/share/rtk, verifies the bridge through Git Bash rather than direct PowerShell-to-WSL, proves a real fresh Claude Code Bash tool call creates a new history.db row and matching host/container gain totals, verifies headroom perf cli_filtering is nonzero, and does not present a manual container benchmark as automatic live savings.",
       "files": []
+    },
+    {
+      "id": 11,
+      "prompt": "Claude Code стоит на хостовой Ubuntu в Hyper-V VM, а не в devcontainer. Поставь и проверь RTK именно там.",
+      "expected_output": "Uses scripts/install-claude-rtk.sh on the native Linux host as the Claude user, pins RTK 0.42.4 under ~/.local/bin, preserves existing settings/env and non-RTK hooks, leaves exactly one absolute PreToolUse(Bash) RTK hook, configures cat/git diff/git show/curl exclusions, distinguishes the host filesystem from devcontainers, restarts or launches a fresh Claude process, and proves automatic participation with Bash stream-json, hook debug modified-input evidence, and an increment in rtk gain rather than only a manual RTK command.",
+      "files": []
     }
   ]
 }

@@ -26,7 +26,7 @@
     "target_ratio": 0.1,
     "context_tool": "rtk",
     "rtk_version": "0.42.4",
-    "rtk_execution": "Windows command binary plus MSYS-safe WSL PreToolUse hook for Claude Code Bash",
+    "rtk_execution": "Install RTK in the OS that runs Claude Code Bash: Windows binary plus MSYS-safe WSL PreToolUse bridge, or one absolute native Linux PreToolUse hook",
     "rtk_state_root": "${HEADROOM_RTK_STATE_ROOT:-./data/rtk}",
     "rtk_state_mount": "/root/.local/share/rtk",
     "rtk_accuracy_exclusions": [

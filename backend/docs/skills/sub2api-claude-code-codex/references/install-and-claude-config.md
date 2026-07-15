@@ -107,6 +107,20 @@ On Windows, setup maps `%LOCALAPPDATA%\rtk` to `HEADROOM_RTK_STATE_ROOT` and com
 
 A high manual container benchmark is only a capability measurement. It is not evidence that normal Claude Code calls use RTK.
 
+### Native Linux Claude Host
+
+When Claude Code is installed on an Ubuntu/Linux host, including a Hyper-V VM host outside its devcontainers, install RTK in that same user account:
+
+```bash
+bash scripts/install-claude-rtk.sh
+```
+
+The Linux installer pins RTK `0.42.4` at `~/.local/bin/rtk`, backs up and preserves `~/.claude/settings.json`, retains non-RTK hooks, replaces duplicate RTK hooks with one absolute `PreToolUse(Bash)` command, configures the same `cat`/`git diff`/`git show`/`curl` exclusions, and runs synthetic rewrite probes before reporting success. Restart Claude Code after installation because an already-running process may have loaded the old hook registry.
+
+Do not install only inside a devcontainer when Claude Code runs on the Ubuntu host. A container has a separate filesystem and cannot satisfy the host hook path. Conversely, if Claude Code itself runs inside a devcontainer, run the installer inside that container as its Claude user.
+
+Verify the real path with a fresh Claude process and three signals: a Bash tool call in stream JSON, `Hook PreToolUse ... modified tool input keys` in `--debug hooks`, and an increment in `rtk gain --format json`. On the verified Ubuntu host, a real `git log -100 --stat` call reduced RTK-accounted output from `51,221` to `7,792` units (`84.8%`) and completed the Claude request successfully; treat this as a machine-specific proof, not a universal savings guarantee.
+
 The image has a bootstrap entrypoint, `/usr/local/bin/start-headroom-proxy`.
 It seeds fresh `/root/.headroom` and cache mounts from `/opt/headroom-seed`
 without overwriting existing files, then launches `headroom proxy`. Keep this
