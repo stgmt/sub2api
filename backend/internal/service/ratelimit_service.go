@@ -76,10 +76,22 @@ const (
 var openAIImageTryAgainPattern = regexp.MustCompile(`(?i)try again in\s+([0-9]+(?:\.[0-9]+)?)\s*(ms|s|sec|secs|second|seconds|m|min|mins|minute|minutes)`)
 
 const (
-	openAI403CooldownMinutesDefault = 10
-	openAI403DisableThreshold       = 3
-	openAI403CounterWindowMinutes   = 180
+	openAI403EscalationThreshold  = 3
+	openAI403CounterWindowMinutes = 180
 )
+
+func openAI403Cooldown(count int64) time.Duration {
+	switch {
+	case count <= 1:
+		return 2 * time.Second
+	case count == 2:
+		return 15 * time.Second
+	case count == 3:
+		return time.Minute
+	default:
+		return 5 * time.Minute
+	}
+}
 
 // NewRateLimitService 创建RateLimitService实例
 func NewRateLimitService(accountRepo AccountRepository, usageRepo UsageLogRepository, cfg *config.Config, geminiQuotaService *GeminiQuotaService, tempUnschedCache TempUnschedCache) *RateLimitService {
@@ -837,14 +849,15 @@ func (s *RateLimitService) handleOpenAI403(ctx context.Context, account *Account
 		}
 	}
 
-	until := time.Now().Add(time.Duration(openAI403CooldownMinutesDefault) * time.Minute)
-	thresholdReached := count >= openAI403DisableThreshold
+	cooldown := openAI403Cooldown(count)
+	until := time.Now().Add(cooldown)
+	thresholdReached := count >= openAI403EscalationThreshold
 	if thresholdReached {
-		msg = fmt.Sprintf("%s | consecutive_403=%d/%d", msg, count, openAI403DisableThreshold)
+		msg = fmt.Sprintf("%s | consecutive_403=%d/%d", msg, count, openAI403EscalationThreshold)
 	}
-	reason := fmt.Sprintf("OpenAI OAuth 403 temporary cooldown (%d/%d): %s", count, openAI403DisableThreshold, msg)
+	reason := fmt.Sprintf("OpenAI OAuth 403 temporary cooldown (%d/%d, retry_in=%s): %s", count, openAI403EscalationThreshold, cooldown, msg)
 	if thresholdReached {
-		reason = fmt.Sprintf("OpenAI OAuth 403 temporary cooldown threshold reached (%d/%d): %s", count, openAI403DisableThreshold, msg)
+		reason = fmt.Sprintf("OpenAI OAuth 403 temporary cooldown threshold reached (%d/%d, retry_in=%s): %s", count, openAI403EscalationThreshold, cooldown, msg)
 	}
 	s.notifyAccountSchedulingBlocked(account, until, "openai_403_temp")
 	if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, reason); err != nil {
@@ -857,8 +870,9 @@ func (s *RateLimitService) handleOpenAI403(ctx context.Context, account *Account
 		"account_id", account.ID,
 		"until", until,
 		"count", count,
-		"threshold", openAI403DisableThreshold,
+		"threshold", openAI403EscalationThreshold,
 		"threshold_reached", thresholdReached,
+		"cooldown_seconds", int64(cooldown/time.Second),
 	)
 	return true
 }
@@ -1790,6 +1804,30 @@ func (s *RateLimitService) ResetOpenAI403Counter(ctx context.Context, accountID 
 	if err := s.openAI403CounterCache.ResetOpenAI403Count(ctx, accountID); err != nil {
 		slog.Warn("openai_403_reset_failed", "account_id", accountID, "error", err)
 	}
+}
+
+// RecoverOpenAI403AfterSuccess removes only the transient OAuth 403 state.
+// Model and quota rate limits are intentionally left untouched.
+func (s *RateLimitService) RecoverOpenAI403AfterSuccess(ctx context.Context, account *Account) {
+	if s == nil || account == nil || account.ID <= 0 || account.Platform != PlatformOpenAI {
+		return
+	}
+
+	s.ResetOpenAI403Counter(ctx, account.ID)
+	if account.Type != AccountTypeOAuth || !strings.HasPrefix(account.TempUnschedulableReason, "OpenAI OAuth 403 temporary cooldown") {
+		return
+	}
+	if err := s.accountRepo.ClearTempUnschedulable(ctx, account.ID); err != nil {
+		slog.Warn("openai_403_autoheal_clear_failed", "account_id", account.ID, "error", err)
+		return
+	}
+	if s.tempUnschedCache != nil {
+		if err := s.tempUnschedCache.DeleteTempUnsched(ctx, account.ID); err != nil {
+			slog.Warn("openai_403_autoheal_cache_delete_failed", "account_id", account.ID, "error", err)
+		}
+	}
+	s.notifyAccountSchedulingBlockCleared(account.ID)
+	slog.Info("openai_403_autoheal_cleared", "account_id", account.ID)
 }
 
 // RecoverAccountState 按需恢复账号的可恢复运行时状态。

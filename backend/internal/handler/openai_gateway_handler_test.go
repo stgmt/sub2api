@@ -550,6 +550,20 @@ func TestShouldFastFallbackOpenAIMessagesBeforeSameAccountRetry(t *testing.T) {
 	))
 }
 
+func TestShouldAutohealOpenAIOAuth403(t *testing.T) {
+	oauthAccount := &service.Account{Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth}
+	apiKeyAccount := &service.Account{Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey}
+	forbidden := &service.UpstreamFailoverError{StatusCode: http.StatusForbidden}
+
+	require.True(t, shouldAutohealOpenAIOAuth403(oauthAccount, forbidden))
+	require.False(t, shouldAutohealOpenAIOAuth403(apiKeyAccount, forbidden))
+	require.False(t, shouldAutohealOpenAIOAuth403(oauthAccount, &service.UpstreamFailoverError{StatusCode: http.StatusTooManyRequests}))
+	require.False(t, shouldAutohealOpenAIOAuth403(nil, forbidden))
+	require.False(t, shouldAutohealOpenAIOAuth403(oauthAccount, nil))
+	require.Equal(t, 1, openAIOAuth403AutohealRetryLimit)
+	require.Equal(t, 2250*time.Millisecond, openAIOAuth403AutohealRetryDelay)
+}
+
 func TestOpenAIGatewayMessagesDispatchGateAllowsGrokGroups(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

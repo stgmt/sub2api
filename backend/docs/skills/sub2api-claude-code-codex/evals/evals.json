@@ -28,7 +28,7 @@
     {
       "id": 5,
       "prompt": "Claude Code пишет API Error: 503 Service temporarily unavailable, но sub2api /health живой. Отследи ошибку на прокси.",
-      "expected_output": "Checks Headroom health/upstream first, then sub2api logs for openai_messages.account_select_failed/no available accounts before status_code=503 or 429, queries ops_error_logs and accounts for upstream usage limit plus rate_limited_at/rate_limit_reset_at, distinguishes this from context-window, ghost-stream, and Headroom routing failures, and recommends waiting for reset, reducing fan-out, or adding another valid OpenAI/Codex account instead of only raising concurrency.",
+      "expected_output": "Checks Headroom health/upstream first, then sub2api logs for openai_messages.account_select_failed/no available accounts before status_code=503 or 429, queries ops_error_logs and accounts for upstream status plus rate_limited_at/rate_limit_reset_at/temp_unschedulable_reason, distinguishes quota 429 from transient OAuth 403 and from context-window, ghost-stream, or Headroom routing failures, verifies adaptive OAuth 403 auto-heal when applicable, and recommends waiting for a real reset, reducing fan-out, or adding another valid OpenAI/Codex account instead of only raising concurrency.",
       "files": []
     },
     {
@@ -65,6 +65,12 @@
       "id": 11,
       "prompt": "Claude Code стоит на хостовой Ubuntu в Hyper-V VM, а не в devcontainer. Поставь и проверь RTK именно там.",
       "expected_output": "Uses scripts/install-claude-rtk.sh on the native Linux host as the Claude user, pins RTK 0.42.4 under ~/.local/bin, preserves existing settings/env and non-RTK hooks, leaves exactly one absolute PreToolUse(Bash) RTK hook, configures cat/git diff/git show/curl exclusions, distinguishes the host filesystem from devcontainers, restarts or launches a fresh Claude process, and proves automatic participation with Bash stream-json, hook debug modified-input evidence, and an increment in rtk gain rather than only a manual RTK command.",
+      "files": []
+    },
+    {
+      "id": 12,
+      "prompt": "Один OpenAI OAuth 403 HTML отрубил все окна Claude Code на десять минут: health живой, но везде no available accounts и 503. Сделай автохил без ручного SQL reset.",
+      "expected_output": "Proves the upstream 403 and account temp_unschedulable state from logs/Postgres, verifies the running fork uses 2s/15s/1m/5m consecutive OAuth cooldowns rather than a fixed ten-minute first-hit block, retries the first /v1/messages OAuth 403 once after 2.25s inside the original request, resets the consecutive counter and clears only the OAuth 403 temp state after successful OpenAI usage, preserves unrelated model/quota limits, runs focused service/handler regression tests, rebuilds and recreates only sub2api, and verifies a live request through Headroom plus the openai_403_autoheal log markers.",
       "files": []
     }
   ]

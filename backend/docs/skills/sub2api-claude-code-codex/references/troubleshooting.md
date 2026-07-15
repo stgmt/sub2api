@@ -112,10 +112,19 @@ If Claude Code reports `API Error: 503 Service temporarily unavailable` or `API 
   ```text
   upstream 403 HTML page from chatgpt.com / Codex
   -> patched image logs openai_403_temp_unschedulable
-  -> accounts.status remains active, schedulable remains true, temp_unschedulable_until blocks dispatch briefly
-  -> after temp_unschedulable_until expires, the same OAuth account can be selected again
+  -> first consecutive failure blocks scheduling for 2s
+  -> /v1/messages logs openai_messages.oauth_403_autoheal_retry and retries once after 2.25s
+  -> a successful retry logs openai_403_autoheal_cleared and removes only the 403 counter/temp state
+  -> repeated failures back off to 15s, 1m, then 5m without permanently disabling OAuth
   ```
-  The 2026-07-09 bug was the old behavior: repeated 403s hit the threshold and wrote `account_disabled_auth_error`, leaving `accounts.status='error'` and `schedulable=false`; all later main-model requests failed as `account_select_failed` / `no available accounts` / 503. Current fork behavior: OpenAI OAuth 403 never uses `SetError`; it uses `SetTempUnschedulable` even when the 403 counter reaches threshold or the counter cache fails. Covered by focused tests `TestRateLimitService_HandleUpstreamError_OpenAI403ThresholdStaysTemporaryForOAuth`, `TestRateLimitService_HandleUpstreamError_OpenAI403TempWriteFailureDoesNotDisableOAuth`, and the preserved non-OAuth disable test.
+  Two old failure modes are now covered. The 2026-07-09 behavior permanently disabled OAuth after repeated 403s. The 2026-07-16 behavior kept the account active but applied a fixed ten-minute first-hit cooldown, so one transient HTML 403 made every Claude window fail as `account_select_failed` / `no available accounts` / 503. Current fork behavior never uses `SetError` for OpenAI OAuth 403, applies the adaptive ladder, retries only the first failure once inside the original request, and resets the consecutive counter after any successful OpenAI usage. Cleanup is intentionally narrow: a 403 success must not clear `model_rate_limits`, quota cooldowns, or other temp-unschedulable reasons. Covered by `TestOpenAI403Cooldown`, the `HandleUpstreamError_OpenAI403*` suite, `TestShouldAutohealOpenAIOAuth403`, and the `RecoverOpenAI403AfterSuccess*` suite.
+- Use these log markers to distinguish auto-heal from passive expiry:
+  ```text
+  openai_403_temp_unschedulable cooldown_seconds=2
+  openai_messages.oauth_403_autoheal_retry retry_delay=2.25s retry_count=1
+  openai_403_autoheal_cleared
+  ```
+  If the retry receives another 403, the request is allowed to fail and the account remains in the next adaptive cooldown. Do not add unbounded retries: repeated real access denials must still protect the upstream account.
 - If logs still show `account_disabled_auth_error` for OpenAI OAuth 403, first suspect a stale image. Rebuild/recreate `sub2api-codex:local-token-usage`, then verify with a tiny `gpt-5.6-sol` probe:
   ```powershell
   cd <sub2api repo root>

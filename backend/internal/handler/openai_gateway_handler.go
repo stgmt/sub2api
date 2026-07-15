@@ -41,6 +41,19 @@ type OpenAIGatewayHandler struct {
 	cfg                      *config.Config
 }
 
+const (
+	openAIOAuth403AutohealRetryLimit = 1
+	openAIOAuth403AutohealRetryDelay = 2250 * time.Millisecond
+)
+
+func shouldAutohealOpenAIOAuth403(account *service.Account, failoverErr *service.UpstreamFailoverError) bool {
+	return account != nil &&
+		failoverErr != nil &&
+		account.Platform == service.PlatformOpenAI &&
+		account.Type == service.AccountTypeOAuth &&
+		failoverErr.StatusCode == http.StatusForbidden
+}
+
 func resolveOpenAIMessagesDispatchMappedModel(apiKey *service.APIKey, requestedModel string) string {
 	if apiKey == nil || apiKey.Group == nil {
 		return ""
@@ -1010,7 +1023,8 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 						return
 					}
 					upstreamMsg := strings.TrimSpace(gjson.GetBytes(failoverErr.ResponseBody, "error.message").String())
-					if h.isAnthropicClientFailoverError(failoverErr) {
+					oauth403Autoheal := shouldAutohealOpenAIOAuth403(account, failoverErr)
+					if h.isAnthropicClientFailoverError(failoverErr) && !oauth403Autoheal {
 						if shouldTryOpenAIMessagesModelFallback(failoverErr.StatusCode, upstreamMsg, failoverErr.ResponseBody) &&
 							tryNextModelFallback("upstream_client_error", failoverErr.StatusCode, upstreamMsg) {
 							continue
@@ -1033,22 +1047,31 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 					if fastFallbackBeforeRetry && tryNextModelFallback("upstream_failover_fast_small_model", failoverErr.StatusCode, upstreamMsg) {
 						continue
 					}
-					// 池模式：同账号重试
-					if failoverErr.RetryableOnSameAccount && !fastFallbackBeforeRetry {
+					// Pool mode retries transient failures. OAuth 403 gets one bounded
+					// retry after its first adaptive scheduling cooldown expires.
+					if (failoverErr.RetryableOnSameAccount || oauth403Autoheal) && !fastFallbackBeforeRetry {
 						retryLimit := account.GetPoolModeRetryCount()
+						retryDelay := sameAccountRetryDelay
+						logEvent := "openai_messages.pool_mode_same_account_retry"
+						if oauth403Autoheal {
+							retryLimit = openAIOAuth403AutohealRetryLimit
+							retryDelay = openAIOAuth403AutohealRetryDelay
+							logEvent = "openai_messages.oauth_403_autoheal_retry"
+						}
 						if sameAccountRetryCount[account.ID] < retryLimit {
 							sameAccountRetryCount[account.ID]++
-							reqLog.Warn("openai_messages.pool_mode_same_account_retry",
+							reqLog.Warn(logEvent,
 								zap.Int64("account_id", account.ID),
 								zap.Int("upstream_status", failoverErr.StatusCode),
 								zap.String("failover_message", upstreamMsg),
 								zap.Int("retry_limit", retryLimit),
 								zap.Int("retry_count", sameAccountRetryCount[account.ID]),
+								zap.Duration("retry_delay", retryDelay),
 							)
 							select {
 							case <-c.Request.Context().Done():
 								return
-							case <-time.After(sameAccountRetryDelay):
+							case <-time.After(retryDelay):
 							}
 							continue
 						}
