@@ -37,6 +37,21 @@ const (
 	openAIAnthropicCompactFallbackFallbackResponse = "Claude Code compact fallback failed before producing a summary"
 )
 
+func omitCodexSparkResponsesReasoningEffort(req *apicompat.ResponsesRequest, model string) string {
+	if req == nil || req.Reasoning == nil || !OpenAIModelOmitsReasoningEffort(model) {
+		return ""
+	}
+	omitted := strings.TrimSpace(req.Reasoning.Effort)
+	if omitted == "" {
+		return ""
+	}
+	req.Reasoning.Effort = ""
+	if strings.TrimSpace(req.Reasoning.Summary) == "" {
+		req.Reasoning = nil
+	}
+	return omitted
+}
+
 // ForwardAsAnthropic accepts an Anthropic Messages request body, converts it
 // to OpenAI Responses API format, forwards to the OpenAI upstream, and converts
 // the response back to Anthropic Messages format. This enables Claude Code
@@ -144,6 +159,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	}
 
 	responsesReq.Model = upstreamModel
+	omittedReasoningEffort := omitCodexSparkResponsesReasoningEffort(responsesReq, upstreamModel)
 	if previousResponseID != "" {
 		responsesReq.PreviousResponseID = previousResponseID
 		trimAnthropicCompatResponsesInputToLatestTurn(responsesReq)
@@ -197,6 +213,20 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	upstreamReasoningEffort := ""
 	if responsesReq.Reasoning != nil {
 		upstreamReasoningEffort = strings.TrimSpace(responsesReq.Reasoning.Effort)
+	}
+	if omittedReasoningEffort != "" {
+		logger.L().Info("openai_messages.reasoning_effort_omitted",
+			zap.Int64("account_id", account.ID),
+			zap.String("original_model", originalModel),
+			zap.String("billing_model", billingModel),
+			zap.String("upstream_model", upstreamModel),
+			zap.String("requested_effort", requestedReasoningEffort),
+			zap.String("omitted_effort", omittedReasoningEffort),
+		)
+		logFields = append(logFields,
+			zap.Bool("reasoning_effort_omitted", true),
+			zap.String("requested_effort", requestedReasoningEffort),
+		)
 	}
 	if requestedReasoningEffort != "" && upstreamReasoningEffort != "" && requestedReasoningEffort != upstreamReasoningEffort {
 		logger.L().Info("openai_messages.reasoning_effort_clamped",
@@ -1314,6 +1344,7 @@ func (s *OpenAIGatewayService) buildOpenAIAnthropicCompactFallbackResponsesBody(
 			Effort: openAIAnthropicCompactFallbackChunkReasoning,
 		},
 	}
+	omitCodexSparkResponsesReasoningEffort(&req, upstreamModel)
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, upstreamModel, err

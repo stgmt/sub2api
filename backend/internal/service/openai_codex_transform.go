@@ -159,6 +159,9 @@ func applyCodexOAuthTransformWithOptions(reqBody map[string]any, opts codexOAuth
 			result.Modified = true
 		}
 	}
+	if stripCodexSparkReasoningEffortFromBody(reqBody, normalizedModel) {
+		result.Modified = true
+	}
 
 	// 请求带 reasoning 时补齐 include:["reasoning.encrypted_content"]，与真实 Codex 对齐
 	// （compact 端点形态不同，单独处理，此处跳过）。
@@ -588,6 +591,30 @@ func isCodexDateSuffix(suffix string) bool {
 
 func isCodexSparkModel(model string) bool {
 	return normalizeCodexModel(model) == "gpt-5.3-codex-spark"
+}
+
+// OpenAIModelOmitsReasoningEffort reports models whose upstream contract has
+// no configurable reasoning.effort field.
+func OpenAIModelOmitsReasoningEffort(model string) bool {
+	return isCodexSparkModel(model)
+}
+
+func stripCodexSparkReasoningEffortFromBody(reqBody map[string]any, model string) bool {
+	if !OpenAIModelOmitsReasoningEffort(model) {
+		return false
+	}
+	reasoning, ok := reqBody["reasoning"].(map[string]any)
+	if !ok {
+		return false
+	}
+	if _, ok := reasoning["effort"]; !ok {
+		return false
+	}
+	delete(reasoning, "effort")
+	if len(reasoning) == 0 {
+		delete(reqBody, "reasoning")
+	}
+	return true
 }
 
 func hasOpenAIImageGenerationTool(reqBody map[string]any) bool {

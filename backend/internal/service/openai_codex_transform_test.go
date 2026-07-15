@@ -777,8 +777,7 @@ func TestApplyCodexOAuthTransform_StripsImageGenerationToolForSpark(t *testing.T
 	require.Equal(t, "shell", first["name"])
 }
 
-// Spark reasoning-effort aliases (e.g. -low/-high) normalize to gpt-5.3-codex-spark,
-// so they must be stripped too.
+// Legacy Spark effort aliases still normalize to the base Spark model.
 func TestApplyCodexOAuthTransform_StripsImageGenerationToolForSparkAlias(t *testing.T) {
 	reqBody := map[string]any{
 		"model": "gpt-5.3-codex-spark-high",
@@ -794,6 +793,44 @@ func TestApplyCodexOAuthTransform_StripsImageGenerationToolForSparkAlias(t *test
 	// tools became empty after stripping the only entry; the key is dropped.
 	_, hasTools := reqBody["tools"]
 	require.False(t, hasTools)
+}
+
+func TestApplyCodexOAuthTransform_StripsReasoningEffortForSpark(t *testing.T) {
+	t.Run("effort only removes reasoning object", func(t *testing.T) {
+		reqBody := map[string]any{
+			"model":     "gpt-5.3-codex-spark-high",
+			"input":     "hello",
+			"reasoning": map[string]any{"effort": "high"},
+		}
+
+		result := applyCodexOAuthTransform(reqBody, true, false)
+		require.True(t, result.Modified)
+		require.NotContains(t, reqBody, "reasoning")
+	})
+
+	t.Run("summary survives without effort", func(t *testing.T) {
+		reqBody := map[string]any{
+			"model":     "gpt-5.3-codex-spark",
+			"input":     "hello",
+			"reasoning": map[string]any{"effort": "xhigh", "summary": "auto"},
+		}
+
+		applyCodexOAuthTransform(reqBody, true, false)
+		reasoning := reqBody["reasoning"].(map[string]any)
+		require.NotContains(t, reasoning, "effort")
+		require.Equal(t, "auto", reasoning["summary"])
+	})
+
+	t.Run("non Spark keeps effort", func(t *testing.T) {
+		reqBody := map[string]any{
+			"model":     "gpt-5.6-sol",
+			"input":     "hello",
+			"reasoning": map[string]any{"effort": "max"},
+		}
+
+		applyCodexOAuthTransform(reqBody, true, false)
+		require.Equal(t, "max", reqBody["reasoning"].(map[string]any)["effort"])
+	})
 }
 
 // Non-spark Codex models support image_generation; the tool must be preserved.

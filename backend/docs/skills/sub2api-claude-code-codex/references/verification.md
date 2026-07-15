@@ -112,6 +112,7 @@ Expected compact row after the local patch:
 ```text
 requested_model=gpt-5.6-sol, gpt-5.3-codex-spark, gpt-5.6-luna, or a Claude alias
 upstream_model=gpt-5.3-codex-spark normally, or gpt-5.6-luna when Spark was rate-limited/unavailable, rejected image inputs, and Luna is schedulable
+reasoning_effort is empty for Spark; inherited parent max/xhigh/low is a regression. Luna fallback chunk requests keep their configured low effort
 model_mapping_chain=gpt-5.6-sol->gpt-5.3-codex-spark, gpt-5.6-terra->gpt-5.3-codex-spark, or gpt-5.6-luna->gpt-5.3-codex-spark normally, with ->gpt-5.6-luna when the fallback chain takes over
 ```
 
@@ -172,7 +173,7 @@ For the current sub2api source path:
 
 ```text
 Anthropic max_tokens -> OpenAI max_output_tokens
-Anthropic output_config.effort=max -> OpenAI reasoning.effort=max for GPT-5.6; legacy models without max support still downgrade max to xhigh
+Anthropic output_config.effort=max -> OpenAI reasoning.effort=max for GPT-5.6; gpt-5.3-codex-spark omits reasoning.effort entirely; other legacy models without max support may downgrade max to xhigh
 Anthropic thinking.budget_tokens -> parsed but ignored by the Responses converter
 ```
 

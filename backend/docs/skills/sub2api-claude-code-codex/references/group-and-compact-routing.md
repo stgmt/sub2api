@@ -87,6 +87,11 @@ the exact final message after transforms, skips output shaping, and sends
 `x-sub2api-claude-compact: 1`. sub2api accepts that header as authoritative.
 Do not rely only on matching prompt text after Headroom optimization.
 
+Spark does not expose a configurable reasoning effort. The compact route must
+remove `reasoning.effort` instead of clamping inherited Sol/Terra `max` to
+`xhigh` or `low`. This applies to the first mapped request and every Spark
+chunk/merge fallback request. Luna retains its own configured fallback effort.
+
 Spark does not accept image inputs. If an otherwise valid compact transcript
 contains image blocks, the exact Spark HTTP 400 (`does not support image
 inputs`) is treated as compact-model unavailability and the configured

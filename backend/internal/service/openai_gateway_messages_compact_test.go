@@ -4,7 +4,33 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/tidwall/gjson"
 )
+
+func TestBuildOpenAIAnthropicCompactFallbackResponsesBody_OmitsSparkEffort(t *testing.T) {
+	svc := &OpenAIGatewayService{}
+	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+
+	sparkBody, sparkModel, err := svc.buildOpenAIAnthropicCompactFallbackResponsesBody(account, "gpt-5.3-codex-spark", "compact", "transcript", 512)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sparkModel != "gpt-5.3-codex-spark" {
+		t.Fatalf("Spark model = %q", sparkModel)
+	}
+	if gjson.GetBytes(sparkBody, "reasoning").Exists() {
+		t.Fatalf("Spark fallback must omit reasoning entirely: %s", sparkBody)
+	}
+
+	lunaBody, _, err := svc.buildOpenAIAnthropicCompactFallbackResponsesBody(account, "gpt-5.6-luna", "compact", "transcript", 512)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := gjson.GetBytes(lunaBody, "reasoning.effort").String(); got != openAIAnthropicCompactFallbackChunkReasoning {
+		t.Fatalf("Luna effort = %q, want %q", got, openAIAnthropicCompactFallbackChunkReasoning)
+	}
+}
 
 func TestOpenAICompactModelUnavailableHTTPFallsBackForSparkImageInput(t *testing.T) {
 	message := "Model 'gpt-5.3-codex-spark' doesn't support image inputs. Try again with a vision model."

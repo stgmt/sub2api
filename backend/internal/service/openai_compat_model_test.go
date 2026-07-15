@@ -427,7 +427,7 @@ func TestForwardAsAnthropic_HeadroomCompactHeaderUsesCompactModelMapping(t *test
 
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
-	body := []byte(`{"model":"gpt-5.5","max_tokens":16,"messages":[{"role":"user","content":"[headroom optimized transcript]"}],"stream":true}`)
+	body := []byte(`{"model":"gpt-5.5","max_tokens":16,"output_config":{"effort":"max"},"messages":[{"role":"user","content":"[headroom optimized transcript]"}],"stream":true}`)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 	c.Request.Header.Set("x-sub2api-claude-compact", "1")
@@ -458,7 +458,9 @@ func TestForwardAsAnthropic_HeadroomCompactHeaderUsesCompactModelMapping(t *test
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, "gpt-5.3-codex-spark", result.UpstreamModel)
+	require.Nil(t, result.ReasoningEffort)
 	require.Equal(t, "gpt-5.3-codex-spark", gjson.GetBytes(upstream.lastBody, "model").String())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "reasoning.effort").Exists(), "Spark must be called without reasoning.effort")
 }
 
 func TestForwardAsAnthropic_ClaudeCodeCompactFallsBackToLunaWhenSparkRateLimited(t *testing.T) {

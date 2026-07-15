@@ -503,19 +503,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			inboundEndpoint := GetInboundEndpoint(c)
 			upstreamEndpoint := GetUpstreamEndpoint(c, account.Platform)
 
-			if result.ReasoningEffort == nil {
-				result.ReasoningEffort = service.NormalizeClaudeOutputEffort(parsedReq.OutputEffort)
-			}
-			// 国产模型 thinking-enabled 默认 effort 填充：Kimi/GLM/MiniMax 这些不支持 effort 档位的
-			// passback-required 上游，仅要 thinking 启用且 OutputEffort 未明确传递时，在 usage_log 写 "high"
-			// 避免该字段长期为 NULL（详见 DefaultEffortForThinkingEnabled 文档）。
-			if result.ReasoningEffort == nil && parsedReq.ThinkingEnabled {
-				protocolModel := result.UpstreamModel
-				if protocolModel == "" {
-					protocolModel = result.Model
-				}
-				result.ReasoningEffort = service.DefaultEffortForThinkingEnabled(protocolModel)
-			}
+			applyOpenAIUsageReasoningEffortFallback(result, parsedReq.OutputEffort, parsedReq.ThinkingEnabled)
 
 			// 使用量记录通过有界 worker 池提交，避免请求热路径创建无界 goroutine。
 			// ForceCacheBilling 提前拍成标量，避免 worker 闭包保活 failover 状态里的响应体。
@@ -935,17 +923,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			inboundEndpoint := GetInboundEndpoint(c)
 			upstreamEndpoint := GetUpstreamEndpoint(c, account.Platform)
 
-			if result.ReasoningEffort == nil {
-				result.ReasoningEffort = service.NormalizeClaudeOutputEffort(attemptParsedReq.OutputEffort)
-			}
-			// 同上（重试路径中的对称填充）。详见非重试路径同名注释。
-			if result.ReasoningEffort == nil && attemptParsedReq.ThinkingEnabled {
-				protocolModel := result.UpstreamModel
-				if protocolModel == "" {
-					protocolModel = result.Model
-				}
-				result.ReasoningEffort = service.DefaultEffortForThinkingEnabled(protocolModel)
-			}
+			applyOpenAIUsageReasoningEffortFallback(result, attemptParsedReq.OutputEffort, attemptParsedReq.ThinkingEnabled)
 
 			// 使用量记录通过有界 worker 池提交，避免请求热路径创建无界 goroutine。
 			// ForceCacheBilling 提前拍成标量，避免 worker 闭包保活 failover 状态里的响应体。
@@ -1204,6 +1182,26 @@ func mergeModelIDs(primary, secondary []string) []string {
 		}
 	}
 	return merged
+}
+
+func applyOpenAIUsageReasoningEffortFallback(result *service.ForwardResult, outputEffort string, thinkingEnabled bool) {
+	if result == nil {
+		return
+	}
+	protocolModel := result.UpstreamModel
+	if protocolModel == "" {
+		protocolModel = result.Model
+	}
+	if service.OpenAIModelOmitsReasoningEffort(protocolModel) {
+		result.ReasoningEffort = nil
+		return
+	}
+	if result.ReasoningEffort == nil {
+		result.ReasoningEffort = service.NormalizeClaudeOutputEffort(outputEffort)
+	}
+	if result.ReasoningEffort == nil && thinkingEnabled {
+		result.ReasoningEffort = service.DefaultEffortForThinkingEnabled(protocolModel)
+	}
 }
 
 // AntigravityModels 返回 Antigravity 支持的全部模型
