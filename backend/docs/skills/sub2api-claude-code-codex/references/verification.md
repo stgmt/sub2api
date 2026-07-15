@@ -44,6 +44,11 @@ wsl.exe -- docker exec headroom-sub2api python -c "import os; p='/root/.headroom
 wsl.exe -- docker exec headroom-sub2api sh -lc "test -S /tmp/headroom-embed-8787.sock && echo SOCKET_OK"
 wsl.exe -- docker exec headroom-sub2api python -c "import os; os.environ['HEADROOM_EMBEDDING_SERVER_SOCKET']='/tmp/headroom-embed-8787.sock'; from headroom.memory.config import MemoryConfig, EmbedderBackend; from headroom.memory.factory import _create_embedder; e=_create_embedder(MemoryConfig(embedder_backend=EmbedderBackend.ONNX)); print(type(e).__module__, type(e).__name__, e.dimension)"
 
+rtk --version
+rtk gain --format json
+wsl.exe -- docker exec headroom-sub2api rtk gain --format json
+wsl.exe -- docker exec headroom-sub2api headroom perf --format json
+
 claude --model $env:ANTHROPIC_MODEL --effort max --print --no-session-persistence "/context"
 claude --model $env:ANTHROPIC_MODEL --effort max --print --output-format json --no-session-persistence "Reply exactly: OK_SUB2API"
 ```
@@ -62,9 +67,13 @@ Claude MCP list shows headroom connected through Docker; stale host headroom.exe
 Headroom tools doctor shows difft, scc, and ast-grep on PATH; the image also includes rtk, lean-ctx, and tokensave
 Headroom image bootstrap check returns `SEED_OK`; the entrypoint seeds empty persistent mounts from `/opt/headroom-seed` before launching the proxy
 Headroom, sub2api, Postgres, and Redis state mounts are Docker `bind` mounts to host paths under `${SUB2API_STATE_ROOT:-./data}`, not Docker named volumes; after memory/embedding traffic, `/root/.headroom/ccr_store.db` is non-empty
+Headroom `/root/.local/share/rtk` is a Docker `bind` mount to host RTK state, and host/container `rtk gain --format json` totals match
+Claude settings contain exactly one `PreToolUse(Bash)` RTK hook, its command includes `MSYS2_ARG_CONV_EXCL='*'`, and the verifier successfully runs it through Git Bash
+After a real fresh Claude Code Bash call, RTK `total_commands` increases and debug logs show `Hook PreToolUse:Bash ... success` plus `modified tool input keys`; an unchanged counter is a failed integration even if the model replies successfully
+`cat`, `git diff`, `git show`, and `curl` probes produce no rewrite output
 Headroom logs show `Embedding server: ready.` and do not show `Falling back to per-worker embedder`, `No module named 'headroom.memory.adapters.watchdog'`, or `ModuleNotFound`
 `/tmp/headroom-embed-8787.sock` exists, the memory factory returns `headroom.memory.adapters.watchdog SocketEmbedderClient 384` when `HEADROOM_EMBEDDING_SERVER_SOCKET` is set, and a direct `SocketEmbedderClient.embed(...)` probe returns `EMBED_OK 384`
-Headroom savings/perf shows nonzero proxy traffic after Claude Code has used the proxy
+Headroom savings/perf shows nonzero proxy traffic after Claude Code has used the proxy; `perf.cli_filtering` reports `tool=rtk` with nonzero commands and tokens saved
 User env CLAUDE_CODE_EFFORT_LEVEL is absent; /effort can change the session effort
 ```
 

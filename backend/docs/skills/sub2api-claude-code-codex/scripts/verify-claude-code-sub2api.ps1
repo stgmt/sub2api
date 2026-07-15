@@ -8,8 +8,11 @@ param(
   [string]$SubagentModel = [Environment]::GetEnvironmentVariable("CLAUDE_CODE_SUBAGENT_MODEL", "User"),
   [string]$ExpectedUpstream = "gpt-5.6-sol",
   [string]$ProjectName = "sub2api-codex",
+  [string]$RtkVersion = "0.42.4",
+  [string]$WslDistro = "Ubuntu-24.04",
   [switch]$SkipApiProbe,
   [switch]$SkipClaudeProbe,
+  [switch]$SkipRtkProbe,
   [switch]$SkipDockerLogs
 )
 
@@ -22,6 +25,75 @@ function Normalize-Url([string]$Url, [string]$Fallback) {
 
 function Test-IsWindowsHost {
   return [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)
+}
+
+function Test-ClaudeRtkHook {
+  if ($SkipRtkProbe) { return }
+  if (-not (Test-IsWindowsHost)) {
+    Write-Warning "Windows/WSL RTK hook verification is Windows-only; skipping."
+    return
+  }
+
+  Write-Host "`nClaude RTK hook:"
+  $rtkCommand = Get-Command rtk -ErrorAction SilentlyContinue
+  if (-not $rtkCommand) { throw "rtk is not on PATH. Run scripts/install-claude-rtk.ps1." }
+  $versionOutput = (& $rtkCommand.Source --version 2>&1 | Out-String).Trim()
+  if ($LASTEXITCODE -ne 0 -or $versionOutput -ne "rtk $RtkVersion") {
+    throw "Expected rtk $RtkVersion, got: $versionOutput"
+  }
+
+  $settingsPath = Join-Path $env:USERPROFILE ".claude\settings.json"
+  $settings = Get-Content -Raw -LiteralPath $settingsPath | ConvertFrom-Json
+  $rtkHooks = @($settings.hooks.PreToolUse | Where-Object {
+    $_.matcher -eq "Bash" -and (@($_.hooks | ForEach-Object { [string]$_.command }) -match "rtk.*hook.*claude")
+  })
+  if ($rtkHooks.Count -ne 1) {
+    throw "Expected exactly one Bash RTK PreToolUse hook, found $($rtkHooks.Count) in $settingsPath"
+  }
+  $hookCommand = [string]$rtkHooks[0].hooks[0].command
+  if ($hookCommand -notmatch "wsl\.exe -d $([regex]::Escape($WslDistro)).*rtk hook claude") {
+    throw "Claude RTK hook must use the WSL bridge on Windows. Found: $hookCommand"
+  }
+  if ($hookCommand -notmatch 'MSYS2_ARG_CONV_EXCL=' -or $hookCommand -notmatch '\*') {
+    throw "Claude RTK hook must disable Git Bash path conversion before invoking WSL. Found: $hookCommand"
+  }
+
+  $payload = '{"session_id":"sub2api-rtk-verify","cwd":"C:\\","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status"}}'
+  $gitBash = Join-Path $env:ProgramFiles 'Git\bin\bash.exe'
+  if (-not (Test-Path -LiteralPath $gitBash)) { throw "Git Bash is required for the Claude Code RTK bridge: $gitBash" }
+  $hookRaw = $payload | & $gitBash -lc $hookCommand
+  if ($LASTEXITCODE -ne 0) { throw "Git Bash -> WSL RTK hook probe failed with exit code $LASTEXITCODE" }
+  $hookJson = ($hookRaw | Out-String).Trim() | ConvertFrom-Json
+  if ($hookJson.hookSpecificOutput.updatedInput.command -ne "rtk git status") {
+    throw "RTK hook did not rewrite git status: $($hookRaw | Out-String)"
+  }
+
+  foreach ($path in @((Join-Path $env:USERPROFILE ".claude\RTK.md"), (Join-Path $env:USERPROFILE ".claude\CLAUDE.md"))) {
+    if (-not (Test-Path -LiteralPath $path)) { throw "Missing RTK instruction file: $path" }
+  }
+  $configPath = Join-Path $env:APPDATA "rtk\config.toml"
+  $config = Get-Content -Raw -LiteralPath $configPath
+  foreach ($excluded in @("cat", "git diff", "git show", "curl")) {
+    if ($config -notmatch [regex]::Escape('"' + $excluded + '"')) {
+      throw "RTK accuracy exclusion is missing from ${configPath}: $excluded"
+    }
+  }
+
+  $before = (& $rtkCommand.Source gain --format json | Out-String | ConvertFrom-Json).summary
+  Push-Location $PSScriptRoot
+  try {
+    & $rtkCommand.Source git status *> $null
+    if ($LASTEXITCODE -ne 0) { throw "Host RTK execution probe failed" }
+  } finally {
+    Pop-Location
+  }
+  $after = (& $rtkCommand.Source gain --format json | Out-String | ConvertFrom-Json).summary
+  if ([int64]$after.total_commands -le [int64]$before.total_commands) {
+    throw "RTK gain did not record the host execution probe"
+  }
+  Write-Host "$versionOutput; hook=$hookCommand"
+  Write-Host "rewrite: git status -> $($hookJson.hookSpecificOutput.updatedInput.command)"
+  Write-Host "host gain: commands $($before.total_commands) -> $($after.total_commands), saved=$($after.total_saved)"
 }
 
 function Test-Sub2apiAutostartTask {
@@ -200,9 +272,23 @@ function Test-AllStateOnHostBinds {
   Assert-DockerBindMount -Container "headroom-sub2api" -Destinations @("/root/.headroom")
   Assert-DockerBindMount -Container "headroom-sub2api" -Destinations @("/root/.cache/headroom")
   Assert-DockerBindMount -Container "headroom-sub2api" -Destinations @("/root/.cache/huggingface")
+  Assert-DockerBindMount -Container "headroom-sub2api" -Destinations @("/root/.local/share/rtk")
   Assert-DockerBindMount -Container "sub2api-codex" -Destinations @("/app/data")
   Assert-DockerBindMount -Container "sub2api-codex-postgres" -Destinations @("/var/lib/postgresql")
   Assert-DockerBindMount -Container "sub2api-codex-redis" -Destinations @("/data")
+}
+
+function Test-HeadroomRtkSharedState {
+  if ($SkipRtkProbe -or -not (Test-DockerRuntimeAvailable) -or -not (Get-Command rtk -ErrorAction SilentlyContinue)) { return }
+  Write-Host "`nHeadroom/host RTK shared analytics:"
+  $hostSummary = (& rtk gain --format json | Out-String | ConvertFrom-Json).summary
+  $containerRaw = (Invoke-DockerCommand -Args @("exec", "headroom-sub2api", "rtk", "gain", "--format", "json") 2>&1) -join "`n"
+  if ($LASTEXITCODE -ne 0) { throw "Container RTK gain failed: $containerRaw" }
+  $container = ($containerRaw | ConvertFrom-Json).summary
+  if ([int64]$hostSummary.total_commands -ne [int64]$container.total_commands -or [int64]$hostSummary.total_saved -ne [int64]$container.total_saved) {
+    throw "Headroom is not reading host RTK history: host=$($hostSummary.total_commands)/$($hostSummary.total_saved), container=$($container.total_commands)/$($container.total_saved)"
+  }
+  Write-Host "shared history: commands=$($hostSummary.total_commands), saved=$($hostSummary.total_saved), avg=$([math]::Round([double]$hostSummary.avg_savings_pct, 2))%"
 }
 
 function Test-HeadroomImageBootstrap {
@@ -455,6 +541,7 @@ Write-Host "Subagent model: $SubagentModel"
 Write-Host "Has API token: $([bool]$ApiKey)"
 
 Test-Sub2apiAutostartTask
+Test-ClaudeRtkHook
 Show-Health "Headroom" $BaseUrl
 Show-Health "sub2api" $Sub2apiBaseUrl
 
@@ -612,6 +699,8 @@ Test-HeadroomPersistentStorage
     Write-Warning "docker and wsl.exe not found; skipping Docker/Postgres checks."
   }
 }
+
+Test-HeadroomRtkSharedState
 
 Write-Host "`nExpected Headroom upstream: http://sub2api:8080"
 Write-Host "Expected main model in usage_logs: $ExpectedUpstream"

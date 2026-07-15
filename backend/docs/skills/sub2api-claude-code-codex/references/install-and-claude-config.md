@@ -5,7 +5,7 @@ Docker/WSL install, OAuth import, Claude Code config, dynamic MCP loading, and p
 ## Workflow
 
 1. Confirm the user has Docker available. The default Claude Code endpoint is Headroom at `http://127.0.0.1:8787`; sub2api's direct `http://127.0.0.1:18081` port is for the admin UI and diagnostics.
-2. Install or repair the Headroom + sub2api compose profile using `scripts/setup-sub2api-claude-code.ps1`.
+2. Install or repair the Headroom + sub2api compose profile and host/WSL RTK hook using `scripts/setup-sub2api-claude-code.ps1`.
 3. Import an OpenAI/Codex OAuth account into sub2api.
 4. Configure a sub2api OpenAI group for `/v1/messages` dispatch.
 5. Create a sub2api API key for Claude Code.
@@ -20,7 +20,7 @@ Use the bundled setup script from PowerShell:
 powershell -ExecutionPolicy Bypass -File .\scripts\setup-sub2api-claude-code.ps1
 ```
 
-The script writes `deploy/claude-code-codex-headroom/.env`, starts the compose project `sub2api-codex`, configures Claude Code environment values, and registers the Docker-backed Headroom MCP server. It intentionally does not embed anyone's real OAuth refresh token or sub2api API key.
+The script writes `deploy/claude-code-codex-headroom/.env`, starts the compose project `sub2api-codex`, configures Claude Code environment values, registers the Docker-backed Headroom MCP server, and installs RTK on Windows plus WSL unless `-SkipRtk` is passed. It intentionally does not embed anyone's real OAuth refresh token or sub2api API key.
 
 Run it from a cloned `stgmt/sub2api` checkout, or pass `-RepoRoot` so it can find `deploy/claude-code-codex-headroom/docker-compose.yml`.
 
@@ -72,11 +72,40 @@ Host persistence is part of the profile. The compose stack writes state under `$
 - `/root/.headroom`: Headroom `ccr_store.db`, savings events, logs, and subscription state.
 - `/root/.cache/headroom`: warmed Headroom tool/model cache.
 - `/root/.cache/huggingface`: warmed HuggingFace/ONNX embedding model cache.
+- `/root/.local/share/rtk`: the same persistent RTK history used by host Claude Code, mounted from `HEADROOM_RTK_STATE_ROOT` so Headroom perf/dashboard can report CLI savings.
 - `/app/data`: sub2api local app data.
 - `/var/lib/postgresql`: Postgres parent directory. Keep `PGDATA=/var/lib/postgresql/data`; do not bind the host directory directly to `/var/lib/postgresql/data` because `postgres:18-alpine` declares `/var/lib/postgresql` as a volume and the nested bind can make `initdb` loop on a non-empty data dir.
 - `/data`: Redis appendonly data.
 
 Do not delete the state root unless the user explicitly wants to wipe Headroom memory/embeddings, sub2api state, Postgres, Redis, and warmed caches.
+
+## RTK Host Hook And Shared Metrics
+
+RTK in the Headroom container is not enough for automatic Claude Code savings. Claude Code executes its Bash tool on the host before the resulting tool output reaches Headroom, so a container-only binary cannot rewrite the command.
+
+The setup script calls:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\install-claude-rtk.ps1
+```
+
+That installer pins RTK `0.42.4` in `%USERPROFILE%\.local\bin\rtk.exe` and the selected WSL distro, runs `rtk init -g --auto-patch`, keeps `@RTK.md`, and replaces RTK's native-Windows hook with one global Bash bridge:
+
+```text
+MSYS2_ARG_CONV_EXCL='*' wsl.exe -d Ubuntu-24.04 -- env -i HOME=/home/devcontainers PATH=/home/devcontainers/.local/bin:/usr/bin:/bin /home/devcontainers/.local/bin/rtk hook claude
+```
+
+`MSYS2_ARG_CONV_EXCL='*'` is load-bearing. Claude Code executes hooks through Git Bash; without it, MSYS rewrites `/home/.../rtk` into `C:/Program Files/Git/home/.../rtk`, the hook fails, and Claude silently executes the original command. The installer and verifier both probe the bridge through Git Bash rather than invoking WSL directly from PowerShell.
+
+The default accuracy profile excludes `cat`, `git diff`, `git show`, and `curl` from automatic rewriting because exact source, patch, and raw HTTP bytes may be needed. Set `RTK_DISABLED=1` for a one-off raw command.
+
+On Windows, setup maps `%LOCALAPPDATA%\rtk` to `HEADROOM_RTK_STATE_ROOT` and compose bind-mounts it at `/root/.local/share/rtk`. Prove the full path with all three signals:
+
+1. Claude debug log contains `Hook PreToolUse:Bash ... success` and `modified tool input keys`.
+2. A fresh Claude Code Bash call creates a new `history.db` row such as `git log ... -> rtk git log ...`.
+3. Host `rtk gain --format json`, container `rtk gain --format json`, and `headroom perf --format json` report matching nonzero RTK command/savings totals.
+
+A high manual container benchmark is only a capability measurement. It is not evidence that normal Claude Code calls use RTK.
 
 The image has a bootstrap entrypoint, `/usr/local/bin/start-headroom-proxy`.
 It seeds fresh `/root/.headroom` and cache mounts from `/opt/headroom-seed`
@@ -84,7 +113,7 @@ without overwriting existing files, then launches `headroom proxy`. Keep this
 wrapper; otherwise a clean persistent volume can hide bundled RTK/lean-ctx and
 Headroom tool cache files from the image layer.
 
-Claude Code should not point at stale host binaries for Headroom or TokenSave. If `claude mcp list` shows `C:\Users\...\headroom.exe` or `tokensave.exe` and those files are missing, remove those entries. The setup script re-adds only the `headroom` MCP through Docker:
+Claude Code should not point at stale host binaries for Headroom or TokenSave. RTK is separate from MCP and intentionally remains on host for Bash rewriting. If `claude mcp list` shows `C:\Users\...\headroom.exe` or `tokensave.exe` and those files are missing, remove those entries. The setup script re-adds only the `headroom` MCP through Docker:
 
 ```powershell
 claude mcp remove headroom -s user

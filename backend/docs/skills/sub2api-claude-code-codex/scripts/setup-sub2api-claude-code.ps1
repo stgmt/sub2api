@@ -31,6 +31,9 @@ param(
   [string]$HeadroomTorchIndexUrl = "https://download.pytorch.org/whl/cu128",
   [string]$HeadroomSavingsProfile = "agent-90",
   [string]$HeadroomTargetRatio = "0.10",
+  [string]$RtkVersion = "v0.42.4",
+  [string]$RtkStateRoot = "",
+  [string]$WslDistro = "Ubuntu-24.04",
   [string]$Sub2apiImage = "sub2api-codex:local-token-usage",
   [string]$Sub2apiGitRepo = "https://github.com/stgmt/sub2api.git",
   [string]$Sub2apiGitRef = "",
@@ -40,6 +43,7 @@ param(
   [switch]$SkipClaudeConfig,
   [switch]$SkipGeneralPurposeAgent,
   [switch]$SkipHeadroomMcp,
+  [switch]$SkipRtk,
   [switch]$SkipAutostart
 )
 
@@ -327,6 +331,19 @@ $ClaudeBaseUrl = if ($BaseUrl.Trim()) { $BaseUrl.Trim().TrimEnd("/") } else { "h
 $resolvedHeadroomAccelerator = Resolve-HeadroomAccelerator $HeadroomAccelerator
 $headroomDockerTarget = if ($resolvedHeadroomAccelerator -eq "cuda") { "gpu" } else { "cpu" }
 $headroomKompressBackend = if ($resolvedHeadroomAccelerator -eq "cuda") { "pytorch" } else { "auto" }
+$resolvedRtkStateRoot = if ($RtkStateRoot.Trim()) {
+  $RtkStateRoot.Trim()
+} elseif ((Test-IsWindowsHost) -and $env:LOCALAPPDATA) {
+  Join-Path $env:LOCALAPPDATA "rtk"
+} else {
+  Join-Path $profileDir "data\rtk"
+}
+New-Item -ItemType Directory -Force -Path $resolvedRtkStateRoot | Out-Null
+$composeRtkStateRoot = if ((Test-IsWindowsHost) -and (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
+  ConvertTo-WslPath $resolvedRtkStateRoot
+} else {
+  $resolvedRtkStateRoot
+}
 
 $envMap = Read-DotEnv -Path $envPath
 if ((Test-Path -LiteralPath $envPath) -and -not $ForceRegenerateSecrets) {
@@ -353,6 +370,8 @@ Set-DotEnvValue $envMap "HEADROOM_ACCURACY_GUARD" "strict"
 Set-DotEnvValue $envMap "HEADROOM_CODE_AWARE_ENABLED" "1"
 Set-DotEnvValue $envMap "HEADROOM_CONTEXT_TOOL" "rtk"
 Set-DotEnvValue $envMap "HEADROOM_RTK_GAIN_SCOPE" "global"
+Set-DotEnvValue $envMap "HEADROOM_RTK_WIRING" "enabled"
+Set-DotEnvValue $envMap "HEADROOM_RTK_STATE_ROOT" $composeRtkStateRoot
 Set-DotEnvValue $envMap "HEADROOM_COMPRESS_USER_MESSAGES" "1"
 Set-DotEnvValue $envMap "HEADROOM_COMPRESS_SYSTEM_MESSAGES" "1"
 Set-DotEnvValue $envMap "HEADROOM_PROTECT_ANALYSIS_CONTEXT" "1"
@@ -579,6 +598,13 @@ $Body
       "You are the workflow-subagent Claude Code worker.`n`nExecute the delegated workflow slice in your own context and return only the specific result the parent workflow needs. Keep the scope bounded, prefer concrete evidence from files, commands, logs, and tests, and avoid expanding a small slice into a broad investigation."
   }
 
+  if (-not $SkipRtk) {
+    $rtkInstaller = Join-Path $PSScriptRoot "install-claude-rtk.ps1"
+    if (-not (Test-Path -LiteralPath $rtkInstaller)) { throw "RTK installer not found: $rtkInstaller" }
+    & $rtkInstaller -Version $RtkVersion -WslDistro $WslDistro
+    if ($LASTEXITCODE -ne 0) { throw "RTK installer failed with exit code $LASTEXITCODE" }
+  }
+
   if (-not $SkipHeadroomMcp) {
     if ((Get-Command claude -ErrorAction SilentlyContinue) -and (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
       try {
@@ -604,6 +630,7 @@ Write-Host "Claude base URL: $ClaudeBaseUrl"
 Write-Host "sub2api image: $Sub2apiImage"
 Write-Host "Headroom image: headroom-sub2api:$HeadroomVersion"
 Write-Host "Headroom savings profile: $HeadroomSavingsProfile (target ratio $HeadroomTargetRatio)"
+Write-Host "RTK: $RtkVersion host+WSL Claude Bash hook; shared dashboard state at $composeRtkStateRoot"
 Write-Host "Headroom embedding server: enabled (--embedding-server with patched watchdog/socket client)"
 Write-Host "Headroom persistent storage: /root/.headroom plus /root/.cache/headroom and /root/.cache/huggingface mounts"
 Write-Host "Windows autostart: Sub2API Codex Proxy Stack Autostart (single task, RunLevel=Highest, VHDX self-heal)"

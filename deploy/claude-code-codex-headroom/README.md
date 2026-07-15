@@ -11,9 +11,10 @@ Headroom is the Claude Code-facing endpoint. sub2api still exposes `127.0.0.1:18
 The Headroom image is deliberately more than a bare HTTP proxy. It builds
 `headroom-ai[proxy,code,relevance,html,spreadsheet,otel,reports,mcp]` from the
 controlled `stgmt/headroom` fork and pinned `HEADROOM_GIT_REF`, then installs
-RTK, lean-ctx, TokenSave, ast-grep, difft, and scc. Claude Code should not point
-at stale host binaries for these tools; the setup script registers the
-`headroom` MCP as a Docker-backed stdio command:
+RTK, lean-ctx, TokenSave, ast-grep, difft, and scc. Headroom and TokenSave stay
+Docker-backed. RTK is also installed on Windows and WSL because Claude Code
+executes Bash before Headroom sees the output; container-only RTK cannot rewrite
+host commands. The setup script registers the `headroom` MCP as Docker-backed:
 
 The Dockerfile installs pinned Rust `HEADROOM_RUST_TOOLCHAIN=1.88.0` via rustup
 because the fork source builds through `maturin` and ships Headroom's Rust
@@ -117,6 +118,12 @@ powershell -ExecutionPolicy Bypass -File backend\docs\skills\sub2api-claude-code
 
 The setup script generates a local `.env`, starts the compose project as `sub2api-codex`, configures Claude Code to use `http://127.0.0.1:8787`, and installs a single Windows scheduled-task autostart named `Sub2API Codex Proxy Stack Autostart`.
 
+It also installs pinned RTK on Windows and WSL, adds one MSYS-safe global Claude Code `PreToolUse(Bash)` rewrite hook, configures exact-output exclusions, and bind-mounts the host RTK history into Headroom. Run the focused installer directly only when repairing that layer:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File backend\docs\skills\sub2api-claude-code-codex\scripts\install-claude-rtk.ps1
+```
+
 The autostart task runs `start-sub2api-proxy-stack.ps1` with `RunLevel=Highest`, removes stale `headroom-proxy` task entries, disables Startup-folder proxy launchers, and can self-heal stale WSL `ext4.vhdx` attach locks before retrying Docker compose startup. Use `-SkipAutostart` only when you deliberately want a local/manual-only setup.
 
 It also writes the full Headroom agent profile into `.env`:
@@ -132,6 +139,8 @@ SUB2API_GIT_REF=<current stgmt/sub2api commit or local>
 HEADROOM_SAVINGS_PROFILE=agent-90
 HEADROOM_TARGET_RATIO=0.10
 HEADROOM_CONTEXT_TOOL=rtk
+HEADROOM_RTK_WIRING=enabled
+HEADROOM_RTK_STATE_ROOT=<host RTK state path translated for the Docker host>
 HEADROOM_CODE_AWARE_ENABLED=1
 HEADROOM_OUTPUT_SHAPER=1
 HEADROOM_MID_TURN_STREAM_WAIT_MS=600000
@@ -141,5 +150,7 @@ HEADROOM_MID_TURN_STREAM_WAIT_MS=600000
 Use `headroom savings --json`, `headroom perf --format json`, and
 `headroom tools doctor` inside the `headroom-sub2api` container to verify the
 optimization layer, RTK/tool binaries, and savings ledger.
-The verifier also checks persistent Headroom mounts and the `ccr_store.db`
-memory store when it exists.
+The verifier also checks the Git Bash -> WSL RTK rewrite, matching host/container
+RTK totals, persistent Headroom mounts, and the `ccr_store.db` memory store when
+it exists. A manual `rtk` command inside the container is not proof that Claude
+Code uses the hook.

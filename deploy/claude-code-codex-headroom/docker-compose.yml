@@ -91,6 +91,7 @@ services:
       - ${SUB2API_STATE_ROOT:-./data}/headroom:/root/.headroom
       - ${SUB2API_STATE_ROOT:-./data}/headroom-cache:/root/.cache/headroom
       - ${SUB2API_STATE_ROOT:-./data}/headroom-huggingface:/root/.cache/huggingface
+      - ${HEADROOM_RTK_STATE_ROOT:-./data/rtk}:/root/.local/share/rtk
     healthcheck:
       test:
         - CMD-SHELL
