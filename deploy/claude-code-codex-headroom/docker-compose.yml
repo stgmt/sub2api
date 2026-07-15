@@ -12,7 +12,7 @@ services:
         HEADROOM_VERSION: ${HEADROOM_VERSION:-0.31.0}
         HEADROOM_PYTHON_VERSION: ${HEADROOM_PYTHON_VERSION:-3.12}
         HEADROOM_GIT_REPO: ${HEADROOM_GIT_REPO:-https://github.com/stgmt/headroom.git}
-        HEADROOM_GIT_REF: ${HEADROOM_GIT_REF:-5a313c2e5bbf22c87b55efb8737cf2a4cd7ed54d}
+        HEADROOM_GIT_REF: ${HEADROOM_GIT_REF:-b9dfa2f76861ae9160d7e1fe4a151d2f92772284}
         HEADROOM_RUST_TOOLCHAIN: ${HEADROOM_RUST_TOOLCHAIN:-1.88.0}
         HEADROOM_TORCH_VERSION: ${HEADROOM_TORCH_VERSION:-2.11.0+cu128}
         HEADROOM_TORCH_INDEX_URL: ${HEADROOM_TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu128}
@@ -21,7 +21,7 @@ services:
     restart: unless-stopped
     labels:
       org.opencontainers.image.source: ${HEADROOM_GIT_REPO:-https://github.com/stgmt/headroom.git}
-      org.opencontainers.image.revision: ${HEADROOM_GIT_REF:-5a313c2e5bbf22c87b55efb8737cf2a4cd7ed54d}
+      org.opencontainers.image.revision: ${HEADROOM_GIT_REF:-b9dfa2f76861ae9160d7e1fe4a151d2f92772284}
       stgmt.sub2api.profile: claude-code-codex-headroom
     depends_on:
       sub2api:

@@ -23,7 +23,7 @@ param(
   [string]$HeadroomVersion = "0.31.0",
   [string]$HeadroomPythonVersion = "3.12",
   [string]$HeadroomGitRepo = "https://github.com/stgmt/headroom.git",
-  [string]$HeadroomGitRef = "5a313c2e5bbf22c87b55efb8737cf2a4cd7ed54d",
+  [string]$HeadroomGitRef = "b9dfa2f76861ae9160d7e1fe4a151d2f92772284",
   [string]$HeadroomRustToolchain = "1.88.0",
   [ValidateSet("auto", "cpu", "cuda")]
   [string]$HeadroomAccelerator = "auto",
