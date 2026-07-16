@@ -169,6 +169,21 @@ function Show-Health([string]$Label, [string]$Url) {
   }
 }
 
+function Test-HeadroomRateLimitProfile([string]$Url) {
+  $stats = Invoke-RestMethod "$Url/stats" -TimeoutSec 15
+  $limiter = $stats.rate_limiter
+  if (-not $limiter) {
+    throw "Headroom /stats did not expose rate_limiter state."
+  }
+
+  $rpm = [int]$limiter.requests_per_minute
+  $tpm = [int64]$limiter.tokens_per_minute
+  if ($rpm -lt 6000 -or $tpm -lt 100000000) {
+    throw "Unsafe Headroom loopback limiter: rpm=$rpm tpm=$tpm; expected at least 6000/100000000."
+  }
+  Write-Host "Headroom rate limiter: rpm=$rpm tpm=$tpm"
+}
+
 function Get-ErrorStatus([object]$ErrorRecord) {
   $response = $ErrorRecord.Exception.Response
   if ($response -and $response.StatusCode) {
@@ -544,6 +559,7 @@ Test-Sub2apiAutostartTask
 Test-ClaudeRtkHook
 Show-Health "Headroom" $BaseUrl
 Show-Health "sub2api" $Sub2apiBaseUrl
+Test-HeadroomRateLimitProfile $BaseUrl
 
 if (-not $SkipApiProbe) {
   if (-not $ApiKey) {

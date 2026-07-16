@@ -30,6 +30,8 @@ if ($effortOverride) { throw "Clear User env CLAUDE_CODE_EFFORT_LEVEL=$effortOve
 
 Invoke-RestMethod "http://127.0.0.1:8787/health"
 Invoke-RestMethod "http://127.0.0.1:18081/health"
+(Invoke-RestMethod "http://127.0.0.1:8787/stats").rate_limiter | ConvertTo-Json -Compress
+node scripts/test-headroom-rate-limit-burst.mjs http://127.0.0.1:8787 96
 Get-ScheduledTask -TaskName "Sub2API Codex Proxy Stack Autostart" | Select-Object TaskName,State,@{n="RunLevel";e={$_.Principal.RunLevel}},@{n="Action";e={$_.Actions.Arguments}}
 Get-ScheduledTask | Where-Object { $_.TaskName -eq "headroom-proxy" -or ($_.Actions.Arguments -match "headroom-proxy|headroom.exe proxy") }
 claude mcp list
@@ -61,6 +63,7 @@ Tokens: ... / 370k
 JSON modelUsage contextWindow matches the configured Claude Code client target, currently 370000 with auto-compact at 340000; this is the Claude Code client window hint, while upstream context failures must still be verified from proxy logs
 JSON modelUsage may still show maxOutputTokens: 32000
 Headroom health reports ready and upstream http://sub2api:8080
+Headroom `/stats.rate_limiter` reports at least 6000 RPM and 100000000 TPM; the 96-way invalid-key burst reports `rate_limited=0` and never exposes a local 429 to Claude Code
 sub2api health reports ok on the direct diagnostic/admin port
 Windows autostart is single-owner: `Sub2API Codex Proxy Stack Autostart` exists, `RunLevel=Highest`, action calls `start-sub2api-proxy-stack.ps1`, `LastTaskResult=0` after a manual `Start-ScheduledTask`, stale `headroom-proxy` is absent, and Startup-folder proxy launchers are absent or renamed with `.disabled`
 Claude MCP list shows headroom connected through Docker; stale host headroom.exe/tokensave.exe entries are absent

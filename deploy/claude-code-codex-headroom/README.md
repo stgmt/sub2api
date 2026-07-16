@@ -138,6 +138,8 @@ SUB2API_GIT_REPO=https://github.com/stgmt/sub2api.git
 SUB2API_GIT_REF=<current stgmt/sub2api commit or local>
 HEADROOM_SAVINGS_PROFILE=agent-90
 HEADROOM_TARGET_RATIO=0.10
+HEADROOM_RPM=6000
+HEADROOM_TPM=100000000
 HEADROOM_CONTEXT_TOOL=rtk
 HEADROOM_RTK_WIRING=enabled
 HEADROOM_RTK_STATE_ROOT=<host RTK state path translated for the Docker host>
@@ -145,6 +147,15 @@ HEADROOM_CODE_AWARE_ENABLED=1
 HEADROOM_OUTPUT_SHAPER=1
 HEADROOM_MID_TURN_STREAM_WAIT_MS=600000
 --embedding-server
+```
+
+The high loopback rate limits are intentional. Claude Code windows and their
+subagents share one Headroom API-key-plus-IP bucket; Headroom's library default
+of 60 RPM can otherwise return a local 429 before sub2api sees the request. Run
+the invalid-key burst regression after recreating the service:
+
+```powershell
+node backend/docs/skills/sub2api-claude-code-codex/scripts/test-headroom-rate-limit-burst.mjs http://127.0.0.1:8787 96
 ```
 
 Use `headroom savings --json`, `headroom perf --format json`, and

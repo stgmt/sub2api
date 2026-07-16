@@ -23,7 +23,7 @@ param(
   [string]$HeadroomVersion = "0.31.0",
   [string]$HeadroomPythonVersion = "3.12",
   [string]$HeadroomGitRepo = "https://github.com/stgmt/headroom.git",
-  [string]$HeadroomGitRef = "b9dfa2f76861ae9160d7e1fe4a151d2f92772284",
+  [string]$HeadroomGitRef = "eb8ae8009da5facea3b0cd52f8ab1b1a0616636e",
   [string]$HeadroomRustToolchain = "1.88.0",
   [ValidateSet("auto", "cpu", "cuda")]
   [string]$HeadroomAccelerator = "auto",
@@ -31,6 +31,8 @@ param(
   [string]$HeadroomTorchIndexUrl = "https://download.pytorch.org/whl/cu128",
   [string]$HeadroomSavingsProfile = "agent-90",
   [string]$HeadroomTargetRatio = "0.10",
+  [int]$HeadroomRequestsPerMinute = 6000,
+  [int]$HeadroomTokensPerMinute = 100000000,
   [string]$RtkVersion = "v0.42.4",
   [string]$RtkStateRoot = "",
   [string]$WslDistro = "Ubuntu-24.04",
@@ -231,6 +233,8 @@ function Write-DotEnv([System.Collections.IDictionary]$Map, [string]$Path) {
     "SUB2API_STATE_ROOT",
     "HEADROOM_SAVINGS_PROFILE",
     "HEADROOM_TARGET_RATIO",
+    "HEADROOM_RPM",
+    "HEADROOM_TPM",
     "HEADROOM_FORCE_KOMPRESS",
     "HEADROOM_ACCURACY_GUARD",
     "HEADROOM_CODE_AWARE_ENABLED",
@@ -365,6 +369,8 @@ Set-DotEnvValue $envMap "HEADROOM_PORT" ([string]$HeadroomPort)
 Set-DotEnvValue $envMap "SUB2API_STATE_ROOT" $StateRoot
 Set-DotEnvValue $envMap "HEADROOM_SAVINGS_PROFILE" $HeadroomSavingsProfile
 Set-DotEnvValue $envMap "HEADROOM_TARGET_RATIO" $HeadroomTargetRatio
+Set-DotEnvValue $envMap "HEADROOM_RPM" ([string]$HeadroomRequestsPerMinute)
+Set-DotEnvValue $envMap "HEADROOM_TPM" ([string]$HeadroomTokensPerMinute)
 Set-DotEnvValue $envMap "HEADROOM_FORCE_KOMPRESS" "1"
 Set-DotEnvValue $envMap "HEADROOM_ACCURACY_GUARD" "strict"
 Set-DotEnvValue $envMap "HEADROOM_CODE_AWARE_ENABLED" "1"
