@@ -27,6 +27,16 @@ function Test-IsWindowsHost {
   return [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)
 }
 
+function Invoke-GitBashUtf8Stdin([string]$GitBash, [string]$Command, [string]$InputText) {
+  $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($InputText))
+  $probeCommand = "printf '%s' '$encoded' | base64 -d | $Command"
+  $output = @(& $GitBash -lc $probeCommand 2>&1)
+  [pscustomobject]@{
+    ExitCode = $LASTEXITCODE
+    Output = $output
+  }
+}
+
 function Test-ClaudeRtkHook {
   if ($SkipRtkProbe) { return }
   if (-not (Test-IsWindowsHost)) {
@@ -61,8 +71,9 @@ function Test-ClaudeRtkHook {
   $payload = '{"session_id":"sub2api-rtk-verify","cwd":"C:\\","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status"}}'
   $gitBash = Join-Path $env:ProgramFiles 'Git\bin\bash.exe'
   if (-not (Test-Path -LiteralPath $gitBash)) { throw "Git Bash is required for the Claude Code RTK bridge: $gitBash" }
-  $hookRaw = $payload | & $gitBash -lc $hookCommand
-  if ($LASTEXITCODE -ne 0) { throw "Git Bash -> WSL RTK hook probe failed with exit code $LASTEXITCODE" }
+  $probe = Invoke-GitBashUtf8Stdin -GitBash $gitBash -Command $hookCommand -InputText $payload
+  $hookRaw = @($probe.Output)
+  if ($probe.ExitCode -ne 0) { throw "Git Bash -> WSL RTK hook probe failed with exit code $($probe.ExitCode): $($hookRaw | Out-String)" }
   $hookJson = ($hookRaw | Out-String).Trim() | ConvertFrom-Json
   if ($hookJson.hookSpecificOutput.updatedInput.command -ne "rtk git status") {
     throw "RTK hook did not rewrite git status: $($hookRaw | Out-String)"
@@ -82,8 +93,18 @@ function Test-ClaudeRtkHook {
   $before = (& $rtkCommand.Source gain --format json | Out-String | ConvertFrom-Json).summary
   Push-Location $PSScriptRoot
   try {
-    & $rtkCommand.Source git status *> $null
-    if ($LASTEXITCODE -ne 0) { throw "Host RTK execution probe failed" }
+    # Windows RTK may emit a non-fatal shell-hook reminder on stderr. Under
+    # PowerShell 5.1, ErrorActionPreference=Stop promotes that stderr record to
+    # a terminating error before LASTEXITCODE can be inspected.
+    $savedErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+      & $rtkCommand.Source git status *> $null
+      $rtkProbeExitCode = $LASTEXITCODE
+    } finally {
+      $ErrorActionPreference = $savedErrorActionPreference
+    }
+    if ($rtkProbeExitCode -ne 0) { throw "Host RTK execution probe failed with exit code $rtkProbeExitCode" }
   } finally {
     Pop-Location
   }

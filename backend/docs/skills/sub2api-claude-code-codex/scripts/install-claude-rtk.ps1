@@ -16,6 +16,16 @@ function Write-Utf8NoBom([string]$Path, [string]$Content) {
   [System.IO.File]::WriteAllText($Path, $Content, $utf8)
 }
 
+function Invoke-GitBashUtf8Stdin([string]$GitBash, [string]$Command, [string]$InputText) {
+  $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($InputText))
+  $probeCommand = "printf '%s' '$encoded' | base64 -d | $Command"
+  $output = @(& $GitBash -lc $probeCommand 2>&1)
+  [pscustomobject]@{
+    ExitCode = $LASTEXITCODE
+    Output = $output
+  }
+}
+
 function Set-ObjectProperty([object]$Object, [string]$Name, [object]$Value) {
   if ($Object.PSObject.Properties[$Name]) {
     $Object.PSObject.Properties[$Name].Value = $Value
@@ -227,11 +237,14 @@ function Set-ClaudeRtkHook([string]$WindowsRtk, [string]$WslHome) {
   if ($WslHome) {
     $gitBash = Join-Path $env:ProgramFiles 'Git\bin\bash.exe'
     if (-not (Test-Path -LiteralPath $gitBash)) { throw "Git Bash is required for the Claude Code RTK bridge: $gitBash" }
-    $hookOutput = $payload | & $gitBash -lc $command
+    $probe = Invoke-GitBashUtf8Stdin -GitBash $gitBash -Command $command -InputText $payload
+    $hookOutput = @($probe.Output)
+    $hookExitCode = $probe.ExitCode
   } else {
     $hookOutput = $payload | & $WindowsRtk hook claude
+    $hookExitCode = $LASTEXITCODE
   }
-  if ($LASTEXITCODE -ne 0) { throw "RTK hook probe failed with exit code $LASTEXITCODE" }
+  if ($hookExitCode -ne 0) { throw "RTK hook probe failed with exit code ${hookExitCode}: $($hookOutput | Out-String)" }
   $hookJson = ($hookOutput | Out-String).Trim() | ConvertFrom-Json
   if ($hookJson.hookSpecificOutput.updatedInput.command -ne 'rtk git status') {
     throw "RTK hook did not rewrite git status: $($hookOutput | Out-String)"

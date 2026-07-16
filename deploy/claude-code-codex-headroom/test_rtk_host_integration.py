@@ -44,11 +44,17 @@ def test_hook_bridge_is_msys_safe_and_probed_through_git_bash() -> None:
     for script in (installer, verifier):
         assert "MSYS2_ARG_CONV_EXCL" in script
         assert "Git\\bin\\bash.exe" in script
-        assert "-lc $hookCommand" in script or "-lc $command" in script
+        assert "Invoke-GitBashUtf8Stdin" in script
+        assert "[Convert]::ToBase64String" in script
+        assert "| base64 -d |" in script
+        assert "$payload | & $gitBash" not in script
 
     assert "MSYS2_ARG_CONV_EXCL='*'" in installer
-    assert "$payload | & $gitBash -lc $command" in installer
-    assert "$payload | & $gitBash -lc $hookCommand" in verifier
+    assert "-Command $command -InputText $payload" in installer
+    assert "$hookExitCode = $probe.ExitCode" in installer
+    assert "-InputText $payload" in verifier
+    assert '$ErrorActionPreference = "Continue"' in verifier
+    assert "$rtkProbeExitCode = $LASTEXITCODE" in verifier
 
 
 def test_accuracy_exclusions_and_live_gain_checks_are_durable() -> None:
