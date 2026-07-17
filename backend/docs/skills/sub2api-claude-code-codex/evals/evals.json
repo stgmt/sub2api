@@ -72,6 +72,12 @@
       "prompt": "Один OpenAI OAuth 403 HTML отрубил все окна Claude Code на десять минут: health живой, но везде no available accounts и 503. Сделай автохил без ручного SQL reset.",
       "expected_output": "Proves the upstream 403 and account temp_unschedulable state from logs/Postgres, verifies the running fork uses 2s/15s/1m/5m consecutive OAuth cooldowns rather than a fixed ten-minute first-hit block, retries the first /v1/messages OAuth 403 once after 2.25s inside the original request, resets the consecutive counter and clears only the OAuth 403 temp state after successful OpenAI usage, preserves unrelated model/quota limits, runs focused service/handler regression tests, rebuilds and recreates only sub2api, and verifies a live request through Headroom plus the openai_403_autoheal log markers.",
       "files": []
+    },
+    {
+      "id": 13,
+      "prompt": "Я сбросил недельный Codex лимит на сайте OpenAI, но Claude Code продолжает получать старый 429 rate-limited until через несколько дней. Почини сам stale lock, без fallback на другую модель.",
+      "expected_output": "Proves that accounts.extra.model_rate_limits still contains the old quota-origin reset while the user performed an external reset, does not add or change model fallbacks, makes a successful proxy reset-credit clear persisted and scheduler-cached model cooldown state immediately, allows a bounded same-model reprobe one minute after rate_limited_at for external site resets, re-closes the probe window on a fresh real upstream 429, clears the stale entry after a successful fresh Codex snapshot, adds boundary and mutation-killing tests, rebuilds only sub2api, and verifies Claude Code gpt-5.6-sol success with usage_logs.model_mapping_chain gpt-5.6-sol->gpt-5.6-sol plus an empty model_rate_limits object.",
+      "files": []
     }
   ]
 }

@@ -23,7 +23,9 @@ import (
 // stubQuotaAccountRepo 是多账号 AccountRepository stub，仅实现 GetByID。
 type stubQuotaAccountRepo struct {
 	AccountRepository
-	accounts map[int64]*Account
+	accounts                      map[int64]*Account
+	clearModelRateLimitAccountIDs []int64
+	clearModelRateLimitsErr       error
 }
 
 func (r *stubQuotaAccountRepo) GetByID(_ context.Context, id int64) (*Account, error) {
@@ -32,6 +34,11 @@ func (r *stubQuotaAccountRepo) GetByID(_ context.Context, id int64) (*Account, e
 		return nil, fmt.Errorf("account %d not found", id)
 	}
 	return acc, nil
+}
+
+func (r *stubQuotaAccountRepo) ClearModelRateLimits(_ context.Context, id int64) error {
+	r.clearModelRateLimitAccountIDs = append(r.clearModelRateLimitAccountIDs, id)
+	return r.clearModelRateLimitsErr
 }
 
 // stubQuotaTokenCache 实现 OpenAITokenCache，返回预设静态 token。
@@ -380,6 +387,110 @@ func TestResetCreditGetByIDError_FailsClosed(t *testing.T) {
 	require.Error(t, err, "GetByID error must propagate; got nil")
 	require.NotContains(t, err.Error(), "not configured",
 		"error reached prepareUpstreamCall config-check — guard did not fail-closed; got: %v", err)
+}
+
+func TestResetCreditSuccessClearsLocalModelCooldown(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	account := &Account{
+		ID:       100,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Status:   StatusActive,
+		Credentials: map[string]any{
+			"chatgpt_account_id": "acct-reset-test",
+		},
+	}
+	repo := &stubQuotaAccountRepo{accounts: map[int64]*Account{account.ID: account}}
+	tokenCache := &stubQuotaTokenCache{tokens: map[string]string{
+		OpenAITokenCacheKey(account): "fake-reset-token",
+	}}
+	tokenProvider := NewOpenAITokenProvider(repo, tokenCache, nil)
+
+	resetCalls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/backend-api/wham/rate-limit-reset-credits/consume", r.URL.Path)
+		require.Equal(t, http.MethodPost, r.Method)
+		resetCalls++
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"code":"ok","windows_reset":1}`))
+	}))
+	defer srv.Close()
+
+	svc := NewOpenAIQuotaService(repo, nil, tokenProvider, newQuotaRedirectingFactory(srv))
+	result, err := svc.ResetCredit(ctx, account.ID)
+	require.NoError(t, err)
+	require.Equal(t, "ok", result.Code)
+	require.Equal(t, 1, resetCalls)
+	require.Equal(t, []int64{account.ID}, repo.clearModelRateLimitAccountIDs,
+		"a successful upstream reset must invalidate the persisted and cached model cooldown")
+}
+
+func TestResetCreditDoesNotClearCooldownWhenUpstreamResetFails(t *testing.T) {
+	t.Parallel()
+
+	account := &Account{
+		ID:       101,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Status:   StatusActive,
+		Credentials: map[string]any{
+			"chatgpt_account_id": "acct-reset-failure-test",
+		},
+	}
+	repo := &stubQuotaAccountRepo{accounts: map[int64]*Account{account.ID: account}}
+	tokenCache := &stubQuotaTokenCache{tokens: map[string]string{
+		OpenAITokenCacheKey(account): "fake-reset-token",
+	}}
+	tokenProvider := NewOpenAITokenProvider(repo, tokenCache, nil)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"error":"reset rejected"}`, http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	svc := NewOpenAIQuotaService(repo, nil, tokenProvider, newQuotaRedirectingFactory(srv))
+	result, err := svc.ResetCredit(context.Background(), account.ID)
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.Empty(t, repo.clearModelRateLimitAccountIDs,
+		"a rejected upstream reset must not silently unlock the local scheduler")
+}
+
+func TestResetCreditReportsLocalCooldownClearFailure(t *testing.T) {
+	t.Parallel()
+
+	account := &Account{
+		ID:       102,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Status:   StatusActive,
+		Credentials: map[string]any{
+			"chatgpt_account_id": "acct-reset-clear-failure-test",
+		},
+	}
+	repo := &stubQuotaAccountRepo{
+		accounts:                map[int64]*Account{account.ID: account},
+		clearModelRateLimitsErr: errors.New("scheduler cache unavailable"),
+	}
+	tokenCache := &stubQuotaTokenCache{tokens: map[string]string{
+		OpenAITokenCacheKey(account): "fake-reset-token",
+	}}
+	tokenProvider := NewOpenAITokenProvider(repo, tokenCache, nil)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"code":"ok","windows_reset":1}`))
+	}))
+	defer srv.Close()
+
+	svc := NewOpenAIQuotaService(repo, nil, tokenProvider, newQuotaRedirectingFactory(srv))
+	result, err := svc.ResetCredit(context.Background(), account.ID)
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.ErrorContains(t, err, "upstream reset succeeded but local model cooldown cleanup failed")
+	require.Equal(t, []int64{account.ID}, repo.clearModelRateLimitAccountIDs)
 }
 
 // TestQueryUsageShadowResolve_EndToEnd 是端到端补充：通过 httptest 服务真实 /wham/usage

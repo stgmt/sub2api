@@ -12,6 +12,11 @@ const (
 	modelRateLimitsKey                 = "model_rate_limits"
 	antigravityGeminiModelRateLimitKey = "antigravity:gemini"
 	openAIImageGenerationRateLimitKey  = "openai:image_generation"
+	// OpenAI reset credits can release a quota before the reset timestamp that
+	// accompanied the original 429. Re-open quota-origin model cooldowns for a
+	// bounded upstream probe so an external ChatGPT reset cannot leave the local
+	// scheduler blocked for the rest of the old weekly window.
+	openAIQuotaModelRateLimitReprobeInterval = time.Minute
 	// anthropicFableRateLimitKey 是 Anthropic 7d_oi（Fable 专属 7d 窗口）限流的
 	// 家族级 scope：命中后所有 Fable 变体（含 [1m] 等后缀）都不再调度到该账号。
 	anthropicFableRateLimitKey = "claude-fable-5"
@@ -19,8 +24,22 @@ const (
 
 // isRateLimitActiveForKey 检查指定 key 的限流是否生效
 func (a *Account) isRateLimitActiveForKey(key string) bool {
-	resetAt := a.modelRateLimitResetAt(key)
-	return resetAt != nil && time.Now().Before(*resetAt)
+	return a.isRateLimitActiveForKeyAt(key, time.Now())
+}
+
+func (a *Account) isRateLimitActiveForKeyAt(key string, now time.Time) bool {
+	limit := a.modelRateLimitEntry(key)
+	resetAt := modelRateLimitTime(limit, "rate_limit_reset_at")
+	if resetAt == nil || !now.Before(*resetAt) {
+		return false
+	}
+	if a.Platform == PlatformOpenAI && isOpenAIQuotaModelRateLimitReason(limit["reason"]) {
+		rateLimitedAt := modelRateLimitTime(limit, "rate_limited_at")
+		if rateLimitedAt != nil && !now.Before(rateLimitedAt.Add(openAIQuotaModelRateLimitReprobeInterval)) {
+			return false
+		}
+	}
+	return true
 }
 
 // getRateLimitRemainingForKey 获取指定 key 的限流剩余时间，0 表示未限流或已过期
@@ -149,6 +168,10 @@ func antigravityModelRateLimitKeys(model string) []string {
 }
 
 func (a *Account) modelRateLimitResetAt(scope string) *time.Time {
+	return modelRateLimitTime(a.modelRateLimitEntry(scope), "rate_limit_reset_at")
+}
+
+func (a *Account) modelRateLimitEntry(scope string) map[string]any {
 	if a == nil || a.Extra == nil || scope == "" {
 		return nil
 	}
@@ -160,7 +183,14 @@ func (a *Account) modelRateLimitResetAt(scope string) *time.Time {
 	if !ok {
 		return nil
 	}
-	resetAtRaw, ok := rawLimit["rate_limit_reset_at"].(string)
+	return rawLimit
+}
+
+func modelRateLimitTime(limit map[string]any, field string) *time.Time {
+	if len(limit) == 0 {
+		return nil
+	}
+	resetAtRaw, ok := limit[field].(string)
 	if !ok || strings.TrimSpace(resetAtRaw) == "" {
 		return nil
 	}

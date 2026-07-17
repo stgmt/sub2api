@@ -264,6 +264,10 @@ func (s *OpenAIQuotaService) ResetCredit(ctx context.Context, accountID int64) (
 		"code", payload.Code,
 		"windows_reset", payload.WindowsReset,
 	)
+	if err := s.accountRepo.ClearModelRateLimits(ctx, accountID); err != nil {
+		slog.Error("openai_quota_reset_local_cooldown_clear_failed", "account_id", accountID, "error", err)
+		return nil, infraerrors.Newf(http.StatusInternalServerError, "OPENAI_QUOTA_RESET_LOCAL_CLEAR_FAILED", "upstream reset succeeded but local model cooldown cleanup failed: %v", err)
+	}
 	return &payload, nil
 }
 

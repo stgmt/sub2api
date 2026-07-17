@@ -238,6 +238,53 @@ func TestIsModelRateLimited(t *testing.T) {
 	}
 }
 
+func TestOpenAIQuotaModelRateLimitReprobe(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 7, 18, 2, 0, 0, 0, time.UTC)
+	resetAt := now.Add(5 * 24 * time.Hour)
+	quotaLimit := func(rateLimitedAt time.Time, reason string) *Account {
+		return &Account{
+			Platform: PlatformOpenAI,
+			Extra: map[string]any{
+				modelRateLimitsKey: map[string]any{
+					"gpt-5.6-sol": map[string]any{
+						"rate_limited_at":     rateLimitedAt.Format(time.RFC3339),
+						"rate_limit_reset_at": resetAt.Format(time.RFC3339),
+						"reason":              reason,
+					},
+				},
+			},
+		}
+	}
+
+	t.Run("fresh upstream quota lock remains active", func(t *testing.T) {
+		account := quotaLimit(now.Add(-openAIQuotaModelRateLimitReprobeInterval+time.Second), openAIModelRateLimitReason)
+		require.True(t, account.isRateLimitActiveForKeyAt("gpt-5.6-sol", now))
+	})
+
+	t.Run("old upstream quota lock opens bounded reprobe", func(t *testing.T) {
+		account := quotaLimit(now.Add(-openAIQuotaModelRateLimitReprobeInterval), openAIModelRateLimitReason)
+		require.False(t, account.isRateLimitActiveForKeyAt("gpt-5.6-sol", now))
+	})
+
+	t.Run("fresh 429 closes the reprobe window again", func(t *testing.T) {
+		account := quotaLimit(now, openAIModelRateLimitReason+":usage_limit_reached")
+		require.True(t, account.isRateLimitActiveForKeyAt("gpt-5.6-sol", now.Add(time.Second)))
+	})
+
+	t.Run("non quota model cooldown is never shortened", func(t *testing.T) {
+		account := quotaLimit(now.Add(-24*time.Hour), "upstream_model_not_found")
+		require.True(t, account.isRateLimitActiveForKeyAt("gpt-5.6-sol", now))
+	})
+
+	t.Run("missing rate limited timestamp fails closed", func(t *testing.T) {
+		account := quotaLimit(now, openAIModelRateLimitReason)
+		delete(account.Extra[modelRateLimitsKey].(map[string]any)["gpt-5.6-sol"].(map[string]any), "rate_limited_at")
+		require.True(t, account.isRateLimitActiveForKeyAt("gpt-5.6-sol", now))
+	})
+}
+
 func TestIsModelRateLimited_OpenAIImageGenerationIntentBlocksTextModelImageTool(t *testing.T) {
 	future := time.Now().Add(10 * time.Minute).Format(time.RFC3339)
 	account := &Account{
