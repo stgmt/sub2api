@@ -1,6 +1,6 @@
 {
   "name": "sub2api-claude-code-codex-fullpower",
-  "last_updated": "2026-07-16",
+  "last_updated": "2026-07-18",
   "proxy": {
     "base_url": "http://127.0.0.1:8787",
     "chain": "Claude Code -> Headroom 127.0.0.1:8787 -> Docker DNS http://sub2api:8080 -> sub2api",
@@ -23,6 +23,9 @@
       "docker_bind": "127.0.0.1:8787->8787",
       "upstream": "http://sub2api:8080",
       "savings_profile": "agent-90",
+      "output_shaper": true,
+      "effort_router": false,
+      "effort_preservation": "Preserve Claude Code output_config.effort on every tool continuation; do not rewrite max to low",
     "target_ratio": 0.1,
     "requests_per_minute": 6000,
     "tokens_per_minute": 100000000,

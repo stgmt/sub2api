@@ -65,7 +65,7 @@ active-stream keys from Claude Code session plus agent id, waits for the
 previous stream to drain, and uses `HEADROOM_MID_TURN_STREAM_WAIT_MS=600000` by
 default.
 
-The default `.env` profile is `HEADROOM_SAVINGS_PROFILE=agent-90`, `HEADROOM_TARGET_RATIO=0.10`, `HEADROOM_CONTEXT_TOOL=rtk`, `HEADROOM_CODE_AWARE_ENABLED=1`, `HEADROOM_OUTPUT_SHAPER=1`, and `HEADROOM_MID_TURN_STREAM_WAIT_MS=600000`.
+The default `.env` profile is `HEADROOM_SAVINGS_PROFILE=agent-90`, `HEADROOM_TARGET_RATIO=0.10`, `HEADROOM_CONTEXT_TOOL=rtk`, `HEADROOM_CODE_AWARE_ENABLED=1`, `HEADROOM_OUTPUT_SHAPER=1`, `HEADROOM_EFFORT_ROUTER=0`, and `HEADROOM_MID_TURN_STREAM_WAIT_MS=600000`. The output shaper still applies verbosity steering, but its effort router must stay off: when omitted, Headroom defaults it on and rewrites clean `tool_result` continuations from the client-selected `output_config.effort=max` to `low`.
 
 Host persistence is part of the profile. The compose stack writes state under `${SUB2API_STATE_ROOT:-./data}` on the Docker host. The default is `deploy/claude-code-codex-headroom/data` when running from the deploy profile. These are host bind mounts, not Docker named volumes:
 

@@ -205,6 +205,25 @@ function Test-HeadroomRateLimitProfile([string]$Url) {
   Write-Host "Headroom rate limiter: rpm=$rpm tpm=$tpm"
 }
 
+function Test-HeadroomEffortPreservationProfile {
+  if (-not (Test-DockerRuntimeAvailable)) {
+    Write-Warning "docker and wsl.exe not found; skipping Headroom effort-router check."
+    return
+  }
+
+  $envOutput = (Invoke-DockerCommand -Args @("inspect", "headroom-sub2api", "--format", "{{range .Config.Env}}{{println .}}{{end}}") 2>&1) -join "`n"
+  if ($LASTEXITCODE -ne 0) {
+    throw "Could not inspect headroom-sub2api environment: $envOutput"
+  }
+  if ($envOutput -notmatch "(?m)^HEADROOM_OUTPUT_SHAPER=1$") {
+    throw "Headroom output shaper is not enabled; expected HEADROOM_OUTPUT_SHAPER=1."
+  }
+  if ($envOutput -notmatch "(?m)^HEADROOM_EFFORT_ROUTER=0$") {
+    throw "Unsafe Headroom effort routing: expected HEADROOM_EFFORT_ROUTER=0 so Claude Code /effort is preserved across tool continuations."
+  }
+  Write-Host "Headroom effort preservation: output shaper on, effort router off"
+}
+
 function Get-ErrorStatus([object]$ErrorRecord) {
   $response = $ErrorRecord.Exception.Response
   if ($response -and $response.StatusCode) {
@@ -581,6 +600,7 @@ Test-ClaudeRtkHook
 Show-Health "Headroom" $BaseUrl
 Show-Health "sub2api" $Sub2apiBaseUrl
 Test-HeadroomRateLimitProfile $BaseUrl
+Test-HeadroomEffortPreservationProfile
 
 if (-not $SkipApiProbe) {
   if (-not $ApiKey) {

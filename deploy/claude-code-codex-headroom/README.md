@@ -145,9 +145,16 @@ HEADROOM_RTK_WIRING=enabled
 HEADROOM_RTK_STATE_ROOT=<host RTK state path translated for the Docker host>
 HEADROOM_CODE_AWARE_ENABLED=1
 HEADROOM_OUTPUT_SHAPER=1
+HEADROOM_EFFORT_ROUTER=0
 HEADROOM_MID_TURN_STREAM_WAIT_MS=600000
 --embedding-server
 ```
+
+Keep the output shaper enabled for verbosity steering, but keep its effort
+router disabled. Headroom otherwise classifies clean `tool_result`
+continuations as mechanical and lowers an explicit Claude Code
+`output_config.effort=max` to `low`, so the UI can say max while the upstream
+request is actually billed and executed at low effort.
 
 The high loopback rate limits are intentional. Claude Code windows and their
 subagents share one Headroom API-key-plus-IP bucket; Headroom's library default
