@@ -173,6 +173,21 @@ Do not keep a second `headroom-proxy` task or a Startup-folder `.cmd` launcher. 
 
 The setup script installs this task by default. Use `-SkipAutostart` only for a one-off/local-only setup. The task target, `scripts/start-sub2api-proxy-stack.ps1`, is idempotent: it has a named mutex, runs `docker compose --env-file .env -p sub2api-codex up -d --remove-orphans`, refreshes Claude Code `ANTHROPIC_BASE_URL` from the current WSL `eth0` IP when localhost relay is unreliable, then verifies Headroom and sub2api health.
 
+### Hyper-V Claude Host Bridge
+
+When Claude Code runs in a Hyper-V VM while Headroom runs in WSL Docker, neither the WSL `eth0` address nor the Hyper-V Default Switch address is stable across host reboots. A one-time `netsh portproxy` entry therefore becomes stale even though every Docker container remains healthy. Enable the autostart-owned bridge with a non-secret `hyperv-bridge.env` beside the deploy profile `.env`:
+
+```dotenv
+HEADROOM_HYPERV_VM_NAME=devcontainer-ubuntu-2404
+HEADROOM_HYPERV_VM_SSH_USER=migration
+HEADROOM_HYPERV_VM_SSH_KEY=C:\Migration\devcontainer-vm-key
+HEADROOM_HYPERV_SWITCH_NAME=Default Switch
+```
+
+The elevated autostart task then resolves the current VM, Default Switch, and WSL addresses on every run; removes stale `v4tov4` entries owned by the Headroom port; recreates the VM-scoped firewall rule; atomically updates the VM's `~/.claude/settings.json`; and proves `/health` from the VM namespace. Run `scripts/test-hyperv-headroom-bridge-contract.ps1` after editing this path. Restart already-open Claude Code processes after the endpoint or hook runtime changes because they may retain the old settings registry.
+
+The Linux VM still needs the full Claude profile, not only `ANTHROPIC_BASE_URL`: keep `CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK=1`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`, the current context/compact targets, small-fast model, and subagent model in its settings. Native `/compact` is intentionally non-streaming and is identified by `source=compact` plus `x-sub2api-claude-compact`; that is different from Claude Code's emergency non-streaming fallback. If the disable knob is missing, a failed streaming turn can be replayed as a much larger non-stream request and loop for many minutes.
+
 If WSL fails with:
 
 ```text

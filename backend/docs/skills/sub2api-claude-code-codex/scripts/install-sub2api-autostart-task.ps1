@@ -5,7 +5,11 @@ param(
   [string]$ProjectName = "sub2api-codex",
   [string]$Distro = "Ubuntu-24.04",
   [int]$HeadroomPort = 8787,
-  [int]$Sub2apiPort = 18081
+  [int]$Sub2apiPort = 18081,
+  [string]$HyperVVmName = "",
+  [string]$HyperVVmSshUser = "",
+  [string]$HyperVVmSshKey = "",
+  [string]$HyperVSwitchName = "Default Switch"
 )
 
 $ErrorActionPreference = "Stop"
@@ -69,6 +73,18 @@ if ($RepoRoot.Trim()) {
 }
 if ($ProfileDir.Trim()) {
   $startArgs += @("-ProfileDir", "`"$ProfileDir`"")
+}
+if ($HyperVVmName.Trim()) {
+  $startArgs += @("-HyperVVmName", "`"$HyperVVmName`"")
+}
+if ($HyperVVmSshUser.Trim()) {
+  $startArgs += @("-HyperVVmSshUser", "`"$HyperVVmSshUser`"")
+}
+if ($HyperVVmSshKey.Trim()) {
+  $startArgs += @("-HyperVVmSshKey", "`"$HyperVVmSshKey`"")
+}
+if ($HyperVSwitchName.Trim()) {
+  $startArgs += @("-HyperVSwitchName", "`"$HyperVSwitchName`"")
 }
 
 $action = New-ScheduledTaskAction `

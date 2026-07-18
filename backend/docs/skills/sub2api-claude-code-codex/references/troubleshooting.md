@@ -227,3 +227,30 @@ Headroom Docker stack:
 - Preserve all data across recreates on host bind mounts. `/root/.headroom` must be a host bind mount and should contain `ccr_store.db` after memory traffic. `/root/.cache/headroom`, `/root/.cache/huggingface`, `/app/data`, Postgres parent `/var/lib/postgresql`, and Redis `/data` should also be host bind mounts under `${SUB2API_STATE_ROOT:-./data}`. Do not bind the same Postgres host directory directly to `/var/lib/postgresql/data`: `postgres:18-alpine` declares `/var/lib/postgresql` as a volume and that nested layout can make `initdb` loop on a non-empty data dir. If `docker inspect` shows `Type=volume`, the profile is wrong. Do not delete the state root unless intentionally wiping memory and all service state.
 - Do this audit proactively whenever editing compose/setup/docs for this stack. Do not wait for the user to point out that Docker named volumes can hide or strand data. A "reusable" fix is not done until the verifier proves host `Type=bind` mounts for every stateful service.
 - If a fresh install loses RTK/lean-ctx/difft/scc after adding persistent mounts, the image bootstrap wrapper is missing or stale. Rebuild from a Dockerfile that copies `start-headroom-proxy.sh`, seeds `/opt/headroom-seed`, and uses `ENTRYPOINT ["/usr/local/bin/start-headroom-proxy"]`.
+## Hyper-V endpoint is stale while Docker is healthy
+
+If a native Linux Claude window reports `Unable to connect to API (ConnectionRefused)` and names an address on the Hyper-V Default Switch, compare four live values before restarting containers: the address in that Claude host's `~/.claude/settings.json`, the current `vEthernet (Default Switch)` IPv4, the current VM IPv4, and the current WSL `eth0` IPv4. Hyper-V Default Switch and WSL addresses can both change after a reboot. A healthy `headroom-sub2api` container does not repair a stale Windows `portproxy` by itself.
+
+Configure `hyperv-bridge.env` and run the single elevated `Sub2API Codex Proxy Stack Autostart` task. Its proof must include one current `v4tov4` entry, a firewall rule restricted to the current VM address, `UPDATED_BASE_URL=...`, and `HYPERV_HEADROOM_HEALTH_OK` from SSH inside the VM. Install `node`, a `python` command (or update hooks to `python3`), and the expected home-level hook runner in the VM itself when project hooks execute there. Restart an already-running Claude process after these changes.
+
+## Giant non-stream request loops after an empty response
+
+Do not classify every `stream:false` request as a bug. Native compact is intentionally non-streaming and must have Claude debug `source=compact`, Headroom's compact marker, and Spark/Luna compact routing in sub2api. The failure pattern is a normal turn replayed by Claude Code's emergency non-streaming fallback: the request lacks the compact marker, retains the main Sol route, and can be substantially larger than the original stream. If upstream repeatedly completes that request without assistant content or tool output, sub2api's bounded same-account retries correctly stop, but Claude Code can resubmit the whole request for many minutes.
+
+Keep `CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK=1` in every host that launches Claude Code, not just Windows. Correlate the Claude transcript timestamp with `ops_error_logs.request_id`, `stream`, and sub2api `body_bytes`; then test a fresh process through the same host namespace. Do not add a model fallback for this symptom unless the user asks for one.
+
+## Native Linux hooks report `node` or `python` not found
+
+Repeated `UserPromptSubmit hook error` lines such as `/bin/sh: node: not found` or `/bin/sh: python: not found` are local Claude-host failures. They can appear beside a gateway error, but they are not emitted by Headroom or sub2api. Check the exact Linux user that launches Claude Code:
+
+```bash
+command -v node npm npx python python3
+test -f "$HOME/.dev-pomogator/scripts/tsx-runner.js"
+test -x "$HOME/.dev-pomogator/node_modules/.bin/tsx"
+```
+
+Install a current Node.js LTS runtime in that host, provide `python` through the distro's `python-is-python3` package or an equivalent `/usr/local/bin/python -> /usr/bin/python3` link, and restore the generated dev-pomogator runner plus its `tsx` dependency for that user. Then start a fresh Claude process in the affected project and run a one-turn `claude --print` probe. A resolver stack printed inside a successful hook result is a separate project import-resolution problem; do not report it as `node not found` after the hook exits successfully.
+
+## RTK cannot parse Windows Claude settings
+
+If `rtk init --global --auto-patch` reports `expected value at line 1 column 1` while PowerShell `ConvertFrom-Json` accepts the same file, inspect its first bytes. `EF-BB-BF` is a UTF-8 BOM. Windows PowerShell 5.1 `Set-Content -Encoding UTF8` adds that BOM, while strict Node/Rust JSON parsers may reject it. The stack autostart must write `~/.claude/settings.json` through `Write-Utf8NoBom`; rewrite an already affected file without changing its JSON object, then rerun the RTK installer and verifier.
