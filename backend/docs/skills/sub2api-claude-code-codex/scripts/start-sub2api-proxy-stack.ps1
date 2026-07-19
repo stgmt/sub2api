@@ -95,13 +95,16 @@ function Sync-SelfHealScheduledTask {
   try {
     $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
     $actionUsesEnsure = $task -and ([string]$task.Actions.Arguments).Contains("ensure-sub2api-proxy-stack.ps1")
+    $actionUsesHiddenLauncher = $task -and
+      ([IO.Path]::GetFileName([string]$task.Actions.Execute) -eq "wscript.exe") -and
+      ([string]$task.Actions.Arguments).Contains("run-hidden.vbs")
     $hasRepeatingTrigger = $task -and (@($task.Triggers | Where-Object {
       $_.Repetition -and $_.Repetition.Interval -eq "PT1M"
     }).Count -gt 0)
     $hasRetryPolicy = $task -and ([int]$task.Settings.RestartCount -ge 3)
-    if ($actionUsesEnsure -and $hasRepeatingTrigger -and $hasRetryPolicy) { return }
+    if ($actionUsesEnsure -and $actionUsesHiddenLauncher -and $hasRepeatingTrigger -and $hasRetryPolicy) { return }
 
-    Write-StackLog "upgrading legacy logon-only autostart task to repeating self-heal"
+    Write-StackLog "upgrading legacy or focus-stealing autostart task to repeating zero-window self-heal"
     $installParams = @{
       TaskName = $taskName
       RepoRoot = $RepoRoot

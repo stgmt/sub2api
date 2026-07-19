@@ -130,6 +130,7 @@ function Test-Sub2apiAutostartTask {
     throw "Missing scheduled task: $taskName. Run scripts/setup-sub2api-claude-code.ps1 without -SkipAutostart."
   }
   $info = Get-ScheduledTaskInfo -TaskName $taskName
+  $execute = [IO.Path]::GetFileName([string]$task.Actions.Execute)
   $arguments = [string]$task.Actions.Arguments
   Write-Host "task: $($task.TaskName) state=$($task.State) runLevel=$($task.Principal.RunLevel) lastResult=$($info.LastTaskResult)"
   Write-Host "action: $($task.Actions.Execute) $arguments"
@@ -138,6 +139,9 @@ function Test-Sub2apiAutostartTask {
   }
   if ($arguments -notmatch "ensure-sub2api-proxy-stack\.ps1") {
     throw "$taskName action must call ensure-sub2api-proxy-stack.ps1, not a logon-only start script or stale host executable."
+  }
+  if ($execute -ne "wscript.exe" -or $arguments -notmatch "run-hidden\.vbs") {
+    throw "$taskName must use the zero-window wscript launcher so its repeating health checks never steal desktop focus."
   }
   if ($arguments -notmatch "claude-code-codex-headroom|ProfileDir|RepoRoot") {
     throw "$taskName action does not identify the deploy profile/repo root."

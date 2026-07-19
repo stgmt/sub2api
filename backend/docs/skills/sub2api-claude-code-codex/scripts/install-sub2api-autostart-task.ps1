@@ -31,6 +31,10 @@ $ensureScript = Join-Path $ScriptDir "ensure-sub2api-proxy-stack.ps1"
 if (-not (Test-Path -LiteralPath $ensureScript)) {
   throw "Self-heal script not found: $ensureScript"
 }
+$hiddenLauncher = Join-Path $ScriptDir "run-hidden.vbs"
+if (-not (Test-Path -LiteralPath $hiddenLauncher)) {
+  throw "Zero-window launcher not found: $hiddenLauncher"
+}
 
 Write-InstallLog "installing scheduled task '$TaskName' for $env:USERNAME"
 
@@ -56,7 +60,10 @@ if ($startupDir -and (Test-Path -LiteralPath $startupDir)) {
 }
 
 $ensureArgs = @(
+  "-WindowStyle",
+  "Hidden",
   "-NoProfile",
+  "-NonInteractive",
   "-ExecutionPolicy",
   "Bypass",
   "-File",
@@ -89,9 +96,10 @@ if ($HyperVSwitchName.Trim()) {
   $ensureArgs += @("-HyperVSwitchName", "`"$HyperVSwitchName`"")
 }
 
+$launcherArgs = @("//B", "//NoLogo", "`"$hiddenLauncher`"", "powershell.exe") + $ensureArgs
 $action = New-ScheduledTaskAction `
-  -Execute "powershell.exe" `
-  -Argument ($ensureArgs -join " ")
+  -Execute "wscript.exe" `
+  -Argument ($launcherArgs -join " ")
 
 $logonTrigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
 $watchdogTrigger = New-ScheduledTaskTrigger `

@@ -1,5 +1,6 @@
 param(
   [string]$InstallerPath = (Join-Path $PSScriptRoot "install-sub2api-autostart-task.ps1"),
+  [string]$HiddenLauncherPath = (Join-Path $PSScriptRoot "run-hidden.vbs"),
   [string]$EnsurePath = (Join-Path $PSScriptRoot "ensure-sub2api-proxy-stack.ps1"),
   [string]$StartPath = (Join-Path $PSScriptRoot "start-sub2api-proxy-stack.ps1"),
   [string]$VerifierPath = (Join-Path $PSScriptRoot "verify-claude-code-sub2api.ps1")
@@ -13,6 +14,7 @@ function Assert-Contains {
 }
 
 $installer = Get-Content -Raw -LiteralPath $InstallerPath
+$hiddenLauncher = Get-Content -Raw -LiteralPath $HiddenLauncherPath
 $ensure = Get-Content -Raw -LiteralPath $EnsurePath
 $start = Get-Content -Raw -LiteralPath $StartPath
 $verifier = Get-Content -Raw -LiteralPath $VerifierPath
@@ -22,6 +24,9 @@ Assert-Contains $installer 'New-ScheduledTaskTrigger -AtLogOn' "Scheduled Task m
 Assert-Contains $installer '-RepetitionInterval' "Scheduled Task must have a repeating watchdog trigger"
 Assert-Contains $installer '-RestartCount $TaskRestartCount' "Scheduled Task must retry a failed recovery"
 Assert-Contains $installer '-MultipleInstances IgnoreNew' "Scheduled Task must remain a single owner"
+Assert-Contains $installer 'run-hidden.vbs' "Scheduled Task must use the zero-window launcher"
+Assert-Contains $installer '-Execute "wscript.exe"' "Scheduled Task must run through the GUI script host"
+Assert-Contains $hiddenLauncher 'shell.Run(command, 0, True)' "Hidden launcher must hide the process and preserve its exit code"
 
 $probeIndex = $ensure.IndexOf('$before = Get-RequiredRouteState')
 $recoveryIndex = $ensure.IndexOf('& $startScript @startParams')
@@ -34,13 +39,22 @@ Assert-Contains $ensure 'recovery_started' "Self-heal must emit a recovery-start
 Assert-Contains $ensure 'recovered' "Self-heal must emit recovery proof"
 Assert-Contains $ensure 'recovery_failed' "Self-heal must fail closed after an unsuccessful recovery"
 Assert-Contains $start 'Sync-SelfHealScheduledTask' "Legacy logon-only tasks must self-upgrade from their existing elevated action"
-Assert-Contains $start 'upgrading legacy logon-only autostart task to repeating self-heal' "Legacy task migration must be observable"
+Assert-Contains $start 'actionUsesHiddenLauncher' "Legacy direct PowerShell tasks must self-upgrade to the zero-window launcher"
+Assert-Contains $start 'upgrading legacy or focus-stealing autostart task to repeating zero-window self-heal' "Legacy task migration must be observable"
 Assert-Contains $verifier 'ensure-sub2api-proxy-stack\.ps1' "Verifier must reject the legacy start-script action"
+Assert-Contains $verifier 'run-hidden\.vbs' "Verifier must reject focus-stealing scheduled task actions"
 Assert-Contains $verifier 'PT1M repeating self-heal trigger' "Verifier must require the repeating trigger"
 Assert-Contains $verifier 'MultipleInstances=IgnoreNew' "Verifier must require singleflight task execution"
 
 if ($start.Contains('exit 0')) {
   throw "The nested start script must return instead of terminating its ensure caller"
+}
+
+if ($env:OS -eq "Windows_NT") {
+  & cscript.exe //B //NoLogo $HiddenLauncherPath powershell.exe -NoProfile -NonInteractive -Command "exit 23"
+  if ($LASTEXITCODE -ne 23) {
+    throw "Zero-window launcher must preserve the child process exit code; expected 23, got $LASTEXITCODE"
+  }
 }
 
 Write-Host "AUTOSTART_SELF_HEAL_CONTRACT_OK"
