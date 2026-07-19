@@ -164,14 +164,18 @@ Use a single autostart owner for the whole stack:
 
 ```text
 Scheduled task: Sub2API Codex Proxy Stack Autostart
-Action: powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<skill-or-profile>\scripts\start-sub2api-proxy-stack.ps1" -RepoRoot "<sub2api>" -ProfileDir "<sub2api>\deploy\claude-code-codex-headroom" -Distro "Ubuntu-24.04"
+Action: powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<skill-or-profile>\scripts\ensure-sub2api-proxy-stack.ps1" -RepoRoot "<sub2api>" -ProfileDir "<sub2api>\deploy\claude-code-codex-headroom" -Distro "Ubuntu-24.04"
 RunLevel: Highest
+Triggers: at logon plus every 1 minute for 10 years
+Failure retry: 3 attempts, 1 minute apart
 Compose project: sub2api-codex
 ```
 
 Do not keep a second `headroom-proxy` task or a Startup-folder `.cmd` launcher. A separate host `headroom.exe proxy` launcher commonly goes stale when the host binary is removed, while a second compose launcher can race WSL startup and create confusing duplicate logs. Leave only the scheduled task that starts the Docker compose stack.
 
-The setup script installs this task by default. Use `-SkipAutostart` only for a one-off/local-only setup. The task target, `scripts/start-sub2api-proxy-stack.ps1`, is idempotent: it has a named mutex, runs `docker compose --env-file .env -p sub2api-codex up -d --remove-orphans`, refreshes Claude Code `ANTHROPIC_BASE_URL` from the current WSL `eth0` IP when localhost relay is unreliable, then verifies Headroom and sub2api health.
+The setup script installs this task by default. Use `-SkipAutostart` only for a one-off/local-only setup. The task target, `scripts/ensure-sub2api-proxy-stack.ps1`, has a cheap health-first path and does not touch healthy containers. On route failure it invokes `scripts/start-sub2api-proxy-stack.ps1`, which wakes WSL, runs `docker compose --env-file .env -p sub2api-codex up -d --remove-orphans`, refreshes Claude Code `ANTHROPIC_BASE_URL` and the Hyper-V bridge from current addresses, then verifies recovery. The repeating trigger is required because a successful logon task is not re-fired when WSL later powers off.
+
+Existing installations whose task still points directly at `start-sub2api-proxy-stack.ps1` self-migrate on their next elevated run: the start script detects a missing `PT1M` trigger/retry policy and invokes the installer. This is intentional because a normal non-elevated shell cannot replace a `RunLevel=Highest` task.
 
 ### Hyper-V Claude Host Bridge
 
@@ -184,7 +188,7 @@ HEADROOM_HYPERV_VM_SSH_KEY=C:\Migration\devcontainer-vm-key
 HEADROOM_HYPERV_SWITCH_NAME=Default Switch
 ```
 
-The elevated autostart task then resolves the current VM, Default Switch, and WSL addresses on every run; removes stale `v4tov4` entries owned by the Headroom port; recreates the VM-scoped firewall rule; atomically updates the VM's `~/.claude/settings.json`; and proves `/health` from the VM namespace. Run `scripts/test-hyperv-headroom-bridge-contract.ps1` after editing this path. Restart already-open Claude Code processes after the endpoint or hook runtime changes because they may retain the old settings registry.
+On a healthy minute the elevated task only probes the same-host and Default Switch routes. On failure it resolves the current VM, Default Switch, and WSL addresses; removes stale `v4tov4` entries owned by the Headroom port; recreates the VM-scoped firewall rule; atomically updates the VM's `~/.claude/settings.json`; and proves `/health` from the VM namespace. Run `scripts/test-hyperv-headroom-bridge-contract.ps1` and `scripts/test-autostart-self-heal-contract.ps1` after editing this path. Restart already-open Claude Code processes after the endpoint or hook runtime changes because they may retain the old settings registry.
 
 The Linux VM still needs the full Claude profile, not only `ANTHROPIC_BASE_URL`: keep `CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK=1`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`, the current context/compact targets, small-fast model, and subagent model in its settings. Native `/compact` is intentionally non-streaming and is identified by `source=compact` plus `x-sub2api-claude-compact`; that is different from Claude Code's emergency non-streaming fallback. If the disable knob is missing, a failed streaming turn can be replayed as a much larger non-stream request and loop for many minutes.
 

@@ -65,7 +65,8 @@ JSON modelUsage may still show maxOutputTokens: 32000
 Headroom health reports ready and upstream http://sub2api:8080
 Headroom `/stats.rate_limiter` reports at least 6000 RPM and 100000000 TPM; the 96-way invalid-key burst reports `rate_limited=0` and never exposes a local 429 to Claude Code
 sub2api health reports ok on the direct diagnostic/admin port
-Windows autostart is single-owner: `Sub2API Codex Proxy Stack Autostart` exists, `RunLevel=Highest`, action calls `start-sub2api-proxy-stack.ps1`, `LastTaskResult=0` after a manual `Start-ScheduledTask`, stale `headroom-proxy` is absent, and Startup-folder proxy launchers are absent or renamed with `.disabled`
+Windows autostart is single-owner: `Sub2API Codex Proxy Stack Autostart` exists, `RunLevel=Highest`, action calls `ensure-sub2api-proxy-stack.ps1`, triggers include logon plus `PT1M` repetition, settings include at least three one-minute retries and `IgnoreNew`, `LastTaskResult=0` after a manual `Start-ScheduledTask`, stale `headroom-proxy` is absent, and Startup-folder proxy launchers are absent or renamed with `.disabled`
+Controlled self-heal proof passes: stop the WSL distro or remove the owned Headroom `portproxy`, observe `recovery_started` then `recovered` in `logs/self-heal.jsonl`, and require Windows localhost plus Hyper-V VM `/health` to return 200 within two watchdog intervals without manually starting WSL or Docker
 Claude MCP list shows headroom connected through Docker; stale host headroom.exe/tokensave.exe entries are absent
 Headroom tools doctor shows difft, scc, and ast-grep on PATH; the image also includes rtk, lean-ctx, and tokensave
 Headroom image bootstrap check returns `SEED_OK`; the entrypoint seeds empty persistent mounts from `/opt/headroom-seed` before launching the proxy

@@ -136,11 +136,26 @@ function Test-Sub2apiAutostartTask {
   if ($task.Principal.RunLevel -ne "Highest") {
     throw "$taskName must use RunLevel=Highest so the WSL VHDX-lock self-heal can call Dismount-DiskImage."
   }
-  if ($arguments -notmatch "start-sub2api-proxy-stack\.ps1") {
-    throw "$taskName action must call start-sub2api-proxy-stack.ps1, not a stale host executable."
+  if ($arguments -notmatch "ensure-sub2api-proxy-stack\.ps1") {
+    throw "$taskName action must call ensure-sub2api-proxy-stack.ps1, not a logon-only start script or stale host executable."
   }
   if ($arguments -notmatch "claude-code-codex-headroom|ProfileDir|RepoRoot") {
     throw "$taskName action does not identify the deploy profile/repo root."
+  }
+  $hasRepeatingTrigger = @($task.Triggers | Where-Object {
+    $_.Repetition -and $_.Repetition.Interval -eq "PT1M"
+  }).Count -gt 0
+  if (-not $hasRepeatingTrigger) {
+    throw "$taskName must include a PT1M repeating self-heal trigger; logon-only autostart cannot recover a later WSL poweroff."
+  }
+  if ([int]$task.Settings.RestartCount -lt 3 -or $task.Settings.RestartInterval -ne "PT1M") {
+    throw "$taskName must retry failed recovery at least three times with a PT1M interval."
+  }
+  if ($task.Settings.MultipleInstances -ne "IgnoreNew") {
+    throw "$taskName must use MultipleInstances=IgnoreNew."
+  }
+  if ($task.State -ne "Running" -and $info.LastTaskResult -ne 0) {
+    throw "$taskName last completed run failed with result $($info.LastTaskResult)."
   }
 
   $staleTask = Get-ScheduledTask -TaskName "headroom-proxy" -ErrorAction SilentlyContinue
@@ -160,7 +175,7 @@ function Test-Sub2apiAutostartTask {
       throw "Stale Startup launcher(s) still active: $($staleLaunchers.FullName -join ', ')"
     }
   }
-  Write-Host "single-owner autostart: ok"
+  Write-Host "single-owner repeating self-heal: ok"
 }
 
 function Show-Health([string]$Label, [string]$Url) {

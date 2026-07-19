@@ -78,6 +78,12 @@
       "prompt": "Я сбросил недельный Codex лимит на сайте OpenAI, но Claude Code продолжает получать старый 429 rate-limited until через несколько дней. Почини сам stale lock, без fallback на другую модель.",
       "expected_output": "Proves that accounts.extra.model_rate_limits still contains the old quota-origin reset while the user performed an external reset, does not add or change model fallbacks, makes a successful proxy reset-credit clear persisted and scheduler-cached model cooldown state immediately, allows a bounded same-model reprobe one minute after rate_limited_at for external site resets, re-closes the probe window on a fresh real upstream 429, clears the stale entry after a successful fresh Codex snapshot, adds boundary and mutation-killing tests, rebuilds only sub2api, and verifies Claude Code gpt-5.6-sol success with usage_logs.model_mapping_chain gpt-5.6-sol->gpt-5.6-sol plus an empty model_rate_limits object.",
       "files": []
+    },
+    {
+      "id": 14,
+      "prompt": "Claude Code в Hyper-V VM 25 минут ретраил Unable to connect to API (ConnectionRefused): WSL получил poweroff уже после успешного logon-autostart. Сделай умный автохил, чтобы это больше не требовало ручного запуска WSL.",
+      "expected_output": "Proves the outage timeline from the Claude session, Linux journal, Docker start times, Windows portproxy, and Scheduled Task state; distinguishes pre-HTTP ConnectionRefused from Headroom/sub2api/provider errors; keeps one elevated Scheduled Task owner; replaces the logon-only action with a health-first ensure script triggered at logon and every minute; configures at least three one-minute task retries with IgnoreNew; performs no container restart on a healthy check; on failure wakes WSL, restores compose and the dynamic Hyper-V bridge through the canonical start script, verifies same-host and VM health, records recovery_started and recovered events, adds a fail-closed contract test, and proves a controlled WSL/bridge outage recovers without manual intervention.",
+      "files": []
     }
   ]
 }

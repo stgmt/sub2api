@@ -6,6 +6,8 @@ param(
   [string]$Distro = "Ubuntu-24.04",
   [int]$HeadroomPort = 8787,
   [int]$Sub2apiPort = 18081,
+  [int]$WatchdogIntervalMinutes = 1,
+  [int]$TaskRestartCount = 3,
   [string]$HyperVVmName = "",
   [string]$HyperVVmSshUser = "",
   [string]$HyperVVmSshKey = "",
@@ -25,9 +27,9 @@ function Write-InstallLog {
   Add-Content -Path $LogPath -Value ("[{0}] {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $Message)
 }
 
-$startScript = Join-Path $ScriptDir "start-sub2api-proxy-stack.ps1"
-if (-not (Test-Path -LiteralPath $startScript)) {
-  throw "Start script not found: $startScript"
+$ensureScript = Join-Path $ScriptDir "ensure-sub2api-proxy-stack.ps1"
+if (-not (Test-Path -LiteralPath $ensureScript)) {
+  throw "Self-heal script not found: $ensureScript"
 }
 
 Write-InstallLog "installing scheduled task '$TaskName' for $env:USERNAME"
@@ -53,12 +55,12 @@ if ($startupDir -and (Test-Path -LiteralPath $startupDir)) {
     }
 }
 
-$startArgs = @(
+$ensureArgs = @(
   "-NoProfile",
   "-ExecutionPolicy",
   "Bypass",
   "-File",
-  "`"$startScript`"",
+  "`"$ensureScript`"",
   "-ProjectName",
   "`"$ProjectName`"",
   "-Distro",
@@ -69,48 +71,56 @@ $startArgs = @(
   ([string]$Sub2apiPort)
 )
 if ($RepoRoot.Trim()) {
-  $startArgs += @("-RepoRoot", "`"$RepoRoot`"")
+  $ensureArgs += @("-RepoRoot", "`"$RepoRoot`"")
 }
 if ($ProfileDir.Trim()) {
-  $startArgs += @("-ProfileDir", "`"$ProfileDir`"")
+  $ensureArgs += @("-ProfileDir", "`"$ProfileDir`"")
 }
 if ($HyperVVmName.Trim()) {
-  $startArgs += @("-HyperVVmName", "`"$HyperVVmName`"")
+  $ensureArgs += @("-HyperVVmName", "`"$HyperVVmName`"")
 }
 if ($HyperVVmSshUser.Trim()) {
-  $startArgs += @("-HyperVVmSshUser", "`"$HyperVVmSshUser`"")
+  $ensureArgs += @("-HyperVVmSshUser", "`"$HyperVVmSshUser`"")
 }
 if ($HyperVVmSshKey.Trim()) {
-  $startArgs += @("-HyperVVmSshKey", "`"$HyperVVmSshKey`"")
+  $ensureArgs += @("-HyperVVmSshKey", "`"$HyperVVmSshKey`"")
 }
 if ($HyperVSwitchName.Trim()) {
-  $startArgs += @("-HyperVSwitchName", "`"$HyperVSwitchName`"")
+  $ensureArgs += @("-HyperVSwitchName", "`"$HyperVSwitchName`"")
 }
 
 $action = New-ScheduledTaskAction `
   -Execute "powershell.exe" `
-  -Argument ($startArgs -join " ")
+  -Argument ($ensureArgs -join " ")
 
-$trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+$logonTrigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+$watchdogTrigger = New-ScheduledTaskTrigger `
+  -Once `
+  -At (Get-Date).AddMinutes($WatchdogIntervalMinutes) `
+  -RepetitionInterval (New-TimeSpan -Minutes $WatchdogIntervalMinutes) `
+  -RepetitionDuration (New-TimeSpan -Days 3650)
+$triggers = @($logonTrigger, $watchdogTrigger)
 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest
 $settings = New-ScheduledTaskSettingsSet `
   -MultipleInstances IgnoreNew `
   -StartWhenAvailable `
   -AllowStartIfOnBatteries `
   -DontStopIfGoingOnBatteries `
+  -RestartCount $TaskRestartCount `
+  -RestartInterval (New-TimeSpan -Minutes 1) `
   -ExecutionTimeLimit (New-TimeSpan -Minutes 15)
 
 Register-ScheduledTask `
   -TaskName $TaskName `
   -Action $action `
-  -Trigger $trigger `
+  -Trigger $triggers `
   -Principal $principal `
   -Settings $settings `
-  -Description "Starts the single WSL Docker compose stack for Headroom + sub2api Codex proxy and self-heals stale WSL VHDX attach locks." `
+  -Description "Health-checks and self-heals the single WSL Docker compose stack, Hyper-V bridge, and stale WSL VHDX attach locks." `
   -Force | Out-Null
 
 $task = Get-ScheduledTask -TaskName $TaskName
 $info = Get-ScheduledTaskInfo -TaskName $TaskName
-Write-InstallLog "installed: runLevel=$($task.Principal.RunLevel) logonType=$($task.Principal.LogonType) lastResult=$($info.LastTaskResult)"
+Write-InstallLog "installed: runLevel=$($task.Principal.RunLevel) logonType=$($task.Principal.LogonType) triggers=$($task.Triggers.Count) restartCount=$($task.Settings.RestartCount) lastResult=$($info.LastTaskResult)"
 
 $task | Select-Object TaskName,State,@{Name="RunLevel";Expression={$_.Principal.RunLevel}},@{Name="LogonType";Expression={$_.Principal.LogonType}},@{Name="Execute";Expression={$_.Actions.Execute}},@{Name="Arguments";Expression={$_.Actions.Arguments}}

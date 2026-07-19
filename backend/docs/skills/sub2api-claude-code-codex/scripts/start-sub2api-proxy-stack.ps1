@@ -67,7 +67,7 @@ try {
   $MutexHeld = $Mutex.WaitOne([TimeSpan]::FromSeconds(1))
   if (-not $MutexHeld) {
     Add-Content -Path $LogPath -Value ("[{0}] another autostart instance is already running; exiting" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"))
-    exit 0
+    return
   }
 } catch {
   Add-Content -Path $LogPath -Value ("[{0}] mutex acquisition failed: {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $_.Exception.Message)
@@ -85,6 +85,42 @@ function Write-Utf8NoBom {
     [string]$Content
   )
   [IO.File]::WriteAllText($Path, $Content, [Text.UTF8Encoding]::new($false))
+}
+
+function Sync-SelfHealScheduledTask {
+  $taskName = "Sub2API Codex Proxy Stack Autostart"
+  $installer = Join-Path $ScriptDir "install-sub2api-autostart-task.ps1"
+  if (-not (Test-Path -LiteralPath $installer)) { return }
+
+  try {
+    $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    $actionUsesEnsure = $task -and ([string]$task.Actions.Arguments).Contains("ensure-sub2api-proxy-stack.ps1")
+    $hasRepeatingTrigger = $task -and (@($task.Triggers | Where-Object {
+      $_.Repetition -and $_.Repetition.Interval -eq "PT1M"
+    }).Count -gt 0)
+    $hasRetryPolicy = $task -and ([int]$task.Settings.RestartCount -ge 3)
+    if ($actionUsesEnsure -and $hasRepeatingTrigger -and $hasRetryPolicy) { return }
+
+    Write-StackLog "upgrading legacy logon-only autostart task to repeating self-heal"
+    $installParams = @{
+      TaskName = $taskName
+      RepoRoot = $RepoRoot
+      ProfileDir = $Root
+      ProjectName = $ProjectName
+      Distro = $Distro
+      HeadroomPort = $HeadroomPort
+      Sub2apiPort = $Sub2apiPort
+      HyperVVmName = $HyperVVmName
+      HyperVVmSshUser = $HyperVVmSshUser
+      HyperVVmSshKey = $HyperVVmSshKey
+      HyperVSwitchName = $HyperVSwitchName
+    }
+    $output = & $installer @installParams 2>&1
+    if ($output) { Add-Content -Path $LogPath -Value ($output -join [Environment]::NewLine) }
+    Write-StackLog "scheduled task self-heal upgrade completed"
+  } catch {
+    Write-StackLog "scheduled task self-heal upgrade deferred: $($_.Exception.Message)"
+  }
 }
 
 $script:LastWslAttachSelfHealAt = [DateTime]::MinValue
@@ -400,6 +436,7 @@ print("UPDATED_BASE_URL=" + base_url)
 
 try {
   Write-StackLog "starting sub2api-codex proxy stack"
+  Sync-SelfHealScheduledTask
 
   $deadline = (Get-Date).AddSeconds($DockerWaitSeconds)
   do {
@@ -473,7 +510,7 @@ try {
         $sub2api = Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 "$sub2apiUrl/health"
         if ($headroom.StatusCode -eq 200 -and $sub2api.StatusCode -eq 200) {
           Write-StackLog "health ok: headroom=$headroomUrl sub2api=$sub2apiUrl"
-          exit 0
+          return
         }
       } catch {
         Write-StackLog "health pending via ${headroomUrl}: $($_.Exception.Message)"

@@ -231,6 +231,8 @@ Headroom Docker stack:
 
 If a native Linux Claude window reports `Unable to connect to API (ConnectionRefused)` and names an address on the Hyper-V Default Switch, compare four live values before restarting containers: the address in that Claude host's `~/.claude/settings.json`, the current `vEthernet (Default Switch)` IPv4, the current VM IPv4, and the current WSL `eth0` IPv4. Hyper-V Default Switch and WSL addresses can both change after a reboot. A healthy `headroom-sub2api` container does not repair a stale Windows `portproxy` by itself.
 
+If Linux `journalctl` records `systemd-logind: The system will power off now` and Docker receives `SIGTERM`, a logon-only Windows task cannot recover the stack: its trigger already completed successfully. The single owner task must call `ensure-sub2api-proxy-stack.ps1` every minute. Healthy checks must be probe-only; a failed same-host or Hyper-V bridge route must wake WSL through the canonical start script, restore compose and dynamic `portproxy`, and emit `recovery_started` followed by `recovered`. `ConnectionRefused` happens before HTTP, so Headroom/sub2api cannot retry or translate it while WSL is down.
+
 Configure `hyperv-bridge.env` and run the single elevated `Sub2API Codex Proxy Stack Autostart` task. Its proof must include one current `v4tov4` entry, a firewall rule restricted to the current VM address, `UPDATED_BASE_URL=...`, and `HYPERV_HEADROOM_HEALTH_OK` from SSH inside the VM. Install `node`, a `python` command (or update hooks to `python3`), and the expected home-level hook runner in the VM itself when project hooks execute there. Restart an already-running Claude process after these changes.
 
 ## Giant non-stream request loops after an empty response
