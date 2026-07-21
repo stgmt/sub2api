@@ -2,56 +2,87 @@
 
 sub2api OpenAI group JSON, Claude model mapping, compact_model_mapping, fallback SQL, and compact-only routing configuration.
 
-## sub2api Group Profile
+## sub2api Mixed-Provider Group Profile
 
-Create or update one OpenAI group named something like:
+Create or update one Claude Code group named something like:
 
 ```text
 codex-gpt56-claude-code
 ```
 
-Use these fields:
+Use these fields. The group is still fronted by the Anthropic-compatible
+`/v1/messages` endpoint, but patched sub2api classifies each requested model at
+request time and forces the right provider platform:
 
 ```json
 {
   "platform": "openai",
   "allow_messages_dispatch": true,
-  "require_oauth_only": true,
+  "require_oauth_only": false,
   "default_mapped_model": "gpt-5.6-sol",
   "messages_dispatch_model_config": {
-    "opus_mapped_model": "gpt-5.6-sol",
-    "sonnet_mapped_model": "gpt-5.6-terra",
-    "haiku_mapped_model": "gpt-5.3-codex-spark",
     "exact_model_mappings": {
-      "claude-opus-4-8": "gpt-5.6-sol",
-      "claude-opus-4-8[1m]": "gpt-5.6-sol",
-      "claude-opus-4-7": "gpt-5.6-sol",
-      "claude-sonnet-4-6": "gpt-5.6-terra",
-      "claude-haiku-4-5": "gpt-5.3-codex-spark",
-      "claude-haiku-4-5-20251001": "gpt-5.3-codex-spark",
-      "opus": "gpt-5.6-sol",
-      "sonnet": "gpt-5.6-terra",
-      "haiku": "gpt-5.3-codex-spark",
       "gpt-5.3-codex-spark": "gpt-5.3-codex-spark",
       "gpt-5.6": "gpt-5.6-sol",
       "gpt-5.6-sol": "gpt-5.6-sol",
       "gpt-5.6-terra": "gpt-5.6-terra",
+      "gpt-5.6-terra-medium": "gpt-5.6-terra",
       "gpt-5.6-luna": "gpt-5.6-luna",
       "gpt-5.5[400k]": "gpt-5.5",
       "gpt-5.5": "gpt-5.5"
     },
-    "model_fallbacks": {
-      "gpt-5.3-codex-spark": ["gpt-5.6-luna"],
-      "claude-haiku-*": ["gpt-5.6-luna"],
-      "haiku": ["gpt-5.6-luna"],
-      "gpt-5.6-terra-medium": ["gpt-5.6-sol-medium"],
-      "gpt-5.6-luna": ["gpt-5.3-codex-spark"]
-    }
+    "model_fallbacks": {}
+  },
+  "models_list_config": {
+    "enabled": true,
+    "explicit": true,
+    "models": [
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+      "gpt-5.6-terra-medium",
+      "gpt-5.6",
+      "gpt-5.3-codex-spark",
+      "gpt-5.3-codex-spark-fast",
+      "gpt-5.3-codex",
+      "gpt-5.3-codex-fast",
+      "gpt-5.5",
+      "gpt-5.5-fast",
+      "gpt-5.4",
+      "gpt-5.4-fast",
+      "gpt-5.4-mini",
+      "gpt-5.4-mini-fast",
+      "gpt-5.2",
+      "gpt-5.2-fast",
+      "qwen3.8-max-preview",
+      "qwen3.7-max",
+      "qwen3.7-plus",
+      "qwen3.6-flash",
+      "glm-5.2",
+      "deepseek-v4-pro",
+      "fable",
+      "opus",
+      "sonnet",
+      "haiku",
+      "claude-fable-5",
+      "claude-opus-4-8",
+      "claude-opus-4-7",
+      "claude-sonnet-5",
+      "claude-sonnet-4-6",
+      "claude-haiku-4-5",
+      "claude-haiku-4-5-20251001"
+    ]
   }
 }
 ```
 
-The `gpt-5.6-terra-medium -> gpt-5.6-sol-medium` fallback depends on patched sub2api preserving effort suffixes in `model_fallbacks` while normalizing the routing model for account selection. Without that patch, Sol fallback can silently inherit the wrong parent effort.
+Routing contract:
+
+- GPT/Codex IDs route to the OpenAI/Codex OAuth account and may use GPT effort suffixes such as `-medium`.
+- Alibaba Token Plan IDs (`qwen3.8-max-preview`, `qwen3.7-max`, `qwen3.7-plus`, `qwen3.6-flash`, `glm-5.2`, `deepseek-v4-pro`) route to a dedicated account with `platform='anthropic'`, `base_url='https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic'`, and Bearer auth.
+- Claude/Fable names (`fable`, `opus`, `sonnet`, `haiku`, `claude-*`) route only to real Anthropic-compatible accounts. Do not map them to GPT. If no such account is configured, a fast `404 model_not_found/no available accounts` with `fallback_used=false` is correct.
+- Keep normal message `model_fallbacks` empty unless the user explicitly asks for model fallback. Compact fallback is configured on the OpenAI/Codex account separately.
+- Token Plan pricing may be absent from public pricing catalogs. The fork uses an explicit unknown-cost fallback for the listed Token Plan chat models so usage accounting succeeds without logging `pricing not found`.
 
 If exact admin API endpoints differ across sub2api versions, use the admin UI and match these field names. The important fields in current sub2api are `allow_messages_dispatch`, `require_oauth_only`, `default_mapped_model`, and `messages_dispatch_model_config`.
 

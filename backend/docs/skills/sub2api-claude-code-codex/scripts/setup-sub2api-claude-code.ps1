@@ -23,7 +23,7 @@ param(
   [string]$HeadroomVersion = "0.31.0",
   [string]$HeadroomPythonVersion = "3.12",
   [string]$HeadroomGitRepo = "https://github.com/stgmt/headroom.git",
-  [string]$HeadroomGitRef = "eb8ae8009da5facea3b0cd52f8ab1b1a0616636e",
+  [string]$HeadroomGitRef = "7077f5589b528a6f16ca43fcddad54c86bbc85d5",
   [string]$HeadroomRustToolchain = "1.88.0",
   [ValidateSet("auto", "cpu", "cuda")]
   [string]$HeadroomAccelerator = "auto",
@@ -31,6 +31,10 @@ param(
   [string]$HeadroomTorchIndexUrl = "https://download.pytorch.org/whl/cu128",
   [string]$HeadroomSavingsProfile = "agent-90",
   [string]$HeadroomTargetRatio = "0.10",
+  [ValidateSet("auto", "0", "1")]
+  [string]$HeadroomForceKompress = "auto",
+  [ValidateSet("auto", "0", "1")]
+  [string]$HeadroomDisableKompress = "auto",
   [int]$HeadroomRequestsPerMinute = 6000,
   [int]$HeadroomTokensPerMinute = 100000000,
   [string]$RtkVersion = "v0.42.4",
@@ -236,6 +240,7 @@ function Write-DotEnv([System.Collections.IDictionary]$Map, [string]$Path) {
     "HEADROOM_RPM",
     "HEADROOM_TPM",
     "HEADROOM_FORCE_KOMPRESS",
+    "HEADROOM_DISABLE_KOMPRESS",
     "HEADROOM_ACCURACY_GUARD",
     "HEADROOM_CODE_AWARE_ENABLED",
     "HEADROOM_CONTEXT_TOOL",
@@ -336,6 +341,16 @@ $ClaudeBaseUrl = if ($BaseUrl.Trim()) { $BaseUrl.Trim().TrimEnd("/") } else { "h
 $resolvedHeadroomAccelerator = Resolve-HeadroomAccelerator $HeadroomAccelerator
 $headroomDockerTarget = if ($resolvedHeadroomAccelerator -eq "cuda") { "gpu" } else { "cpu" }
 $headroomKompressBackend = if ($resolvedHeadroomAccelerator -eq "cuda") { "pytorch" } else { "auto" }
+$resolvedHeadroomForceKompress = if ($HeadroomForceKompress -eq "auto") {
+  if ($resolvedHeadroomAccelerator -eq "cuda") { "1" } else { "0" }
+} else {
+  $HeadroomForceKompress
+}
+$resolvedHeadroomDisableKompress = if ($HeadroomDisableKompress -eq "auto") {
+  if ($resolvedHeadroomAccelerator -eq "cuda") { "0" } else { "1" }
+} else {
+  $HeadroomDisableKompress
+}
 $resolvedRtkStateRoot = if ($RtkStateRoot.Trim()) {
   $RtkStateRoot.Trim()
 } elseif ((Test-IsWindowsHost) -and $env:LOCALAPPDATA) {
@@ -372,7 +387,8 @@ Set-DotEnvValue $envMap "HEADROOM_SAVINGS_PROFILE" $HeadroomSavingsProfile
 Set-DotEnvValue $envMap "HEADROOM_TARGET_RATIO" $HeadroomTargetRatio
 Set-DotEnvValue $envMap "HEADROOM_RPM" ([string]$HeadroomRequestsPerMinute)
 Set-DotEnvValue $envMap "HEADROOM_TPM" ([string]$HeadroomTokensPerMinute)
-Set-DotEnvValue $envMap "HEADROOM_FORCE_KOMPRESS" "1"
+Set-DotEnvValue $envMap "HEADROOM_FORCE_KOMPRESS" $resolvedHeadroomForceKompress
+Set-DotEnvValue $envMap "HEADROOM_DISABLE_KOMPRESS" $resolvedHeadroomDisableKompress
 Set-DotEnvValue $envMap "HEADROOM_ACCURACY_GUARD" "strict"
 Set-DotEnvValue $envMap "HEADROOM_CODE_AWARE_ENABLED" "1"
 Set-DotEnvValue $envMap "HEADROOM_CONTEXT_TOOL" "rtk"

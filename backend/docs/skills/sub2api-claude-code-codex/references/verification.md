@@ -110,7 +110,7 @@ Expected for the current advisory subagent profile:
 general-purpose.md / Explore.md / workflow-subagent.md frontmatter model: gpt-5.6-terra-medium and effort: medium
 worker/Claude command line includes -Model "gpt-5.6-terra-medium" or --model gpt-5.6-terra-medium
 usage_logs rows show requested_model=gpt-5.6-terra-medium, upstream_model=gpt-5.6-terra, reasoning_effort=medium
-fallback proof for empty/unavailable Terra-medium turns: usage_logs should show requested_model=gpt-5.6-terra-medium, model_mapping_chain including gpt-5.6-sol, and reasoning_effort=medium after fallback; direct alias probe `claude --print --model gpt-5.6-sol-mid ...` should record upstream_model=gpt-5.6-sol and reasoning_effort=medium
+no hidden normal fallback proof for empty/unavailable Terra-medium turns: usage_logs should show requested_model=gpt-5.6-terra-medium and no unsolicited switch to Sol. If the user explicitly enables a fallback later, also prove the fallback alias preserves `reasoning_effort=medium`; otherwise keep `messages_dispatch_model_config.model_fallbacks` empty.
 no global Agent-blocking PreToolUse/SubagentStart/SubagentStop hook is installed unless the user explicitly requested a hard cap
 ```
 

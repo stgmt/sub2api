@@ -26,15 +26,14 @@ Claude base URL: http://127.0.0.1:8787
 Headroom upstream: http://sub2api:8080 inside the Docker network
 Direct sub2api URL: http://127.0.0.1:18081 for admin UI, diagnostics, and non-Claude clients only
 Docker-in-WSL fallback: if Windows cannot reach 127.0.0.1:8787 but WSL/Docker can, publish Headroom on 0.0.0.0 and point Claude Code to http://<wsl-primary-ip>:8787; do not use :18081 as the normal Claude Code endpoint
-Upstream platform: OpenAI/Codex OAuth
+Upstream platforms: OpenAI/Codex OAuth for GPT/Codex models, Alibaba Token Plan through its Anthropic-compatible endpoint for qwen*/glm*/deepseek-v4-pro, and optional real Anthropic-compatible accounts for Claude/Fable aliases
 Claude Code model: gpt-5.6-sol
-Claude Code small-fast model: gpt-5.3-codex-spark with normal model_fallbacks to gpt-5.6-luna
-Claude Code default Haiku model: gpt-5.6-terra-medium while native Spark is quota-limited, with normal model_fallbacks to gpt-5.6-sol-medium
-Claude Code subagent overrides: gpt-5.6-terra-medium with effort medium while native Spark is quota-limited, with empty-output fallback to gpt-5.6-sol-medium
+Claude Code small-fast model: gpt-5.3-codex-spark with compact-only fallback to gpt-5.6-luna
+Claude Code default Haiku model: gpt-5.6-terra-medium while native Spark is quota-limited
+Claude Code subagent overrides: gpt-5.6-terra-medium with effort medium while native Spark is quota-limited
 Upstream main model: gpt-5.6-sol
-Claude Opus mapping: gpt-5.6-sol
-Claude Sonnet mapping: gpt-5.6-terra
-Claude Haiku mapping: gpt-5.3-codex-spark with normal model_fallbacks to gpt-5.6-luna
+Claude/Fable aliases: passthrough to Anthropic-compatible accounts only; if no real account is configured, fail fast without GPT fallback
+Alibaba Token Plan aliases: qwen3.8-max-preview, qwen3.7-max, qwen3.7-plus, qwen3.6-flash, glm-5.2, deepseek-v4-pro
 Upstream compact model: gpt-5.3-codex-spark via account compact_model_mapping
 Compact model fallback: gpt-5.6-luna via account compact_model_fallbacks when Spark is rate-limited, unavailable, unknown/unsupported, or returns a service-unavailable class error
 Manual /compact routing: patched sub2api detects Claude Code compact prompts on /v1/messages and applies account compact_model_mapping
@@ -44,6 +43,7 @@ Compact meta-intent sanitizer: before final merge, patched sub2api strips interm
 Compact recovery hook: optional Claude Code PreCompact/PostCompact/UserPromptSubmit hook writes a small recovery state and injects it once after compaction so the agent does not treat the compact request as the real user task
 Reasoning: main GPT-5.6 max should reach upstream/usage as max; delegated Terra subagents use medium by frontmatter unless explicitly raised
 Official GPT-5.6 context window: 1,050,000 tokens with 128,000 max output for Sol/Terra/Luna.
+Official GPT-5.3-Codex-Spark context window: 128,000 tokens and text-only during the research preview; official OpenAI launch notes also describe separate rate limits and possible temporary queuing under high demand.
 Official Claude context windows: Fable 5, Opus 4.8, and Sonnet 5 are 1M; Haiku 4.5 is 200k.
 Official context docs checked on 2026-07-10: OpenAI https://developers.openai.com/api/docs/models and Anthropic https://platform.claude.com/docs/en/about-claude/models/overview
 Default Claude Code client compact/display target for this local proxy: CLAUDE_CODE_MAX_CONTEXT_TOKENS=370000
@@ -59,14 +59,14 @@ Stale fake limit recovery: issue #1 is fixed in the fork. When fresh Codex usage
 OpenAI OAuth 403 scope: the patched image uses adaptive consecutive-failure cooldowns `2s -> 15s -> 1m -> 5m`, gives `/v1/messages` one bounded same-request retry after the first cooldown, and clears only the OAuth 403 counter/temp state after a successful OpenAI response. It must not set `accounts.status='error'` or `schedulable=false`, and must not clear unrelated model/quota rate limits.
 OpenAI OAuth 401 recovery: refreshed credentials must restore both `status='active'` and `schedulable=true`. The fork patches `ClearAccountError` so `apply-oauth-credentials` does not leave a recovered Codex account invisible to scheduling.
 Persistence warning: do not delete `${SUB2API_STATE_ROOT:-./data}` unless the user explicitly asks to wipe Headroom memory/embeddings and sub2api state. Use `docker compose up -d --build` or recreate individual services without deleting the host state root.
-Model availability: trust request-time probes over `/v1/models`. On 2026-07-10, the local proxy returned 200 for `gpt-5.6-sol` and `gpt-5.6-terra`. The current small-fast/Haiku chain is `gpt-5.3-codex-spark -> gpt-5.6-luna`; direct `gpt-5.6-luna` requests fall back to `gpt-5.3-codex-spark` when Luna is unavailable.
+Model availability: trust request-time probes over `/v1/models`. On 2026-07-22, the local mixed-provider profile returned 34 models through Headroom, including GPT/Codex, Alibaba Token Plan, and Claude/Fable passthrough names. Live probes showed `gpt-5.6-terra-medium` routing to the OpenAI/Codex account, `qwen3.8-max-preview` routing to the Alibaba Token Plan account, and `opus` failing fast with no GPT fallback because no real Anthropic-compatible account was configured.
 ```
 
 Subagent fan-out profile:
 
 - User-level override paths: `%USERPROFILE%\.claude\agents\general-purpose.md`, `Explore.md`, and `workflow-subagent.md`.
-- Current override: `model: gpt-5.6-terra-medium` plus `effort: medium`. Keep this while native `gpt-5.3-codex-spark` is quota-limited; do not switch all subagents to Sol/max unless the user explicitly wants maximum quality over quota safety. Configure normal messages `model_fallbacks` so Terra-medium falls back to `gpt-5.6-sol-medium` after empty-output/unavailable failures.
-- Current User env pairing: `ANTHROPIC_SMALL_FAST_MODEL=gpt-5.3-codex-spark`, `ANTHROPIC_DEFAULT_HAIKU_MODEL=gpt-5.6-terra-medium`, and `CLAUDE_CODE_SUBAGENT_MODEL=gpt-5.6-terra-medium`. This keeps compact/small-fast on Spark fallback logic but prevents subagents/default-Haiku paths from hitting Spark quota and prevents delegated/default-Haiku paths from inheriting parent Sol/max; Sol fallback should be `medium`, not inherited `medium`.
+- Current override: `model: gpt-5.6-terra-medium` plus `effort: medium`. Keep this while native `gpt-5.3-codex-spark` is quota-limited; do not switch all subagents to Sol/max unless the user explicitly wants maximum quality over quota safety. Keep normal message fallbacks empty unless the user explicitly asks for fallback behavior.
+- Current User env pairing: `ANTHROPIC_SMALL_FAST_MODEL=gpt-5.3-codex-spark`, `ANTHROPIC_DEFAULT_HAIKU_MODEL=gpt-5.6-terra-medium`, and `CLAUDE_CODE_SUBAGENT_MODEL=gpt-5.6-terra-medium`. This keeps compact/small-fast on Spark fallback logic but prevents subagents/default-Haiku paths from hitting Spark quota and prevents delegated/default-Haiku paths from inheriting parent Sol/max. Normal message fallbacks stay empty unless the user explicitly requests one.
 - Advisory prompt guardrails in that file: no more than 10 sibling subagents for one task, and no agent chains deeper than two subagent levels below the lead session.
 - Do not install a global `PreToolUse` / `SubagentStart` / `SubagentStop` hook that blocks Agent calls unless the user explicitly asks for a hard guard. The current machine policy is non-blocking/advisory.
 - Official Claude Code dynamic workflows still have their own runtime limits: up to 16 concurrent agents and 1000 total agents per workflow run. `workflowSizeGuideline=small` only tells Claude to aim smaller; it is not an enforced concurrency or depth limit. Do not rely on any claimed built-in depth cap as protection against runaway fan-out: local sessions have shown one parent task line reaching hundreds of spawned descendants.
@@ -77,7 +77,7 @@ Subagent fan-out profile:
 Fast compact profile:
 
 - Keep the main Claude Code model on `gpt-5.6-sol` for full-power work.
-- Keep `ANTHROPIC_SMALL_FAST_MODEL=gpt-5.3-codex-spark` for compact/small-fast work, with group `model_fallbacks` from `gpt-5.3-codex-spark` to `gpt-5.6-luna`. While native Spark is quota-limited, keep `ANTHROPIC_DEFAULT_HAIKU_MODEL=gpt-5.6-terra-medium` and `CLAUDE_CODE_SUBAGENT_MODEL=gpt-5.6-terra-medium` for delegated/default-Haiku paths, with `gpt-5.6-terra-medium -> gpt-5.6-sol-medium` fallback. Do not route main Opus/full-power work to Spark.
+- Keep `ANTHROPIC_SMALL_FAST_MODEL=gpt-5.3-codex-spark` for compact/small-fast work, with compact-only fallback from `gpt-5.3-codex-spark` to `gpt-5.6-luna`. Spark is officially 128k and text-only, so long/image-bearing compacts require the Luna fallback. While native Spark is quota-limited, keep `ANTHROPIC_DEFAULT_HAIKU_MODEL=gpt-5.6-terra-medium` and `CLAUDE_CODE_SUBAGENT_MODEL=gpt-5.6-terra-medium` for delegated/default-Haiku paths. Do not route main Opus/full-power work to Spark.
 - In Claude Code 2.1.202, manual `/compact` still uses the session main model (`context.options.mainLoopModel`) and ignores `ANTHROPIC_SMALL_FAST_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `CLAUDE_CODE_SUBAGENT_MODEL`, and the reverse-engineered `CLAUDE_CONTEXT_COLLAPSE_MODEL` for the legacy compact path.
 - Use the patched local sub2api image plus the OpenAI account `compact_model_mapping` to reroute Claude Code compact prompts server-side. The verified 5.5-era live result was `requested_model=gpt-5.5`, `upstream_model=gpt-5.3-codex-spark`, `input_tokens=105453`, `output_tokens=4876`, `duration_ms=9427`; before the patch the same controlled compact used the main model for about `141652 ms`. For the 5.6 profile, add `gpt-5.6-sol` and `gpt-5.6-terra` to the compact mapping as aliases to Spark.
 - Current fork behavior for oversized compacts: first try the compact prompt as one request on the mapped compact model. If upstream returns `response.failed` with `context_length_exceeded`, the proxy logs `openai_messages.compact_context_length_fallback`, splits the transcript into large chunks, summarizes each chunk with `gpt-5.3-codex-spark`, recursively merges the summaries, strips compact-maintenance meta-intent before final merge, retries with smaller merge groups when merge overflows, splits a single oversized intermediate summary if needed, and emits a normal Anthropic Messages response. If Spark is rate-limited/unavailable/unknown/unsupported, either before chunking or during chunk/merge fallback, the proxy logs `openai_messages.compact_model_unavailable_fallback` or `openai_messages.compact_chunk_model_unavailable_switching` and continues compacting on `gpt-5.6-luna`. If the upstream still refuses the final merge at the minimum safe group size, it emits a deterministic emergency `# Compact Capsule` instead of surfacing a 502. Live verification on 2026-07-08: usage row `4646` had `requested_model=gpt-5.5`, `upstream_model=gpt-5.3-codex-spark`, `input_tokens=225195`, `output_tokens=12864`, `duration_ms=42177`, `model_mapping_chain=gpt-5.5→gpt-5.3-codex-spark`; later row `4996` after recursive fallback had `requested_model=gpt-5.5`, `upstream_model=gpt-5.3-codex-spark`, `input_tokens=206778`, `output_tokens=8819`, `duration_ms=18792`.

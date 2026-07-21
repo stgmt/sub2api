@@ -985,8 +985,12 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 	// Get available models from account configurations for the selected group platform.
 	availableModels := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
 	if apiKey != nil && apiKey.Group != nil && apiKey.Group.CustomModelsListEnabled() {
-		fallbackModels := defaultModelIDsForPlatform(platform)
-		availableModels = filterModelsByCustomList(customModelsListSource(platform, availableModels, fallbackModels), fallbackModels, apiKey.Group.ModelsListConfig.Models)
+		if apiKey.Group.ModelsListConfig.Explicit {
+			availableModels = normalizeExplicitCustomModelsList(apiKey.Group.ModelsListConfig.Models)
+		} else {
+			fallbackModels := defaultModelIDsForPlatform(platform)
+			availableModels = filterModelsByCustomList(customModelsListSource(platform, availableModels, fallbackModels), fallbackModels, apiKey.Group.ModelsListConfig.Models)
+		}
 		writeCustomModelsList(c, platform, availableModels)
 		return
 	}
@@ -1075,6 +1079,26 @@ func customModelsListSource(platform string, availableModels, fallbackModels []s
 		return mergeModelIDs(availableModels, fallbackModels)
 	}
 	return availableModels
+}
+
+func normalizeExplicitCustomModelsList(selectedModels []string) []string {
+	if len(selectedModels) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(selectedModels))
+	models := make([]string, 0, len(selectedModels))
+	for _, model := range selectedModels {
+		model = strings.TrimSpace(model)
+		if model == "" {
+			continue
+		}
+		if _, ok := seen[model]; ok {
+			continue
+		}
+		seen[model] = struct{}{}
+		models = append(models, model)
+	}
+	return models
 }
 
 func filterModelsByCustomList(availableModels, fallbackModels, selectedModels []string) []string {

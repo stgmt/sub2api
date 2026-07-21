@@ -43,6 +43,10 @@ var (
 		Mode:                    "chat",
 		SupportsPromptCaching:   true,
 	}
+	tokenPlanPassthroughFallbackPricing = &LiteLLMModelPricing{
+		LiteLLMProvider: "alibaba-token-plan",
+		Mode:            "chat",
+	}
 )
 
 // LiteLLMModelPricing LiteLLM价格数据结构
@@ -605,7 +609,30 @@ func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing 
 		return s.matchOpenAIModel(lookupCandidates[0])
 	}
 
+	// 6. Alibaba Token Plan passthrough models may not exist in public LiteLLM
+	// pricing yet. Keep usage accounting alive without pretending they are
+	// OpenAI/Anthropic-priced models.
+	if isTokenPlanPassthroughModel(lookupCandidates[0]) {
+		logger.With(zap.String("component", "service.pricing")).
+			Info(fmt.Sprintf("[Pricing] Token Plan passthrough fallback matched %s -> unknown-cost", lookupCandidates[0]))
+		return tokenPlanPassthroughFallbackPricing
+	}
+
 	return nil
+}
+
+func isTokenPlanPassthroughModel(model string) bool {
+	switch strings.ToLower(strings.TrimSpace(model)) {
+	case "qwen3.8-max-preview",
+		"qwen3.7-max",
+		"qwen3.7-plus",
+		"qwen3.6-flash",
+		"glm-5.2",
+		"deepseek-v4-pro":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *PricingService) buildModelLookupCandidates(modelLower string) []string {

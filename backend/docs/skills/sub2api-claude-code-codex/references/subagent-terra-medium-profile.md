@@ -10,11 +10,11 @@ Use it when installing, repairing, or updating Claude Code agent overrides. The 
 Main Claude Code model: gpt-5.6-sol
 Main effort: user/session controlled; do not persist CLAUDE_CODE_EFFORT_LEVEL
 Small-fast / compact first hop: gpt-5.3-codex-spark
-Small-fast fallback: gpt-5.6-luna
+Compact-only fallback: gpt-5.6-luna
 Default Haiku model while Spark is quota-limited: gpt-5.6-terra-medium
 Delegated subagent model: gpt-5.6-terra-medium
 Delegated subagent effort: medium
-Delegated fallback: gpt-5.6-terra-medium -> gpt-5.6-sol-medium
+Normal message fallback: none unless explicitly requested by the user
 ```
 
 `gpt-5.6-terra-medium` is an intentional model-effort alias. Patched sub2api normalizes it to upstream `gpt-5.6-terra` and records `reasoning_effort=medium`. The alias is used to override inherited parent `max` without hard-blocking Agent calls.
@@ -25,7 +25,7 @@ Local A/B on 2026-07-12 used the same Explore-style repository analysis prompt a
 
 Keep `high` and `max` available for explicit user requests or narrow quality-critical tasks. Do not make them the default for broad delegated fan-out.
 
-Do not use Spark as the default delegated agent while native Spark is quota-limited. Spark remains the compact/small-fast first hop, with Luna as fallback. Prior Explore-style probes showed Spark/Luna could fail or route away under repository-scale context, so Terra medium is the safer delegated-agent default.
+Do not use Spark as the default delegated agent while native Spark is quota-limited. Spark remains the compact/small-fast first hop, with Luna as compact-only fallback. Officially Spark is text-only with a 128k context window, so Terra medium is the safer delegated-agent default for repository-scale context.
 
 ## Where To Set It
 
@@ -67,15 +67,7 @@ E:\repos\lm-saas\.claude\agents\agent-marketplace-agent.md
 
 Do not invent project-specific agent bodies globally. If the file exists, patch its frontmatter. If it is missing, create it only when the project/task explicitly owns that agent.
 
-In sub2api group config, preserve the effort alias in normal fallback config:
-
-```json
-{
-  "model_fallbacks": {
-    "gpt-5.6-terra-medium": ["gpt-5.6-sol-medium"]
-  }
-}
-```
+In sub2api group config, keep normal `model_fallbacks` empty unless the user explicitly asks for fallback behavior. This keeps provider/entitlement bugs visible instead of hiding them behind Sol.
 
 ## If Overrides Are Missing
 
@@ -104,14 +96,6 @@ reasoning_effort=medium
 Expected `workflow-subagent` proof is the same.
 
 For `general-purpose`, direct `claude --agent general-purpose` may not prove the real Agent tool path in some Claude Code builds. Launch a real `Agent(...)` tool call from Claude Code and inspect `usage_logs` for `requested_model=gpt-5.6-terra-medium` and `reasoning_effort=medium`.
-
-Fallback proof for an empty/unavailable Terra turn should show a chain containing `gpt-5.6-sol` while preserving medium effort:
-
-```text
-requested_model=gpt-5.6-terra-medium
-model_mapping_chain includes gpt-5.6-sol
-reasoning_effort=medium
-```
 
 ## Future GPT-5.7 Migration
 

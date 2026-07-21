@@ -1,6 +1,6 @@
 {
   "name": "sub2api-claude-code-codex-fullpower",
-  "last_updated": "2026-07-18",
+  "last_updated": "2026-07-22",
   "proxy": {
     "base_url": "http://127.0.0.1:8787",
     "chain": "Claude Code -> Headroom 127.0.0.1:8787 -> Docker DNS http://sub2api:8080 -> sub2api",
@@ -10,7 +10,7 @@
       "docker_image": "headroom-sub2api:0.31.0",
       "fork": "https://github.com/stgmt/headroom",
       "git_repo": "https://github.com/stgmt/headroom.git",
-      "git_ref": "eb8ae8009da5facea3b0cd52f8ab1b1a0616636e",
+      "git_ref": "7077f5589b528a6f16ca43fcddad54c86bbc85d5",
       "rust_toolchain": "1.88.0",
       "accelerator": "auto detects CUDA; cpu remains the portable fallback",
       "gpu_compose_overlay": "deploy/claude-code-codex-headroom/docker-compose.gpu.yml",
@@ -19,7 +19,7 @@
       "gpu_torch": "2.11.0+cu128",
       "gpu_verification": "torch.cuda.is_available plus Kompress preload backend=pytorch",
       "gpu_benchmark": "benchmark-headroom-kompress",
-      "package": "headroom-ai[proxy,code,relevance,html,spreadsheet,otel,reports,mcp] @ git+https://github.com/stgmt/headroom.git@eb8ae8009da5facea3b0cd52f8ab1b1a0616636e",
+      "package": "headroom-ai[proxy,code,relevance,html,spreadsheet,otel,reports,mcp] @ git+https://github.com/stgmt/headroom.git@7077f5589b528a6f16ca43fcddad54c86bbc85d5",
       "docker_bind": "127.0.0.1:8787->8787",
       "upstream": "http://sub2api:8080",
       "savings_profile": "agent-90",
@@ -119,6 +119,12 @@
       "default_allowed": false,
       "note": "Use as the second fallback after gpt-5.3-codex-spark for Claude Code small-fast/Haiku; direct Luna requests fall back to gpt-5.3-codex-spark when the local OAuth route cannot schedule Luna."
     },
+    "gpt-5.3-codex-spark": {
+      "context_tokens": 128000,
+      "max_output_tokens": 64000,
+      "text_only": true,
+      "note": "Official OpenAI launch notes describe Spark as text-only with a 128k context window and separate research-preview rate limits."
+    },
     "claude-fable-5": {
       "context_tokens": 1000000,
       "max_output_tokens": 128000
@@ -162,7 +168,8 @@
     "account_cooldown_sql": "select id, status, schedulable, concurrency, rate_limited_at, rate_limit_reset_at, temp_unschedulable_until, session_window_status, last_used_at, updated_at from accounts where platform='openai' order by id",
     "recent_proxy_error_sql": "select id, created_at, status_code, upstream_status_code, error_type, left(coalesce(error_message,''),140), left(coalesce(upstream_error_message,''),140), account_id, requested_model from ops_error_logs where created_at > now() - interval '4 hours' order by id desc limit 40",
     "notes": [
-      "Use clean gpt-5.6-sol for main work and gpt-5.3-codex-spark for Claude Code small-fast/Haiku, with fallback chain gpt-5.6-luna. Legacy gpt-5.5[400k] is cosmetic only and must not be treated as the model window.",
+      "Use clean gpt-5.6-sol for main GPT/Codex work and gpt-5.3-codex-spark for Claude Code small-fast/compact, with compact-only fallback chain gpt-5.6-luna. Legacy gpt-5.5[400k] is cosmetic only and must not be treated as the model window.",
+      "Expose GPT/Codex, Alibaba Token Plan, and Claude/Fable names together in the Claude Code picker. GPT/Codex routes to OpenAI/Codex OAuth; qwen*/glm*/deepseek-v4-pro routes to the Alibaba Token Plan Anthropic-compatible account; fable/opus/sonnet/haiku/claude-* routes only to real Anthropic-compatible accounts and must not secretly fall back to GPT.",
       "Claude Code may still report maxOutputTokens as 32000 on custom/proxy models even when CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000 is set.",
       "On sub2api's Anthropic-to-OpenAI Responses route, thinking.budget_tokens is parsed but not forwarded as an OpenAI reasoning budget.",
       "Codex/GPT-5.6 reasoning is requested with output_config.effort=max when the session or probe explicitly asks for max and should reach upstream as reasoning.effort=max. If structured logs show requested_effort=max plus upstream_effort=xhigh, the running image is stale or using a legacy fallback path.",
@@ -172,10 +179,10 @@
       "If Claude Code reports 429 rate_limit_error or legacy 503 Service temporarily unavailable while /health is ok, check for openai_messages.account_select_failed with no available accounts.",
       "Do not treat account cooldown 503 as a context-window, ghost-stream, or localhost routing failure.",
       "OpenAI OAuth 403 auto-heal uses consecutive cooldowns 2s, 15s, 1m, then 5m. The first /v1/messages failure is retried once after 2.25s; a successful OpenAI usage resets the counter and clears only an OAuth 403 temp-unschedulable reason, never unrelated model or quota limits.",
-      "Use gpt-5.3-codex-spark as ANTHROPIC_SMALL_FAST_MODEL for compact/small-fast routing, but use gpt-5.6-terra-medium as ANTHROPIC_DEFAULT_HAIKU_MODEL while native Spark is quota-limited so delegated/default-Haiku paths do not hit Spark quota or inherit parent Sol/max.",
-      "Use gpt-5.6-terra-medium with effort: medium for the user-level Claude Code general-purpose, Explore, and workflow-subagent overrides while native Spark is quota-limited. The -medium alias is intentionally normalized by patched sub2api to upstream gpt-5.6-terra with reasoning_effort=medium so delegated agents do not inherit parent Sol/max. Add model_fallbacks from gpt-5.6-terra-medium to gpt-5.6-sol-medium so empty Terra tool turns fall back to Sol at medium effort instead of looping or inheriting the wrong parent effort. This is a model/effort override, not a global Agent-blocking hook.",
+      "Use gpt-5.3-codex-spark as ANTHROPIC_SMALL_FAST_MODEL for compact/small-fast routing. Spark has a 128k text-only window and no reasoning effort knob, so sub2api must omit reasoning.effort on Spark compact/chunk requests.",
+      "Use gpt-5.6-terra-medium with effort: medium for the user-level Claude Code general-purpose, Explore, and workflow-subagent overrides while native Spark is quota-limited. The -medium alias is intentionally normalized by patched sub2api to upstream gpt-5.6-terra with reasoning_effort=medium so delegated agents do not inherit parent Sol/max. This is a model/effort override, not a global Agent-blocking hook.",
       "Do not install PreToolUse/SubagentStart/SubagentStop state-file hooks to block Agent calls unless the user explicitly asks for a hard cap. Current fan-out control is advisory through workflowSizeGuideline=small and general-purpose.md guardrails. Do not claim a built-in depth cap prevents hundreds of spawned descendants; local sessions showed one parent line reaching hundreds of spawned agents.",
-      "Use messages_dispatch_model_config.model_fallbacks for normal small-fast/Haiku fallback: gpt-5.3-codex-spark -> gpt-5.6-luna. Direct gpt-5.6-luna requests fall back to gpt-5.3-codex-spark. Delegated gpt-5.6-terra-medium falls back to gpt-5.6-sol-medium.",
+      "Keep normal messages_dispatch_model_config.model_fallbacks empty unless the user explicitly asks for fallback behavior. Compact fallbacks live in account compact_model_fallbacks and are separate from normal Claude/Fable/Token Plan routing.",
       "Fresh 2026-07-10 Luna re-probe returned HTTP 200 but usage_logs showed a fallback and ops_error_logs recorded recovered upstream 429. Treat Luna as unavailable until the mapping chain ends at gpt-5.6-luna.",
       "Set compact_model_fallbacks so Spark compact failures caused by rate limit, quota, unknown/unsupported model, or service-unavailable class errors continue through gpt-5.6-luna; do not configure a mini-model fallback.",
       "Manual /compact may ignore ANTHROPIC_SMALL_FAST_MODEL in some Claude Code builds and use the session main model. Verify compact routing via usage_logs.requested_model/upstream_model."
@@ -186,7 +193,8 @@
       ,
       "All stateful services must use host bind mounts under SUB2API_STATE_ROOT, not Docker named volumes. Verify docker inspect mount Type=bind for headroom-sub2api, sub2api-codex, sub2api-codex-postgres, and sub2api-codex-redis.",
       "Headroom image startup must go through /usr/local/bin/start-headroom-proxy so fresh persistent volumes are seeded from /opt/headroom-seed before headroom proxy starts. This prevents clean volumes from hiding bundled RTK/lean-ctx/difft/scc assets.",
-      "Compose must be fork-owned on both sides: Headroom builds from HEADROOM_GIT_REPO=https://github.com/stgmt/headroom.git at pinned HEADROOM_GIT_REF with HEADROOM_RUST_TOOLCHAIN=1.88.0, and sub2api labels record SUB2API_GIT_REPO=https://github.com/stgmt/sub2api.git plus the local SUB2API_GIT_REF."
+      "Compose must be fork-owned on both sides: Headroom builds from HEADROOM_GIT_REPO=https://github.com/stgmt/headroom.git at pinned HEADROOM_GIT_REF with HEADROOM_RUST_TOOLCHAIN=1.88.0, and sub2api labels record SUB2API_GIT_REPO=https://github.com/stgmt/sub2api.git plus the local SUB2API_GIT_REF.",
+      "If WSL/Docker GPU access is blocked, set HEADROOM_FORCE_KOMPRESS=0 and HEADROOM_DISABLE_KOMPRESS=1, pass both through compose, recreate Headroom, and verify /health reports kompress.status=disabled. Do not leave CPU ONNX Kompress on the Claude Code hot path."
     ]
   },
   "sub2api_account_credentials": {
@@ -222,48 +230,60 @@
     "name": "codex-gpt56-claude-code",
     "platform": "openai",
     "allow_messages_dispatch": true,
-    "require_oauth_only": true,
+    "require_oauth_only": false,
     "default_mapped_model": "gpt-5.6-sol",
     "messages_dispatch_model_config": {
-      "opus_mapped_model": "gpt-5.6-sol",
-      "sonnet_mapped_model": "gpt-5.6-terra",
-      "haiku_mapped_model": "gpt-5.3-codex-spark",
       "exact_model_mappings": {
-        "claude-opus-4-8": "gpt-5.6-sol",
-        "claude-opus-4-8[1m]": "gpt-5.6-sol",
-        "claude-opus-4-7": "gpt-5.6-sol",
-        "opus": "gpt-5.6-sol",
-        "claude-sonnet-5": "gpt-5.6-terra",
-        "claude-sonnet-4-6": "gpt-5.6-terra",
-        "sonnet": "gpt-5.6-terra",
-        "claude-haiku-4-5": "gpt-5.3-codex-spark",
-        "claude-haiku-4-5-20251001": "gpt-5.3-codex-spark",
-        "haiku": "gpt-5.3-codex-spark",
         "gpt-5.3-codex-spark": "gpt-5.3-codex-spark",
         "gpt-5.6": "gpt-5.6-sol",
         "gpt-5.6-sol": "gpt-5.6-sol",
         "gpt-5.6-terra": "gpt-5.6-terra",
+        "gpt-5.6-terra-medium": "gpt-5.6-terra",
         "gpt-5.6-luna": "gpt-5.6-luna",
         "gpt-5.5[400k]": "gpt-5.5",
         "gpt-5.5": "gpt-5.5"
       },
-      "model_fallbacks": {
-        "gpt-5.3-codex-spark": [
-          "gpt-5.6-luna"
-        ],
-        "gpt-5.6-luna": [
-          "gpt-5.3-codex-spark"
-        ],
-        "gpt-5.6-terra-medium": [
-          "gpt-5.6-sol-medium"
-        ],
-        "claude-haiku-*": [
-          "gpt-5.6-luna"
-        ],
-        "haiku": [
-          "gpt-5.6-luna"
-        ]
-      }
+      "model_fallbacks": {}
+    },
+    "models_list_config": {
+      "enabled": true,
+      "explicit": true,
+      "models": [
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
+        "gpt-5.6-terra-medium",
+        "gpt-5.6",
+        "gpt-5.3-codex-spark",
+        "gpt-5.3-codex-spark-fast",
+        "gpt-5.3-codex",
+        "gpt-5.3-codex-fast",
+        "gpt-5.5",
+        "gpt-5.5-fast",
+        "gpt-5.4",
+        "gpt-5.4-fast",
+        "gpt-5.4-mini",
+        "gpt-5.4-mini-fast",
+        "gpt-5.2",
+        "gpt-5.2-fast",
+        "qwen3.8-max-preview",
+        "qwen3.7-max",
+        "qwen3.7-plus",
+        "qwen3.6-flash",
+        "glm-5.2",
+        "deepseek-v4-pro",
+        "fable",
+        "opus",
+        "sonnet",
+        "haiku",
+        "claude-fable-5",
+        "claude-opus-4-8",
+        "claude-opus-4-7",
+        "claude-sonnet-5",
+        "claude-sonnet-4-6",
+        "claude-haiku-4-5",
+        "claude-haiku-4-5-20251001"
+      ]
     }
   }
 }

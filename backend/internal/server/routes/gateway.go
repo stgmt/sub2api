@@ -93,14 +93,9 @@ func RegisterGatewayRoutes(
 	gateway.Use(gin.HandlerFunc(apiKeyAuth))
 	gateway.Use(requireGroupAnthropic)
 	{
-		// /v1/messages: auto-route based on group platform
-		gateway.POST("/messages", func(c *gin.Context) {
-			if isOpenAIResponsesCompatibleGatewayPlatform(c) {
-				h.OpenAIGateway.Messages(c)
-				return
-			}
-			h.Gateway.Messages(c)
-		})
+		// /v1/messages: route by requested model so one Claude-compatible key can
+		// expose GPT/Codex, Anthropic, and Anthropic-compatible Qwen accounts.
+		gateway.POST("/messages", h.MultiproviderMessages)
 		// /v1/messages/count_tokens: OpenAI uses Anthropic-compat bridge; other
 		// OpenAI-compatible platforms keep the prior unsupported response.
 		gateway.POST("/messages/count_tokens", func(c *gin.Context) {

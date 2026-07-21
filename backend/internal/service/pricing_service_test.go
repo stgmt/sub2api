@@ -203,6 +203,21 @@ func TestGetModelPricing_OpenAICompactAliasUsesStaticFallback(t *testing.T) {
 	require.InDelta(t, 1.5e-5, got.OutputCostPerToken, 1e-12)
 }
 
+func TestGetModelPricing_TokenPlanPassthroughUsesUnknownCostFallback(t *testing.T) {
+	svc := &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{
+			"gpt-5.4": {InputCostPerToken: 2.5e-6},
+		},
+	}
+
+	got := svc.GetModelPricing("qwen3.8-max-preview")
+	require.NotNil(t, got)
+	require.Equal(t, "alibaba-token-plan", got.LiteLLMProvider)
+	require.Equal(t, "chat", got.Mode)
+	require.Zero(t, got.InputCostPerToken)
+	require.Zero(t, got.OutputCostPerToken)
+}
+
 func TestDefaultPricingIncludesCodexAutoReview(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "resources", "model-pricing", "model_prices_and_context_window.json"))
 	require.NoError(t, err)

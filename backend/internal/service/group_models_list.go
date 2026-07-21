@@ -3,7 +3,7 @@ package service
 import "strings"
 
 func normalizeGroupModelsListConfig(cfg GroupModelsListConfig) GroupModelsListConfig {
-	out := GroupModelsListConfig{Enabled: cfg.Enabled}
+	out := GroupModelsListConfig{Enabled: cfg.Enabled, Explicit: cfg.Explicit}
 	if len(cfg.Models) == 0 {
 		return out
 	}
