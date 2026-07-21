@@ -76,3 +76,55 @@ func TestClassifyClaudeCodeMessagesRoute_MixedClaudeEndpoint(t *testing.T) {
 		})
 	}
 }
+
+func TestClassifyClaudeCodeCountTokensRoute_MixedClaudeEndpoint(t *testing.T) {
+	tests := []struct {
+		name          string
+		model         string
+		groupPlatform string
+		want          claudeCodeMessagesRoute
+	}{
+		{
+			name:          "GPT count_tokens stays on OpenAI bridge",
+			model:         "gpt-5.6-sol",
+			groupPlatform: service.PlatformOpenAI,
+			want:          claudeCodeMessagesRouteOpenAI,
+		},
+		{
+			name:          "Qwen count_tokens does not hit Codex account",
+			model:         "qwen3.8-max-preview",
+			groupPlatform: service.PlatformOpenAI,
+			want:          claudeCodeMessagesRouteAnthropic,
+		},
+		{
+			name:          "GLM count_tokens stays Token Plan family",
+			model:         "glm-5.2",
+			groupPlatform: service.PlatformOpenAI,
+			want:          claudeCodeMessagesRouteAnthropic,
+		},
+		{
+			name:          "Claude count_tokens stays passthrough family",
+			model:         "claude-opus-4-8",
+			groupPlatform: service.PlatformOpenAI,
+			want:          claudeCodeMessagesRouteAnthropic,
+		},
+		{
+			name:          "Empty model falls back to OpenAI group behavior",
+			model:         "",
+			groupPlatform: service.PlatformOpenAI,
+			want:          claudeCodeMessagesRouteOpenAI,
+		},
+		{
+			name:          "Grok group remains native unsupported",
+			model:         "grok",
+			groupPlatform: service.PlatformGrok,
+			want:          claudeCodeMessagesRouteNative,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, classifyClaudeCodeCountTokensRoute(tt.model, tt.groupPlatform))
+		})
+	}
+}

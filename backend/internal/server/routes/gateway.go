@@ -39,9 +39,6 @@ func RegisterGatewayRoutes(
 			return false
 		}
 	}
-	isOpenAIGatewayPlatform := func(c *gin.Context) bool {
-		return getGroupPlatform(c) == service.PlatformOpenAI
-	}
 	imagesHandler := func(c *gin.Context) {
 		switch getGroupPlatform(c) {
 		case service.PlatformOpenAI:
@@ -96,26 +93,10 @@ func RegisterGatewayRoutes(
 		// /v1/messages: route by requested model so one Claude-compatible key can
 		// expose GPT/Codex, Anthropic, and Anthropic-compatible Qwen accounts.
 		gateway.POST("/messages", h.MultiproviderMessages)
-		// /v1/messages/count_tokens: OpenAI uses Anthropic-compat bridge; other
-		// OpenAI-compatible platforms keep the prior unsupported response.
-		gateway.POST("/messages/count_tokens", func(c *gin.Context) {
-			if isOpenAIGatewayPlatform(c) {
-				h.OpenAIGateway.CountTokens(c)
-				return
-			}
-			if isOpenAIResponsesCompatibleGatewayPlatform(c) {
-				service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
-				c.JSON(http.StatusNotFound, gin.H{
-					"type": "error",
-					"error": gin.H{
-						"type":    "not_found_error",
-						"message": "Token counting is not supported for this platform",
-					},
-				})
-				return
-			}
-			h.Gateway.CountTokens(c)
-		})
+		// /v1/messages/count_tokens: route by requested model as well. Claude
+		// Code may call this before /messages, so mixed-provider keys must not
+		// send Qwen/Claude-family preflight probes to the OpenAI/Codex account.
+		gateway.POST("/messages/count_tokens", h.MultiproviderCountTokens)
 		gateway.GET("/models", h.Gateway.Models)
 		gateway.GET("/usage", h.Gateway.Usage)
 		// OpenAI Responses API: auto-route based on group platform

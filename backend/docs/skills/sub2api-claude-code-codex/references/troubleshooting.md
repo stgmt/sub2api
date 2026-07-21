@@ -42,6 +42,7 @@ If sub2api returns unknown model:
 - First classify the requested model family. GPT/Codex names should route to the OpenAI/Codex account; `qwen*`, `glm-*`, and `deepseek-v4-pro` should route to the Alibaba Token Plan Anthropic-compatible account; `fable`, `opus`, `sonnet`, `haiku`, and `claude-*` should route only to a real Anthropic-compatible account.
 - Confirm `allow_messages_dispatch=true`, `require_oauth_only=false`, and `models_list_config.enabled=true/explicit=true` on the mixed-provider group.
 - Do not fix Claude/Fable unknown-model errors by mapping them to GPT. With no real Anthropic-compatible account configured, a fast `404 model_not_found/no available accounts` with `fallback_used=false` is the correct transparent behavior.
+- If Claude Code says `The 'qwen3.8-max-preview' model is not supported when using Codex with a ChatGPT account`, check `/v1/messages/count_tokens` too, not only `/v1/messages`. The broken route signature is `path="/v1/messages/count_tokens"` plus `component=handler.openai_gateway.count_tokens`, `platform=openai`, or `account_id=1` for a Qwen/GLM/DeepSeek model. Patched sub2api routes the preflight through the mixed-provider classifier and returns a local `{"input_tokens":...}` estimate for Token Plan models, so no upstream Codex input-tokens call is made for Qwen.
 
 If count-tokens logs show upstream `401`:
 
