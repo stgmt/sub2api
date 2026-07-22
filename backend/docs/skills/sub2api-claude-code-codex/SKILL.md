@@ -59,6 +59,7 @@ Read only the file needed for the current task:
 - `references/install-and-claude-config.md`: Docker/WSL install, OAuth import, Claude Code env/settings, dynamic MCP, and memory/rules configuration.
 - `references/group-and-compact-routing.md`: sub2api group JSON, Claude model mapping, compact mapping, fallback SQL, and account credential patches.
 - `references/subagent-terra-medium-profile.md`: historical Terra-medium delegated-agent profile plus the current Qwen-high override, exact files/env knobs to set, missing-override behavior, and future GPT-5.7 migration checklist.
+- `references/workflow-qwen-high-rationale.md`: why workflow agents, subagents, compact, small-fast, and picker aliases are pinned to Qwen high; read before changing those defaults or reverting Spark/Terra/Haiku behavior.
 - `references/verification.md`: health probes, Claude Code probes, `/v1/messages` checks, usage_logs queries, compact verification, and expected evidence.
 - `references/troubleshooting.md`: 429/503/no-available-accounts, stale cooldowns, empty streams, context overflow, Luna availability, localhost relay, and usage-display bugs.
 - `references/headroom-gpu-kompress.md`: GPU backend research, fork ownership, implementation, reproducible CPU/CUDA benchmark, autostart failure, live proof, and remaining architecture work.

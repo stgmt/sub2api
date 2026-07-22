@@ -631,6 +631,28 @@ $Body
       } else {
         $agentText = "---`nname: $Name`ndescription: $Description`nmodel: $SubagentModel`neffort: $SubagentEffort`n---`n`n$agentText"
       }
+
+      $contractStart = "<!-- sub2api-qwen-high-workflow-contract:start -->"
+      $contractEnd = "<!-- sub2api-qwen-high-workflow-contract:end -->"
+      $contractBlock = @"
+$contractStart
+Local proxy contract:
+- Delegated and workflow agents on this machine intentionally use Qwen 3.8 Max High: model=$SubagentModel, effort=$SubagentEffort.
+- Reason: the user selected Qwen high for all subagents, small-fast, picker aliases, and compact after live routing/summary probes; this avoids accidental inheritance of lead Sol/max, old Terra-medium defaults, Spark's 128k text-only/no-effort compact path, and raw Haiku/Claude aliases.
+- Do not silently switch this worker to Spark, Terra, Haiku, Sol, or a fallback model. Change the profile only after a fresh user decision plus live usage_logs proof.
+- Proof target: sub2api usage_logs should show requested_model=$SubagentModel, reasoning_effort=$SubagentEffort, and the Alibaba Token Plan account for delegated/compact traffic.
+$contractEnd
+"@
+      $contractPattern = "(?ms)" + [regex]::Escape($contractStart) + ".*?" + [regex]::Escape($contractEnd)
+      if ($agentText -match $contractPattern) {
+        $agentText = [regex]::Replace(
+          $agentText,
+          $contractPattern,
+          [System.Text.RegularExpressions.MatchEvaluator]{ param($match) $contractBlock }
+        )
+      } else {
+        $agentText = $agentText.TrimEnd() + "`n`n" + $contractBlock + "`n"
+      }
       Set-Content -LiteralPath $agentPath -Value $agentText -Encoding UTF8
     }
 

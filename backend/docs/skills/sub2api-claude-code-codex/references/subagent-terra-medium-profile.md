@@ -1,6 +1,6 @@
 # Subagent Qwen High Profile
 
-This is the current delegated-agent profile for the Claude Code + Headroom + sub2api Codex subscription chain. The old Terra-medium setup is preserved below as historical evidence only.
+This is the current delegated-agent profile for the Claude Code + Headroom + sub2api Codex subscription chain. The old Terra-medium setup is preserved below as historical evidence only. For the full "why this must stay Qwen high" decision record, read `workflow-qwen-high-rationale.md`.
 
 Use it when installing, repairing, or updating Claude Code agent overrides. The intent is simple: keep the lead session on full-power `gpt-5.6-sol`, pin Opus/Fable/Sonnet/Haiku picker slots to Qwen high, and run frequent delegated agents plus compact/small-fast on Qwen 3.8 Max High instead of inheriting parent Sol/max by accident.
 
