@@ -23,9 +23,10 @@ func normalizeOpenAIMessagesDispatchFallbackModel(model string) string {
 
 func normalizeOpenAIMessagesDispatchModelConfig(cfg OpenAIMessagesDispatchModelConfig) OpenAIMessagesDispatchModelConfig {
 	out := OpenAIMessagesDispatchModelConfig{
-		OpusMappedModel:   normalizeOpenAIMessagesDispatchMappedModel(cfg.OpusMappedModel),
-		SonnetMappedModel: normalizeOpenAIMessagesDispatchMappedModel(cfg.SonnetMappedModel),
-		HaikuMappedModel:  normalizeOpenAIMessagesDispatchMappedModel(cfg.HaikuMappedModel),
+		OpusMappedModel:    normalizeOpenAIMessagesDispatchMappedModel(cfg.OpusMappedModel),
+		SonnetMappedModel:  normalizeOpenAIMessagesDispatchMappedModel(cfg.SonnetMappedModel),
+		HaikuMappedModel:   normalizeOpenAIMessagesDispatchMappedModel(cfg.HaikuMappedModel),
+		CompactMappedModel: normalizeOpenAIMessagesDispatchFallbackModel(cfg.CompactMappedModel),
 	}
 
 	if len(cfg.ExactModelMappings) > 0 {
@@ -152,6 +153,14 @@ func (g *Group) ResolveMessagesDispatchFallbackModels(requestedModel, mappedMode
 		}
 	}
 	return compactModelFallbackCandidates(candidates, mappedModel)
+}
+
+func (g *Group) ResolveMessagesDispatchCompactModel() string {
+	if g == nil {
+		return ""
+	}
+	cfg := normalizeOpenAIMessagesDispatchModelConfig(g.MessagesDispatchModelConfig)
+	return strings.TrimSpace(cfg.CompactMappedModel)
 }
 
 func sanitizeGroupMessagesDispatchFields(g *Group) {

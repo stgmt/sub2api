@@ -1,9 +1,12 @@
 package handler
 
 import (
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
@@ -127,4 +130,45 @@ func TestClassifyClaudeCodeCountTokensRoute_MixedClaudeEndpoint(t *testing.T) {
 			require.Equal(t, tt.want, classifyClaudeCodeCountTokensRoute(tt.model, tt.groupPlatform))
 		})
 	}
+}
+
+func TestIsClaudeCodeCompactRequestForMultiprovider(t *testing.T) {
+	t.Parallel()
+
+	gin.SetMode(gin.TestMode)
+	req := httptest.NewRequest("POST", "/v1/messages", strings.NewReader(`{"model":"gpt-5.6-sol"}`))
+	req.Header.Set("x-sub2api-claude-compact", "1")
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = req
+
+	require.True(t, isClaudeCodeCompactRequestForMultiprovider(c, []byte(`{"model":"gpt-5.6-sol"}`)))
+
+	req = httptest.NewRequest("POST", "/v1/messages", strings.NewReader(`{"model":"gpt-5.6-sol"}`))
+	c, _ = gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = req
+
+	body := []byte(`{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"Your task is to create a detailed summary of the conversation so far."}]}`)
+	require.True(t, isClaudeCodeCompactRequestForMultiprovider(c, body))
+	require.False(t, isClaudeCodeCompactRequestForMultiprovider(c, []byte(`{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"ordinary task"}]}`)))
+}
+
+func TestRewriteClaudeCodeCompactModelForMultiprovider_RoutesGPTCompactToQwenFamily(t *testing.T) {
+	t.Parallel()
+
+	body := []byte(`{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"compact"}]}`)
+	rewritten, model, err := rewriteClaudeCodeCompactModelForMultiprovider(body, " qwen3.8-max-preview ")
+	require.NoError(t, err)
+	require.JSONEq(t, `{"model":"qwen3.8-max-preview","messages":[{"role":"user","content":"compact"}]}`, string(rewritten))
+	require.Equal(t, "qwen3.8-max-preview", model)
+	require.Equal(t, claudeCodeMessagesRouteAnthropic, classifyClaudeCodeMessagesRoute(model, service.PlatformOpenAI))
+}
+
+func TestRewriteClaudeCodeCompactModelForMultiprovider_NoopsWhenAlreadyMapped(t *testing.T) {
+	t.Parallel()
+
+	body := []byte(`{"model":"qwen3.8-max-preview"}`)
+	rewritten, model, err := rewriteClaudeCodeCompactModelForMultiprovider(body, "qwen3.8-max-preview")
+	require.NoError(t, err)
+	require.Equal(t, body, rewritten)
+	require.Equal(t, "qwen3.8-max-preview", model)
 }

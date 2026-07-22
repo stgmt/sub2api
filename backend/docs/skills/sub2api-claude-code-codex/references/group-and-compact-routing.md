@@ -1,6 +1,6 @@
 # Group And Compact Routing
 
-sub2api OpenAI group JSON, Claude model mapping, compact_model_mapping, fallback SQL, and compact-only routing configuration.
+sub2api OpenAI group JSON, Claude model mapping, Qwen compact routing, fallback SQL, and compact-only routing configuration.
 
 ## sub2api Mixed-Provider Group Profile
 
@@ -31,6 +31,7 @@ request time and forces the right provider platform:
       "gpt-5.5[400k]": "gpt-5.5",
       "gpt-5.5": "gpt-5.5"
     },
+    "compact_mapped_model": "qwen3.8-max-preview",
     "model_fallbacks": {}
   },
   "models_list_config": {
@@ -70,34 +71,17 @@ Routing contract:
 - GPT/Codex IDs route to the OpenAI/Codex OAuth account and may use GPT effort suffixes such as `-medium`.
 - Alibaba Token Plan IDs (`qwen3.8-max-preview`, `qwen3.7-max`, `qwen3.7-plus`, `qwen3.6-flash`, `glm-5.2`, `deepseek-v4-pro`) route to a dedicated account with `platform='anthropic'`, `base_url='https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic'`, and Bearer auth.
 - Do not publish raw Claude/Fable names (`fable`, `opus`, `sonnet`, `haiku`, `claude-*`) in this local profile. Claude Code Opus/Fable/Sonnet picker slots are env aliases and should point to Qwen high (`qwen3.8-max-preview`).
-- Keep normal message `model_fallbacks` empty unless the user explicitly asks for model fallback. Compact fallback is configured on the OpenAI/Codex account separately.
+- Keep normal message `model_fallbacks` empty unless the user explicitly asks for model fallback. Current compact routing is `messages_dispatch_model_config.compact_mapped_model=qwen3.8-max-preview`, which is applied before provider classification so GPT/Codex `/compact` requests cross-route to the Alibaba Token Plan Anthropic-compatible account.
 - Token Plan pricing may be absent from public pricing catalogs. The fork uses an explicit unknown-cost fallback for the listed Token Plan chat models so usage accounting succeeds without logging `pricing not found`.
 
 If exact admin API endpoints differ across sub2api versions, use the admin UI and match these field names. The important fields in current sub2api are `allow_messages_dispatch`, `require_oauth_only`, `default_mapped_model`, and `messages_dispatch_model_config`.
 
-Also set compact-only mapping on the OpenAI/Codex OAuth account credentials, not only on the group:
+Legacy OpenAI-only compact routing still exists on the OpenAI/Codex OAuth account credentials, but the current Qwen profile keeps it empty. Do not use account-level `compact_model_mapping` as the primary route because it happens after OpenAI account selection and cannot safely jump to an Alibaba Token Plan model. If an old install still contains Spark/Luna mappings there, clear them when enabling Qwen high compact:
 
 ```json
 {
-  "compact_model_mapping": {
-    "gpt-5.6": "gpt-5.3-codex-spark",
-    "gpt-5.6-sol": "gpt-5.3-codex-spark",
-    "gpt-5.6-terra": "gpt-5.3-codex-spark",
-    "gpt-5.6-luna": "gpt-5.3-codex-spark",
-    "gpt-5.5": "gpt-5.3-codex-spark",
-    "gpt-5.5[400k]": "gpt-5.3-codex-spark",
-    "gpt-5.4": "gpt-5.3-codex-spark",
-  },
-  "compact_model_fallbacks": {
-    "gpt-5.3-codex-spark": ["gpt-5.6-luna"],
-    "gpt-5.6": ["gpt-5.6-luna"],
-    "gpt-5.6-sol": ["gpt-5.6-luna"],
-    "gpt-5.6-terra": ["gpt-5.6-luna"],
-    "gpt-5.6-luna": ["gpt-5.3-codex-spark"],
-    "gpt-5.5": ["gpt-5.6-luna"],
-    "gpt-5.5[400k]": ["gpt-5.6-luna"],
-    "gpt-5.4": ["gpt-5.6-luna"]
-  }
+  "compact_model_mapping": {},
+  "compact_model_fallbacks": {}
 }
 ```
 
@@ -105,9 +89,16 @@ The native Claude Code compact route also depends on the paired Headroom
 contract. Headroom detects the compact instruction before compression, restores
 the exact final message after transforms, skips output shaping, and sends
 `x-sub2api-claude-compact: 1`. sub2api accepts that header as authoritative.
-Do not rely only on matching prompt text after Headroom optimization.
+For mixed-provider Qwen compact routing, sub2api rewrites the Anthropic
+`/v1/messages` request body model to `qwen3.8-max-preview` before route
+classification. Do not rely only on matching prompt text after Headroom
+optimization.
 
-Spark does not expose a configurable reasoning effort. The compact route must
+Qwen high compact uses the normal Alibaba Token Plan Anthropic-compatible path
+and keeps `reasoning_effort=high`. It does not use Spark's no-effort special
+case.
+
+Spark does not expose a configurable reasoning effort. Legacy Spark compact must
 remove `reasoning.effort` instead of clamping inherited Sol/Terra `max` to
 `xhigh` or `low`. This applies to the first mapped request and every Spark
 chunk/merge fallback request. Luna retains its own configured fallback effort.
@@ -121,16 +112,20 @@ For the local Docker/Postgres install, patch the field without exposing tokens:
 
 ```powershell
 $sql = @'
+update groups
+set messages_dispatch_model_config = jsonb_set(
+  coalesce(messages_dispatch_model_config, '{}'::jsonb),
+  '{compact_mapped_model}',
+  '"qwen3.8-max-preview"'::jsonb,
+  true
+), updated_at = now()
+where platform='openai' and allow_messages_dispatch=true;
+
 update accounts
 set credentials = jsonb_set(
-  jsonb_set(
-    coalesce(credentials, '{}'::jsonb),
-    '{compact_model_mapping}',
-    '{"gpt-5.6":"gpt-5.3-codex-spark","gpt-5.6-sol":"gpt-5.3-codex-spark","gpt-5.6-terra":"gpt-5.3-codex-spark","gpt-5.6-luna":"gpt-5.3-codex-spark","gpt-5.5":"gpt-5.3-codex-spark","gpt-5.5[400k]":"gpt-5.3-codex-spark","gpt-5.4":"gpt-5.3-codex-spark"}'::jsonb,
-    true
-  ),
+  jsonb_set(coalesce(credentials, '{}'::jsonb), '{compact_model_mapping}', '{}'::jsonb, true),
   '{compact_model_fallbacks}',
-    '{"gpt-5.3-codex-spark":["gpt-5.6-luna"],"gpt-5.6":["gpt-5.6-luna"],"gpt-5.6-sol":["gpt-5.6-luna"],"gpt-5.6-terra":["gpt-5.6-luna"],"gpt-5.6-luna":["gpt-5.3-codex-spark"],"gpt-5.5":["gpt-5.6-luna"],"gpt-5.5[400k]":["gpt-5.6-luna"],"gpt-5.4":["gpt-5.6-luna"]}'::jsonb,
+  '{}'::jsonb,
   true
 ), updated_at = now()
 where platform='openai';

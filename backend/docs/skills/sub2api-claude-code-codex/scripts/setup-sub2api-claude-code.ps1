@@ -10,13 +10,13 @@ param(
   [string]$AdminEmail = "admin@sub2api.local",
   [string]$TimeZone = "Europe/Moscow",
   [string]$Model = "gpt-5.6-sol",
-  [string]$SmallFastModel = "gpt-5.3-codex-spark",
+  [string]$SmallFastModel = "qwen3.8-max-preview",
   [string]$DefaultOpusModel = "qwen3.8-max-preview",
   [string]$DefaultFableModel = "qwen3.8-max-preview",
   [string]$DefaultSonnetModel = "qwen3.8-max-preview",
   [string]$DefaultHaikuModel = "haiku",
-  [string]$SubagentModel = "gpt-5.6-terra-medium",
-  [string]$SubagentEffort = "medium",
+  [string]$SubagentModel = "qwen3.8-max-preview",
+  [string]$SubagentEffort = "high",
   [ValidateSet("auto", "low", "medium", "high", "xhigh", "max")]
   [string]$DefaultEffort = "xhigh",
   [int]$MaxContextTokens = 370000,
@@ -635,16 +635,24 @@ $Body
     }
 
     Set-ClaudeAgentOverride "general-purpose" `
-      "General-purpose agent for complex multi-step work that needs exploration, edits, command execution, or verification. User override pins the model to GPT-5.6 Terra with medium effort while Spark is quota-limited." `
-      "You are the general-purpose Claude Code subagent.`n`nHandle the delegated task end to end inside your own context. Use tools when needed, keep scope tight, and return only the result the parent needs.`n`nDelegation guardrails:`n- Treat GPT-5.6 Terra medium effort as the default model profile for delegated general-purpose work.`n- Do not launch more than 10 sibling subagents for one task.`n- Do not create agent chains deeper than two subagent levels below the lead session.`n- If a task needs more breadth or depth, summarize the remaining slices instead of spawning more agents.`n`nGround investigative answers in concrete file paths, commands, logs, or test results."
+      "General-purpose agent for complex multi-step work that needs exploration, edits, command execution, or verification. User override pins the model to Qwen 3.8 Max High." `
+      "You are the general-purpose Claude Code subagent.`n`nHandle the delegated task end to end inside your own context. Use tools when needed, keep scope tight, and return only the result the parent needs.`n`nDelegation guardrails:`n- Treat Qwen 3.8 Max High as the default model profile for delegated general-purpose work.`n- Do not launch more than 10 sibling subagents for one task.`n- Do not create agent chains deeper than two subagent levels below the lead session.`n- If a task needs more breadth or depth, summarize the remaining slices instead of spawning more agents.`n`nGround investigative answers in concrete file paths, commands, logs, or test results."
 
     Set-ClaudeAgentOverride "Explore" `
-      "Exploration subagent for repository, log, transcript, and design-space investigation. User override pins this built-in workflow agent to GPT-5.6 Terra medium effort." `
+      "Exploration subagent for repository, log, transcript, and design-space investigation. User override pins this built-in workflow agent to Qwen 3.8 Max High." `
       "You are the Explore Claude Code subagent.`n`nInvestigate the delegated question in your own context and return only the evidence and conclusion the parent needs. Prefer concrete proof from files, logs, transcripts, commands, and observed runtime state over broad narrative.`n`nUse tools when they materially improve the answer, but keep the scope bounded. When the task is too broad for one pass, summarize the most important findings and name the exact remaining slices instead of recursively expanding the work."
 
     Set-ClaudeAgentOverride "workflow-subagent" `
-      "Claude Code workflow subagent override. Pins generated workflow worker agents to GPT-5.6 Terra medium effort on the local proxy profile." `
+      "Claude Code workflow subagent override. Pins generated workflow worker agents to Qwen 3.8 Max High on the local proxy profile." `
       "You are the workflow-subagent Claude Code worker.`n`nExecute the delegated workflow slice in your own context and return only the specific result the parent workflow needs. Keep the scope bounded, prefer concrete evidence from files, commands, logs, and tests, and avoid expanding a small slice into a broad investigation."
+
+    Set-ClaudeAgentOverride "bench-reviewer" `
+      "Read-only Qwen 3.8 Max High benchmark reviewer for replaying historical delegated audit prompts." `
+      "You are a read-only benchmark reviewer running on Qwen 3.8 Max High.`n`nEvaluate one historical delegated Claude Code subagent prompt. Execute enough of the prompt to judge whether it is relevant and useful, but keep the run bounded.`n`nRules:`n- Do not edit files.`n- Do not spawn agents.`n- Do not run long test suites, builds, Docker, package installs, or background services.`n- Prefer git diff, rg, file slices, and small Node or PowerShell one-liners.`n`nReturn compact JSON only."
+
+    Set-ClaudeAgentOverride "bench-triage" `
+      "No-tools Qwen 3.8 Max High classifier for benchmark prompt relevance and redundancy." `
+      "You classify historical delegated-agent prompts without using tools.`n`nReturn compact JSON only. Judge whether each prompt is relevant, redundant, too broad, or unsafe to replay. Prefer conservative labels: a prompt can be relevant but still not worth replaying if it duplicates another prompt or asks for a huge whole-diff audit."
   }
 
   if (-not $SkipRtk) {

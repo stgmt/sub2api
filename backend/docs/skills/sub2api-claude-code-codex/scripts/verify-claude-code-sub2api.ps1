@@ -602,9 +602,9 @@ function Test-HeadroomPersistentStorage {
 $BaseUrl = Normalize-Url $BaseUrl "http://127.0.0.1:8787"
 $Sub2apiBaseUrl = Normalize-Url $Sub2apiBaseUrl "http://127.0.0.1:18081"
 if (-not $Model) { $Model = "gpt-5.6-sol" }
-if (-not $SmallFastModel) { $SmallFastModel = "gpt-5.3-codex-spark" }
+if (-not $SmallFastModel) { $SmallFastModel = "qwen3.8-max-preview" }
 if (-not $DefaultHaikuModel) { $DefaultHaikuModel = "haiku" }
-if (-not $SubagentModel) { $SubagentModel = "gpt-5.6-terra-medium" }
+if (-not $SubagentModel) { $SubagentModel = "qwen3.8-max-preview" }
 
 Write-Host "Claude/Headroom base URL: $BaseUrl"
 Write-Host "sub2api admin/diagnostic URL: $Sub2apiBaseUrl"

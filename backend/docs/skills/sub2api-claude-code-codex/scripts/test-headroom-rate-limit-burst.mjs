@@ -8,7 +8,7 @@ if (!Number.isInteger(count) || count < 1 || count > 2000) {
 }
 
 const body = JSON.stringify({
-  model: "gpt-5.6-terra-medium",
+  model: "qwen3.8-max-preview",
   max_tokens: 1,
   messages: [{ role: "user", content: "RATE_LIMIT_PROBE" }],
 });

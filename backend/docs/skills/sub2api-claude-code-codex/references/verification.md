@@ -90,10 +90,10 @@ wsl.exe -- bash -lc 'docker exec sub2api-codex-postgres psql -U sub2api -d sub2a
 Expected:
 
 ```text
-requested_model = gpt-5.6-sol, gpt-5.3-codex-spark, qwen3.8-max-preview, glm-5.2, deepseek-v4-pro, or another published GPT/Codex/Alibaba Token Plan ID for normal work
-upstream/response model = gpt-5.6-sol for main work, gpt-5.6-terra for Sonnet, gpt-5.3-codex-spark for small-fast/Haiku when schedulable, or gpt-5.6-luna when Spark fallback takes over
+requested_model = gpt-5.6-sol, qwen3.8-max-preview, glm-5.2, deepseek-v4-pro, gpt-5.3-codex-spark, or another published GPT/Codex/Alibaba Token Plan ID for normal work
+upstream/response model = gpt-5.6-sol for main work, qwen3.8-max-preview for picker aliases/small-fast/subagents/compact, or the requested published model for direct probes
 reasoning_effort = max for GPT-5.6 max requests on the current Codex/OpenAI Responses route; a clamp log with upstream_effort=xhigh means the running image or docs are stale
-model_mapping_chain includes -> gpt-5.6-sol, -> gpt-5.6-terra, -> gpt-5.3-codex-spark, and -> gpt-5.6-luna for Spark fallback
+model_mapping_chain includes -> gpt-5.6-sol for main GPT work and -> qwen3.8-max-preview for Qwen picker/subagent/compact work
 ```
 
 For `general-purpose` subagent model checks:
@@ -107,10 +107,10 @@ wsl.exe -- docker exec sub2api-codex-postgres psql -U sub2api -d sub2api -F " | 
 Expected for the current advisory subagent profile:
 
 ```text
-general-purpose.md / Explore.md / workflow-subagent.md frontmatter model: gpt-5.6-terra-medium and effort: medium
-worker/Claude command line includes -Model "gpt-5.6-terra-medium" or --model gpt-5.6-terra-medium
-usage_logs rows show requested_model=gpt-5.6-terra-medium, upstream_model=gpt-5.6-terra, reasoning_effort=medium
-no hidden normal fallback proof for empty/unavailable Terra-medium turns: usage_logs should show requested_model=gpt-5.6-terra-medium and no unsolicited switch to Sol. If the user explicitly enables a fallback later, also prove the fallback alias preserves `reasoning_effort=medium`; otherwise keep `messages_dispatch_model_config.model_fallbacks` empty.
+general-purpose.md / Explore.md / workflow-subagent.md / bench-reviewer.md / bench-triage.md frontmatter model: qwen3.8-max-preview and effort: high
+worker/Claude command line includes -Model "qwen3.8-max-preview" or --model qwen3.8-max-preview when command lines expose it
+usage_logs rows show requested_model=qwen3.8-max-preview, upstream_model=qwen3.8-max-preview, reasoning_effort=high
+no hidden normal fallback proof for empty/unavailable Qwen turns: usage_logs should show requested_model=qwen3.8-max-preview and no unsolicited switch to Sol. Keep `messages_dispatch_model_config.model_fallbacks` empty unless the user explicitly asks for fallback behavior.
 no global Agent-blocking PreToolUse/SubagentStart/SubagentStop hook is installed unless the user explicitly requested a hard cap
 ```
 
@@ -123,10 +123,10 @@ wsl.exe -- docker exec sub2api-codex-postgres psql -U sub2api -d sub2api -F " | 
 Expected compact row after the local patch:
 
 ```text
-requested_model=gpt-5.6-sol, gpt-5.3-codex-spark, gpt-5.6-luna, or a Claude alias
-upstream_model=gpt-5.3-codex-spark normally, or gpt-5.6-luna when Spark was rate-limited/unavailable, rejected image inputs, and Luna is schedulable
-reasoning_effort is empty for Spark; inherited parent max/xhigh/low is a regression. Luna fallback chunk requests keep their configured low effort
-model_mapping_chain=gpt-5.6-sol->gpt-5.3-codex-spark, gpt-5.6-terra->gpt-5.3-codex-spark, or gpt-5.6-luna->gpt-5.3-codex-spark normally, with ->gpt-5.6-luna when the fallback chain takes over
+requested_model=qwen3.8-max-preview after group compact_mapped_model rewrites a GPT/Codex compact request before provider classification
+upstream_model=qwen3.8-max-preview
+reasoning_effort=high
+model_mapping_chain includes qwen3.8-max-preview
 ```
 
 For large compact fallback specifically, also check logs:
@@ -141,8 +141,7 @@ Expected when the full compact could not fit the mapped compact model:
 openai_messages.compact_context_length_fallback
 ```
 
-For a pure context-overflow fallback while Spark is available, the final `usage_logs` row should still be successful with `upstream_model=gpt-5.3-codex-spark`; the aggregate input/output tokens include the chunk summaries and merge pass.
-If Spark was unavailable, quota-limited, or rejected image blocks, the final successful compact row should use `gpt-5.6-luna`; logs should include `openai_messages.compact_model_unavailable_fallback`. For image-bearing transcripts the logged upstream message should contain `does not support image inputs`. There is no mini-model fallback.
+For the current Qwen-high compact profile, do not expect Spark's empty-effort signature. If a compact still logs `upstream_model=gpt-5.3-codex-spark`, the group-level `compact_mapped_model` rewrite or live image is stale. Legacy Spark/Luna fallback evidence remains valid only for older OpenAI-only compact profiles.
 
 Headroom proof for the same native request:
 

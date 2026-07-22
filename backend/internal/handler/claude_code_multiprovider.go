@@ -13,6 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 type claudeCodeMessagesRoute int
@@ -45,6 +46,23 @@ func (h *Handlers) MultiproviderMessages(c *gin.Context) {
 	groupPlatform := ""
 	if apiKey, _ := middleware2.GetAPIKeyFromContext(c); apiKey != nil && apiKey.Group != nil {
 		groupPlatform = apiKey.Group.Platform
+		if isClaudeCodeCompactRequestForMultiprovider(c, body) {
+			if compactMappedModel := apiKey.Group.ResolveMessagesDispatchCompactModel(); compactMappedModel != "" {
+				var rewriteErr error
+				body, model, rewriteErr = rewriteClaudeCodeCompactModelForMultiprovider(body, compactMappedModel)
+				if rewriteErr != nil {
+					c.JSON(http.StatusBadRequest, gin.H{
+						"type": "error",
+						"error": gin.H{
+							"type":    "invalid_request_error",
+							"message": "Failed to rewrite compact request model: " + rewriteErr.Error(),
+						},
+					})
+					return
+				}
+				resetGinRequestBody(c, body)
+			}
+		}
 	}
 
 	switch classifyClaudeCodeMessagesRoute(model, groupPlatform) {
@@ -114,6 +132,43 @@ func forceGinPlatform(c *gin.Context, platform string) {
 	ctx := context.WithValue(c.Request.Context(), ctxkey.ForcePlatform, platform)
 	c.Request = c.Request.WithContext(ctx)
 	c.Set(string(middleware2.ContextKeyForcePlatform), platform)
+}
+
+func isClaudeCodeCompactRequestForMultiprovider(c *gin.Context, body []byte) bool {
+	if strings.TrimSpace(c.GetHeader("x-sub2api-claude-compact")) == "1" {
+		return true
+	}
+	if len(body) == 0 {
+		return false
+	}
+	lower := strings.ToLower(string(body))
+	for _, anchor := range []string{
+		"<command-name>/compact</command-name>",
+		"your task is to create a detailed summary",
+		"create a detailed summary",
+		"detailed summary of the conversation",
+		"summary of the conversation so far",
+		"context compaction",
+		"compact summary",
+	} {
+		if strings.Contains(lower, anchor) {
+			return true
+		}
+	}
+	return false
+}
+
+func rewriteClaudeCodeCompactModelForMultiprovider(body []byte, compactMappedModel string) ([]byte, string, error) {
+	mappedModel := strings.TrimSpace(compactMappedModel)
+	requestedModel := strings.TrimSpace(gjson.GetBytes(body, "model").String())
+	if mappedModel == "" || strings.EqualFold(requestedModel, mappedModel) {
+		return body, requestedModel, nil
+	}
+	nextBody, err := sjson.SetBytes(body, "model", mappedModel)
+	if err != nil {
+		return nil, "", err
+	}
+	return nextBody, mappedModel, nil
 }
 
 func classifyClaudeCodeMessagesRoute(model, groupPlatform string) claudeCodeMessagesRoute {
