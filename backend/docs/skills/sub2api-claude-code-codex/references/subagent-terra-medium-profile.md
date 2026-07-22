@@ -11,7 +11,7 @@ Main Claude Code model: gpt-5.6-sol
 Main effort: user/session controlled; do not persist CLAUDE_CODE_EFFORT_LEVEL
 Small-fast / compact first hop: gpt-5.3-codex-spark
 Compact-only fallback: gpt-5.6-luna
-Default Haiku model while Spark is quota-limited: gpt-5.6-terra-medium
+Picker Haiku alias: haiku
 Delegated subagent model: gpt-5.6-terra-medium
 Delegated subagent effort: medium
 Normal message fallback: none unless explicitly requested by the user
@@ -32,7 +32,7 @@ Do not use Spark as the default delegated agent while native Spark is quota-limi
 The setup script must write these values:
 
 ```powershell
-ANTHROPIC_DEFAULT_HAIKU_MODEL=gpt-5.6-terra-medium
+ANTHROPIC_DEFAULT_HAIKU_MODEL=haiku
 CLAUDE_CODE_SUBAGENT_MODEL=gpt-5.6-terra-medium
 ```
 

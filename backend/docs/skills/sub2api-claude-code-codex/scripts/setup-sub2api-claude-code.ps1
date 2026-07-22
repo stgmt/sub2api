@@ -11,7 +11,10 @@ param(
   [string]$TimeZone = "Europe/Moscow",
   [string]$Model = "gpt-5.6-sol",
   [string]$SmallFastModel = "gpt-5.3-codex-spark",
-  [string]$DefaultHaikuModel = "gpt-5.6-terra-medium",
+  [string]$DefaultOpusModel = "opus",
+  [string]$DefaultFableModel = "fable",
+  [string]$DefaultSonnetModel = "sonnet",
+  [string]$DefaultHaikuModel = "haiku",
   [string]$SubagentModel = "gpt-5.6-terra-medium",
   [string]$SubagentEffort = "medium",
   [ValidateSet("auto", "low", "medium", "high", "xhigh", "max")]
@@ -524,7 +527,18 @@ if (-not $SkipClaudeConfig) {
   Set-ObjectProperty $settings "effortLevel" $DefaultEffort
   Set-ObjectProperty $settings.env "ANTHROPIC_BASE_URL" $ClaudeBaseUrl
   Set-ObjectProperty $settings.env "ANTHROPIC_MODEL" $Model
+  Set-ObjectProperty $settings.env "ANTHROPIC_DEFAULT_OPUS_MODEL" $DefaultOpusModel
+  Set-ObjectProperty $settings.env "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME" "Opus"
+  Set-ObjectProperty $settings.env "ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES" "effort,thinking"
+  Set-ObjectProperty $settings.env "ANTHROPIC_DEFAULT_FABLE_MODEL" $DefaultFableModel
+  Set-ObjectProperty $settings.env "ANTHROPIC_DEFAULT_FABLE_MODEL_NAME" "Fable"
+  Set-ObjectProperty $settings.env "ANTHROPIC_DEFAULT_FABLE_MODEL_SUPPORTED_CAPABILITIES" "effort,thinking"
+  Set-ObjectProperty $settings.env "ANTHROPIC_DEFAULT_SONNET_MODEL" $DefaultSonnetModel
+  Set-ObjectProperty $settings.env "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME" "Sonnet"
+  Set-ObjectProperty $settings.env "ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES" "effort,thinking"
   Set-ObjectProperty $settings.env "ANTHROPIC_DEFAULT_HAIKU_MODEL" $DefaultHaikuModel
+  Set-ObjectProperty $settings.env "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME" "Haiku"
+  Set-ObjectProperty $settings.env "ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES" "effort,thinking"
   Set-ObjectProperty $settings.env "ANTHROPIC_SMALL_FAST_MODEL" $SmallFastModel
   Set-ObjectProperty $settings.env "CLAUDE_CODE_SUBAGENT_MODEL" $SubagentModel
   Set-ObjectProperty $settings.env "CLAUDE_CODE_MAX_CONTEXT_TOKENS" ([string]$MaxContextTokens)
@@ -538,7 +552,18 @@ if (-not $SkipClaudeConfig) {
 
   [Environment]::SetEnvironmentVariable("ANTHROPIC_BASE_URL", $ClaudeBaseUrl, "User")
   [Environment]::SetEnvironmentVariable("ANTHROPIC_MODEL", $Model, "User")
+  [Environment]::SetEnvironmentVariable("ANTHROPIC_DEFAULT_OPUS_MODEL", $DefaultOpusModel, "User")
+  [Environment]::SetEnvironmentVariable("ANTHROPIC_DEFAULT_OPUS_MODEL_NAME", "Opus", "User")
+  [Environment]::SetEnvironmentVariable("ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES", "effort,thinking", "User")
+  [Environment]::SetEnvironmentVariable("ANTHROPIC_DEFAULT_FABLE_MODEL", $DefaultFableModel, "User")
+  [Environment]::SetEnvironmentVariable("ANTHROPIC_DEFAULT_FABLE_MODEL_NAME", "Fable", "User")
+  [Environment]::SetEnvironmentVariable("ANTHROPIC_DEFAULT_FABLE_MODEL_SUPPORTED_CAPABILITIES", "effort,thinking", "User")
+  [Environment]::SetEnvironmentVariable("ANTHROPIC_DEFAULT_SONNET_MODEL", $DefaultSonnetModel, "User")
+  [Environment]::SetEnvironmentVariable("ANTHROPIC_DEFAULT_SONNET_MODEL_NAME", "Sonnet", "User")
+  [Environment]::SetEnvironmentVariable("ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES", "effort,thinking", "User")
   [Environment]::SetEnvironmentVariable("ANTHROPIC_DEFAULT_HAIKU_MODEL", $DefaultHaikuModel, "User")
+  [Environment]::SetEnvironmentVariable("ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME", "Haiku", "User")
+  [Environment]::SetEnvironmentVariable("ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES", "effort,thinking", "User")
   [Environment]::SetEnvironmentVariable("ANTHROPIC_SMALL_FAST_MODEL", $SmallFastModel, "User")
   [Environment]::SetEnvironmentVariable("CLAUDE_CODE_SUBAGENT_MODEL", $SubagentModel, "User")
   [Environment]::SetEnvironmentVariable("CLAUDE_CODE_MAX_CONTEXT_TOKENS", [string]$MaxContextTokens, "User")
@@ -661,7 +686,7 @@ Write-Host "Windows autostart: Sub2API Codex Proxy Stack Autostart (single task,
 Write-Host "model: $Model"
 Write-Host "default effort: $DefaultEffort (use /effort inside Claude Code to change per session)"
 Write-Host "small-fast model: $SmallFastModel"
-Write-Host "default Haiku model: $DefaultHaikuModel"
+Write-Host "picker aliases: Opus=$DefaultOpusModel Fable=$DefaultFableModel Sonnet=$DefaultSonnetModel Haiku=$DefaultHaikuModel"
 Write-Host "subagent model/effort: $SubagentModel / $SubagentEffort"
 Write-Host "max context: $MaxContextTokens"
 Write-Host "auto compact: $AutoCompactWindow"
