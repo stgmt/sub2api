@@ -70,7 +70,7 @@ Routing contract:
 
 - GPT/Codex IDs route to the OpenAI/Codex OAuth account and may use GPT effort suffixes such as `-medium`.
 - Alibaba Token Plan IDs (`qwen3.8-max-preview`, `qwen3.7-max`, `qwen3.7-plus`, `qwen3.6-flash`, `glm-5.2`, `deepseek-v4-pro`) route to a dedicated account with `platform='anthropic'`, `base_url='https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic'`, and Bearer auth.
-- Do not publish raw Claude/Fable names (`fable`, `opus`, `sonnet`, `haiku`, `claude-*`) in this local profile. Claude Code Opus/Fable/Sonnet picker slots are env aliases and should point to Qwen high (`qwen3.8-max-preview`).
+- Do not publish raw Claude/Fable names (`fable`, `opus`, `sonnet`, `haiku`, `claude-*`) in this local profile. Claude Code Opus/Fable/Sonnet/Haiku picker slots are env aliases and should point to Qwen high (`qwen3.8-max-preview`).
 - Keep normal message `model_fallbacks` empty unless the user explicitly asks for model fallback. Current compact routing is `messages_dispatch_model_config.compact_mapped_model=qwen3.8-max-preview`, which is applied before provider classification so GPT/Codex `/compact` requests cross-route to the Alibaba Token Plan Anthropic-compatible account.
 - Token Plan pricing may be absent from public pricing catalogs. The fork uses an explicit unknown-cost fallback for the listed Token Plan chat models so usage accounting succeeds without logging `pricing not found`.
 

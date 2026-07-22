@@ -2,7 +2,7 @@
 
 This is the current delegated-agent profile for the Claude Code + Headroom + sub2api Codex subscription chain. The old Terra-medium setup is preserved below as historical evidence only.
 
-Use it when installing, repairing, or updating Claude Code agent overrides. The intent is simple: keep the lead session on full-power `gpt-5.6-sol`, pin Opus/Fable/Sonnet picker slots to Qwen high, and run frequent delegated agents plus compact/small-fast on Qwen 3.8 Max High instead of inheriting parent Sol/max by accident.
+Use it when installing, repairing, or updating Claude Code agent overrides. The intent is simple: keep the lead session on full-power `gpt-5.6-sol`, pin Opus/Fable/Sonnet/Haiku picker slots to Qwen high, and run frequent delegated agents plus compact/small-fast on Qwen 3.8 Max High instead of inheriting parent Sol/max by accident.
 
 ## Current Canon
 
@@ -12,7 +12,7 @@ Main effort: user/session controlled; do not persist CLAUDE_CODE_EFFORT_LEVEL
 Small-fast / compact model: qwen3.8-max-preview
 Compact effort: high
 Picker Opus/Fable/Sonnet aliases: qwen3.8-max-preview
-Picker Haiku alias: haiku until the user chooses a replacement from the Alibaba bench
+Picker Haiku alias: qwen3.8-max-preview, display name Qwen 3.8 Max
 Delegated subagent model: qwen3.8-max-preview
 Delegated subagent effort: high
 Normal message fallback: none unless explicitly requested by the user
@@ -33,7 +33,7 @@ Do not add fallbacks silently. Provider/account failures should be debuggable un
 The setup script must write these values:
 
 ```powershell
-ANTHROPIC_DEFAULT_HAIKU_MODEL=haiku
+ANTHROPIC_DEFAULT_HAIKU_MODEL=qwen3.8-max-preview
 ANTHROPIC_DEFAULT_OPUS_MODEL=qwen3.8-max-preview
 ANTHROPIC_DEFAULT_FABLE_MODEL=qwen3.8-max-preview
 ANTHROPIC_DEFAULT_SONNET_MODEL=qwen3.8-max-preview

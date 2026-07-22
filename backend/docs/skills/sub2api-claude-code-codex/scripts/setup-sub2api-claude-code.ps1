@@ -14,7 +14,7 @@ param(
   [string]$DefaultOpusModel = "qwen3.8-max-preview",
   [string]$DefaultFableModel = "qwen3.8-max-preview",
   [string]$DefaultSonnetModel = "qwen3.8-max-preview",
-  [string]$DefaultHaikuModel = "haiku",
+  [string]$DefaultHaikuModel = "qwen3.8-max-preview",
   [string]$SubagentModel = "qwen3.8-max-preview",
   [string]$SubagentEffort = "high",
   [ValidateSet("auto", "low", "medium", "high", "xhigh", "max")]
@@ -537,7 +537,7 @@ if (-not $SkipClaudeConfig) {
   Set-ObjectProperty $settings.env "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME" "Qwen 3.8 Max"
   Set-ObjectProperty $settings.env "ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES" "effort,thinking"
   Set-ObjectProperty $settings.env "ANTHROPIC_DEFAULT_HAIKU_MODEL" $DefaultHaikuModel
-  Set-ObjectProperty $settings.env "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME" "Haiku"
+  Set-ObjectProperty $settings.env "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME" "Qwen 3.8 Max"
   Set-ObjectProperty $settings.env "ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES" "effort,thinking"
   Set-ObjectProperty $settings.env "ANTHROPIC_SMALL_FAST_MODEL" $SmallFastModel
   Set-ObjectProperty $settings.env "CLAUDE_CODE_SUBAGENT_MODEL" $SubagentModel
@@ -562,7 +562,7 @@ if (-not $SkipClaudeConfig) {
   [Environment]::SetEnvironmentVariable("ANTHROPIC_DEFAULT_SONNET_MODEL_NAME", "Qwen 3.8 Max", "User")
   [Environment]::SetEnvironmentVariable("ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES", "effort,thinking", "User")
   [Environment]::SetEnvironmentVariable("ANTHROPIC_DEFAULT_HAIKU_MODEL", $DefaultHaikuModel, "User")
-  [Environment]::SetEnvironmentVariable("ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME", "Haiku", "User")
+  [Environment]::SetEnvironmentVariable("ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME", "Qwen 3.8 Max", "User")
   [Environment]::SetEnvironmentVariable("ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES", "effort,thinking", "User")
   [Environment]::SetEnvironmentVariable("ANTHROPIC_SMALL_FAST_MODEL", $SmallFastModel, "User")
   [Environment]::SetEnvironmentVariable("CLAUDE_CODE_SUBAGENT_MODEL", $SubagentModel, "User")

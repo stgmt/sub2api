@@ -133,7 +133,7 @@
     "default_fable_model": "qwen3.8-max-preview",
     "default_sonnet_model": "qwen3.8-max-preview",
     "default_picker_model_name": "Qwen 3.8 Max",
-    "default_haiku_model": "haiku",
+    "default_haiku_model": "qwen3.8-max-preview",
     "general_purpose_subagent_model": "qwen3.8-max-preview",
     "subagent_effort": "high",
     "effort": "max",
@@ -157,7 +157,7 @@
     "recent_proxy_error_sql": "select id, created_at, status_code, upstream_status_code, error_type, left(coalesce(error_message,''),140), left(coalesce(upstream_error_message,''),140), account_id, requested_model from ops_error_logs where created_at > now() - interval '4 hours' order by id desc limit 40",
     "notes": [
       "Use clean gpt-5.6-sol for main GPT/Codex work and qwen3.8-max-preview high for Claude Code small-fast/compact/subagents. Legacy gpt-5.5[400k] is cosmetic only and must not be treated as the model window.",
-      "Expose only GPT/Codex and Alibaba Token Plan provider names in /v1/models. GPT/Codex routes to OpenAI/Codex OAuth; qwen*/glm*/deepseek-v4-pro routes to the Alibaba Token Plan Anthropic-compatible account. Claude Code Opus/Fable/Sonnet picker slots are env aliases and should point to Qwen high (qwen3.8-max-preview).",
+      "Expose only GPT/Codex and Alibaba Token Plan provider names in /v1/models. GPT/Codex routes to OpenAI/Codex OAuth; qwen*/glm*/deepseek-v4-pro routes to the Alibaba Token Plan Anthropic-compatible account. Claude Code Opus/Fable/Sonnet/Haiku picker slots are env aliases and should point to Qwen high (qwen3.8-max-preview).",
       "Claude Code may still report maxOutputTokens as 32000 on custom/proxy models even when CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000 is set.",
       "On sub2api's Anthropic-to-OpenAI Responses route, thinking.budget_tokens is parsed but not forwarded as an OpenAI reasoning budget.",
       "Codex/GPT-5.6 reasoning is requested with output_config.effort=max when the session or probe explicitly asks for max and should reach upstream as reasoning.effort=max. If structured logs show requested_effort=max plus upstream_effort=xhigh, the running image is stale or using a legacy fallback path.",

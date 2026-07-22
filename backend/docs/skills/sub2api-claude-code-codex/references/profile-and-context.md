@@ -29,7 +29,7 @@ Docker-in-WSL fallback: if Windows cannot reach 127.0.0.1:8787 but WSL/Docker ca
 Upstream platforms: OpenAI/Codex OAuth for GPT/Codex models and Alibaba Token Plan through its Anthropic-compatible endpoint for qwen*/glm*/deepseek-v4-pro
 Claude Code model: gpt-5.6-sol
 Claude Code small-fast model: qwen3.8-max-preview with effort high
-Claude Code picker category defaults: Opus/Fable/Sonnet are pinned to Qwen high (`qwen3.8-max-preview`, display name `Qwen 3.8 Max`); Haiku remains benchmark-driven
+Claude Code picker category defaults: Opus/Fable/Sonnet/Haiku are pinned to Qwen high (`qwen3.8-max-preview`, display name `Qwen 3.8 Max`)
 Claude Code subagent overrides: qwen3.8-max-preview with effort high for all user-level subagents
 Upstream main model: gpt-5.6-sol
 Alibaba Token Plan aliases: qwen3.8-max-preview, qwen3.7-max, qwen3.7-plus, qwen3.6-flash, glm-5.2, deepseek-v4-pro
@@ -66,7 +66,7 @@ Subagent fan-out profile:
 
 - User-level override paths: `%USERPROFILE%\.claude\agents\general-purpose.md`, `Explore.md`, and `workflow-subagent.md`.
 - Current override: `model: qwen3.8-max-preview` plus `effort: high` for all user-level subagents. Keep normal message fallbacks empty unless the user explicitly asks for fallback behavior.
-- Current User env pairing: `ANTHROPIC_SMALL_FAST_MODEL=qwen3.8-max-preview`, picker category defaults `ANTHROPIC_DEFAULT_OPUS_MODEL=qwen3.8-max-preview`, `ANTHROPIC_DEFAULT_FABLE_MODEL=qwen3.8-max-preview`, `ANTHROPIC_DEFAULT_SONNET_MODEL=qwen3.8-max-preview`, display names `Qwen 3.8 Max`, `ANTHROPIC_DEFAULT_HAIKU_MODEL=haiku` until a role-specific replacement is chosen, and `CLAUDE_CODE_SUBAGENT_MODEL=qwen3.8-max-preview`. This makes compact/small-fast/subagents practical Qwen-high paths while the lead session can remain on `gpt-5.6-sol`.
+- Current User env pairing: `ANTHROPIC_SMALL_FAST_MODEL=qwen3.8-max-preview`, picker category defaults `ANTHROPIC_DEFAULT_OPUS_MODEL=qwen3.8-max-preview`, `ANTHROPIC_DEFAULT_FABLE_MODEL=qwen3.8-max-preview`, `ANTHROPIC_DEFAULT_SONNET_MODEL=qwen3.8-max-preview`, `ANTHROPIC_DEFAULT_HAIKU_MODEL=qwen3.8-max-preview`, display names `Qwen 3.8 Max`, and `CLAUDE_CODE_SUBAGENT_MODEL=qwen3.8-max-preview`. This makes compact/small-fast/subagents practical Qwen-high paths while the lead session can remain on `gpt-5.6-sol`.
 - Advisory prompt guardrails in that file: no more than 10 sibling subagents for one task, and no agent chains deeper than two subagent levels below the lead session.
 - Do not install a global `PreToolUse` / `SubagentStart` / `SubagentStop` hook that blocks Agent calls unless the user explicitly asks for a hard guard. The current machine policy is non-blocking/advisory.
 - Official Claude Code dynamic workflows still have their own runtime limits: up to 16 concurrent agents and 1000 total agents per workflow run. `workflowSizeGuideline=small` only tells Claude to aim smaller; it is not an enforced concurrency or depth limit. Do not rely on any claimed built-in depth cap as protection against runaway fan-out: local sessions have shown one parent task line reaching hundreds of spawned descendants.
