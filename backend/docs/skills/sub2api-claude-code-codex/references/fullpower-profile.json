@@ -124,28 +124,16 @@
       "max_output_tokens": 64000,
       "text_only": true,
       "note": "Official OpenAI launch notes describe Spark as text-only with a 128k context window and separate research-preview rate limits."
-    },
-    "claude-fable-5": {
-      "context_tokens": 1000000,
-      "max_output_tokens": 128000
-    },
-    "claude-opus-4-8": {
-      "context_tokens": 1000000,
-      "max_output_tokens": 128000
-    },
-    "claude-sonnet-5": {
-      "context_tokens": 1000000,
-      "max_output_tokens": 128000
-    },
-    "claude-haiku-4-5": {
-      "context_tokens": 200000,
-      "max_output_tokens": 64000
     }
   },
   "claude_code": {
     "model": "gpt-5.6-sol",
     "small_fast_model": "gpt-5.3-codex-spark",
-    "default_haiku_model": "gpt-5.6-terra-medium",
+    "default_opus_model": "qwen3.8-max-preview",
+    "default_fable_model": "qwen3.8-max-preview",
+    "default_sonnet_model": "qwen3.8-max-preview",
+    "default_picker_model_name": "Qwen 3.8 Max",
+    "default_haiku_model": "haiku",
     "general_purpose_subagent_model": "gpt-5.6-terra-medium",
     "subagent_effort": "medium",
     "effort": "max",
@@ -169,7 +157,7 @@
     "recent_proxy_error_sql": "select id, created_at, status_code, upstream_status_code, error_type, left(coalesce(error_message,''),140), left(coalesce(upstream_error_message,''),140), account_id, requested_model from ops_error_logs where created_at > now() - interval '4 hours' order by id desc limit 40",
     "notes": [
       "Use clean gpt-5.6-sol for main GPT/Codex work and gpt-5.3-codex-spark for Claude Code small-fast/compact, with compact-only fallback chain gpt-5.6-luna. Legacy gpt-5.5[400k] is cosmetic only and must not be treated as the model window.",
-      "Expose GPT/Codex, Alibaba Token Plan, and Claude/Fable names together in the Claude Code picker. GPT/Codex routes to OpenAI/Codex OAuth; qwen*/glm*/deepseek-v4-pro routes to the Alibaba Token Plan Anthropic-compatible account; fable/opus/sonnet/haiku/claude-* routes only to real Anthropic-compatible accounts and must not secretly fall back to GPT.",
+      "Expose only GPT/Codex and Alibaba Token Plan provider names in /v1/models. GPT/Codex routes to OpenAI/Codex OAuth; qwen*/glm*/deepseek-v4-pro routes to the Alibaba Token Plan Anthropic-compatible account. Claude Code Opus/Fable/Sonnet picker slots are env aliases and should point to Qwen high (qwen3.8-max-preview).",
       "Claude Code may still report maxOutputTokens as 32000 on custom/proxy models even when CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000 is set.",
       "On sub2api's Anthropic-to-OpenAI Responses route, thinking.budget_tokens is parsed but not forwarded as an OpenAI reasoning budget.",
       "Codex/GPT-5.6 reasoning is requested with output_config.effort=max when the session or probe explicitly asks for max and should reach upstream as reasoning.effort=max. If structured logs show requested_effort=max plus upstream_effort=xhigh, the running image is stale or using a legacy fallback path.",
@@ -182,7 +170,7 @@
       "Use gpt-5.3-codex-spark as ANTHROPIC_SMALL_FAST_MODEL for compact/small-fast routing. Spark has a 128k text-only window and no reasoning effort knob, so sub2api must omit reasoning.effort on Spark compact/chunk requests.",
       "Use gpt-5.6-terra-medium with effort: medium for the user-level Claude Code general-purpose, Explore, and workflow-subagent overrides while native Spark is quota-limited. The -medium alias is intentionally normalized by patched sub2api to upstream gpt-5.6-terra with reasoning_effort=medium so delegated agents do not inherit parent Sol/max. This is a model/effort override, not a global Agent-blocking hook.",
       "Do not install PreToolUse/SubagentStart/SubagentStop state-file hooks to block Agent calls unless the user explicitly asks for a hard cap. Current fan-out control is advisory through workflowSizeGuideline=small and general-purpose.md guardrails. Do not claim a built-in depth cap prevents hundreds of spawned descendants; local sessions showed one parent line reaching hundreds of spawned agents.",
-      "Keep normal messages_dispatch_model_config.model_fallbacks empty unless the user explicitly asks for fallback behavior. Compact fallbacks live in account compact_model_fallbacks and are separate from normal Claude/Fable/Token Plan routing.",
+      "Keep normal messages_dispatch_model_config.model_fallbacks empty unless the user explicitly asks for fallback behavior. Compact fallbacks live in account compact_model_fallbacks and are separate from normal Token Plan routing.",
       "Fresh 2026-07-10 Luna re-probe returned HTTP 200 but usage_logs showed a fallback and ops_error_logs recorded recovered upstream 429. Treat Luna as unavailable until the mapping chain ends at gpt-5.6-luna.",
       "Set compact_model_fallbacks so Spark compact failures caused by rate limit, quota, unknown/unsupported model, or service-unavailable class errors continue through gpt-5.6-luna; do not configure a mini-model fallback.",
       "Manual /compact may ignore ANTHROPIC_SMALL_FAST_MODEL in some Claude Code builds and use the session main model. Verify compact routing via usage_logs.requested_model/upstream_model."
@@ -271,18 +259,7 @@
         "qwen3.7-plus",
         "qwen3.6-flash",
         "glm-5.2",
-        "deepseek-v4-pro",
-        "fable",
-        "opus",
-        "sonnet",
-        "haiku",
-        "claude-fable-5",
-        "claude-opus-4-8",
-        "claude-opus-4-7",
-        "claude-sonnet-5",
-        "claude-sonnet-4-6",
-        "claude-haiku-4-5",
-        "claude-haiku-4-5-20251001"
+        "deepseek-v4-pro"
       ]
     }
   }

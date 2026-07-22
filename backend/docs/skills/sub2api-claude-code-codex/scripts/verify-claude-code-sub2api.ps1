@@ -603,7 +603,7 @@ $BaseUrl = Normalize-Url $BaseUrl "http://127.0.0.1:8787"
 $Sub2apiBaseUrl = Normalize-Url $Sub2apiBaseUrl "http://127.0.0.1:18081"
 if (-not $Model) { $Model = "gpt-5.6-sol" }
 if (-not $SmallFastModel) { $SmallFastModel = "gpt-5.3-codex-spark" }
-if (-not $DefaultHaikuModel) { $DefaultHaikuModel = "gpt-5.6-terra-medium" }
+if (-not $DefaultHaikuModel) { $DefaultHaikuModel = "haiku" }
 if (-not $SubagentModel) { $SubagentModel = "gpt-5.6-terra-medium" }
 
 Write-Host "Claude/Headroom base URL: $BaseUrl"
@@ -611,6 +611,7 @@ Write-Host "sub2api admin/diagnostic URL: $Sub2apiBaseUrl"
 Write-Host "Model: $Model"
 Write-Host "Small-fast model: $SmallFastModel"
 Write-Host "Default Haiku model: $DefaultHaikuModel"
+Write-Host "Expected Opus/Fable/Sonnet picker alias: qwen3.8-max-preview"
 Write-Host "Subagent model: $SubagentModel"
 Write-Host "Has API token: $([bool]$ApiKey)"
 
@@ -781,4 +782,4 @@ Test-HeadroomRtkSharedState
 Write-Host "`nExpected Headroom upstream: http://sub2api:8080"
 Write-Host "Expected main model in usage_logs: $ExpectedUpstream"
 Write-Host "Expected small-fast requested_model in usage_logs: $SmallFastModel"
-Write-Host "Expected default-Haiku/subagent model for delegated agents: $DefaultHaikuModel / $SubagentModel"
+Write-Host "Expected Haiku/subagent models for delegated agents: $DefaultHaikuModel / $SubagentModel"

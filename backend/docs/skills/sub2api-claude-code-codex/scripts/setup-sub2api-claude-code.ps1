@@ -11,9 +11,9 @@ param(
   [string]$TimeZone = "Europe/Moscow",
   [string]$Model = "gpt-5.6-sol",
   [string]$SmallFastModel = "gpt-5.3-codex-spark",
-  [string]$DefaultOpusModel = "opus",
-  [string]$DefaultFableModel = "fable",
-  [string]$DefaultSonnetModel = "sonnet",
+  [string]$DefaultOpusModel = "qwen3.8-max-preview",
+  [string]$DefaultFableModel = "qwen3.8-max-preview",
+  [string]$DefaultSonnetModel = "qwen3.8-max-preview",
   [string]$DefaultHaikuModel = "haiku",
   [string]$SubagentModel = "gpt-5.6-terra-medium",
   [string]$SubagentEffort = "medium",
@@ -528,13 +528,13 @@ if (-not $SkipClaudeConfig) {
   Set-ObjectProperty $settings.env "ANTHROPIC_BASE_URL" $ClaudeBaseUrl
   Set-ObjectProperty $settings.env "ANTHROPIC_MODEL" $Model
   Set-ObjectProperty $settings.env "ANTHROPIC_DEFAULT_OPUS_MODEL" $DefaultOpusModel
-  Set-ObjectProperty $settings.env "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME" "Opus"
+  Set-ObjectProperty $settings.env "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME" "Qwen 3.8 Max"
   Set-ObjectProperty $settings.env "ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES" "effort,thinking"
   Set-ObjectProperty $settings.env "ANTHROPIC_DEFAULT_FABLE_MODEL" $DefaultFableModel
-  Set-ObjectProperty $settings.env "ANTHROPIC_DEFAULT_FABLE_MODEL_NAME" "Fable"
+  Set-ObjectProperty $settings.env "ANTHROPIC_DEFAULT_FABLE_MODEL_NAME" "Qwen 3.8 Max"
   Set-ObjectProperty $settings.env "ANTHROPIC_DEFAULT_FABLE_MODEL_SUPPORTED_CAPABILITIES" "effort,thinking"
   Set-ObjectProperty $settings.env "ANTHROPIC_DEFAULT_SONNET_MODEL" $DefaultSonnetModel
-  Set-ObjectProperty $settings.env "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME" "Sonnet"
+  Set-ObjectProperty $settings.env "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME" "Qwen 3.8 Max"
   Set-ObjectProperty $settings.env "ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES" "effort,thinking"
   Set-ObjectProperty $settings.env "ANTHROPIC_DEFAULT_HAIKU_MODEL" $DefaultHaikuModel
   Set-ObjectProperty $settings.env "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME" "Haiku"
@@ -553,13 +553,13 @@ if (-not $SkipClaudeConfig) {
   [Environment]::SetEnvironmentVariable("ANTHROPIC_BASE_URL", $ClaudeBaseUrl, "User")
   [Environment]::SetEnvironmentVariable("ANTHROPIC_MODEL", $Model, "User")
   [Environment]::SetEnvironmentVariable("ANTHROPIC_DEFAULT_OPUS_MODEL", $DefaultOpusModel, "User")
-  [Environment]::SetEnvironmentVariable("ANTHROPIC_DEFAULT_OPUS_MODEL_NAME", "Opus", "User")
+  [Environment]::SetEnvironmentVariable("ANTHROPIC_DEFAULT_OPUS_MODEL_NAME", "Qwen 3.8 Max", "User")
   [Environment]::SetEnvironmentVariable("ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES", "effort,thinking", "User")
   [Environment]::SetEnvironmentVariable("ANTHROPIC_DEFAULT_FABLE_MODEL", $DefaultFableModel, "User")
-  [Environment]::SetEnvironmentVariable("ANTHROPIC_DEFAULT_FABLE_MODEL_NAME", "Fable", "User")
+  [Environment]::SetEnvironmentVariable("ANTHROPIC_DEFAULT_FABLE_MODEL_NAME", "Qwen 3.8 Max", "User")
   [Environment]::SetEnvironmentVariable("ANTHROPIC_DEFAULT_FABLE_MODEL_SUPPORTED_CAPABILITIES", "effort,thinking", "User")
   [Environment]::SetEnvironmentVariable("ANTHROPIC_DEFAULT_SONNET_MODEL", $DefaultSonnetModel, "User")
-  [Environment]::SetEnvironmentVariable("ANTHROPIC_DEFAULT_SONNET_MODEL_NAME", "Sonnet", "User")
+  [Environment]::SetEnvironmentVariable("ANTHROPIC_DEFAULT_SONNET_MODEL_NAME", "Qwen 3.8 Max", "User")
   [Environment]::SetEnvironmentVariable("ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES", "effort,thinking", "User")
   [Environment]::SetEnvironmentVariable("ANTHROPIC_DEFAULT_HAIKU_MODEL", $DefaultHaikuModel, "User")
   [Environment]::SetEnvironmentVariable("ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME", "Haiku", "User")

@@ -2,7 +2,7 @@
 
 This is the current delegated-agent profile for the Claude Code + Headroom + sub2api Codex subscription chain.
 
-Use it when installing, repairing, or updating Claude Code agent overrides. The intent is simple: keep the lead session on full-power `gpt-5.6-sol`, keep compact/small-fast routing on Spark fallback logic, but run frequent delegated agents on `gpt-5.6-terra-medium` so they do not inherit parent Sol/max and do not spend minutes on default high/max reasoning.
+Use it when installing, repairing, or updating Claude Code agent overrides. The intent is simple: keep the lead session on full-power `gpt-5.6-sol`, keep compact/small-fast routing on Spark fallback logic, pin Opus/Fable/Sonnet picker slots to Qwen high, and run frequent delegated agents on the best proven profile instead of inheriting parent Sol/max by accident.
 
 ## Current Canon
 
@@ -11,7 +11,8 @@ Main Claude Code model: gpt-5.6-sol
 Main effort: user/session controlled; do not persist CLAUDE_CODE_EFFORT_LEVEL
 Small-fast / compact first hop: gpt-5.3-codex-spark
 Compact-only fallback: gpt-5.6-luna
-Picker Haiku alias: haiku
+Picker Opus/Fable/Sonnet aliases: qwen3.8-max-preview
+Picker Haiku alias: haiku until the user chooses a replacement from the Alibaba bench
 Delegated subagent model: gpt-5.6-terra-medium
 Delegated subagent effort: medium
 Normal message fallback: none unless explicitly requested by the user
@@ -25,7 +26,7 @@ Local A/B on 2026-07-12 used the same Explore-style repository analysis prompt a
 
 Keep `high` and `max` available for explicit user requests or narrow quality-critical tasks. Do not make them the default for broad delegated fan-out.
 
-Do not use Spark as the default delegated agent while native Spark is quota-limited. Spark remains the compact/small-fast first hop, with Luna as compact-only fallback. Officially Spark is text-only with a 128k context window, so Terra medium is the safer delegated-agent default for repository-scale context.
+Do not use Spark as the default delegated agent while native Spark is quota-limited. Spark remains the compact/small-fast first hop, with Luna as compact-only fallback. Officially Spark is text-only with a 128k context window, so Terra medium is the safer delegated-agent default for repository-scale context. The 2026-07-22 Alibaba bench showed `qwen3.8-max-preview` as the only all-pass Alibaba quality candidate and `qwen3.7-plus` as a faster subagent-review candidate, but the installed subagent override remains `gpt-5.6-terra-medium` until the user explicitly switches delegated agents to Qwen.
 
 ## Where To Set It
 
@@ -33,6 +34,9 @@ The setup script must write these values:
 
 ```powershell
 ANTHROPIC_DEFAULT_HAIKU_MODEL=haiku
+ANTHROPIC_DEFAULT_OPUS_MODEL=qwen3.8-max-preview
+ANTHROPIC_DEFAULT_FABLE_MODEL=qwen3.8-max-preview
+ANTHROPIC_DEFAULT_SONNET_MODEL=qwen3.8-max-preview
 CLAUDE_CODE_SUBAGENT_MODEL=gpt-5.6-terra-medium
 ```
 

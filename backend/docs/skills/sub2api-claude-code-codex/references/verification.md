@@ -90,7 +90,7 @@ wsl.exe -- bash -lc 'docker exec sub2api-codex-postgres psql -U sub2api -d sub2a
 Expected:
 
 ```text
-requested_model = gpt-5.6-sol, gpt-5.3-codex-spark, legacy gpt-5.5[400k], or claude-opus/sonnet/haiku aliases for normal work
+requested_model = gpt-5.6-sol, gpt-5.3-codex-spark, qwen3.8-max-preview, glm-5.2, deepseek-v4-pro, or another published GPT/Codex/Alibaba Token Plan ID for normal work
 upstream/response model = gpt-5.6-sol for main work, gpt-5.6-terra for Sonnet, gpt-5.3-codex-spark for small-fast/Haiku when schedulable, or gpt-5.6-luna when Spark fallback takes over
 reasoning_effort = max for GPT-5.6 max requests on the current Codex/OpenAI Responses route; a clamp log with upstream_effort=xhigh means the running image or docs are stale
 model_mapping_chain includes -> gpt-5.6-sol, -> gpt-5.6-terra, -> gpt-5.3-codex-spark, and -> gpt-5.6-luna for Spark fallback

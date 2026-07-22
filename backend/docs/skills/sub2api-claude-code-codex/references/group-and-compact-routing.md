@@ -59,18 +59,7 @@ request time and forces the right provider platform:
       "qwen3.7-plus",
       "qwen3.6-flash",
       "glm-5.2",
-      "deepseek-v4-pro",
-      "fable",
-      "opus",
-      "sonnet",
-      "haiku",
-      "claude-fable-5",
-      "claude-opus-4-8",
-      "claude-opus-4-7",
-      "claude-sonnet-5",
-      "claude-sonnet-4-6",
-      "claude-haiku-4-5",
-      "claude-haiku-4-5-20251001"
+      "deepseek-v4-pro"
     ]
   }
 }
@@ -80,7 +69,7 @@ Routing contract:
 
 - GPT/Codex IDs route to the OpenAI/Codex OAuth account and may use GPT effort suffixes such as `-medium`.
 - Alibaba Token Plan IDs (`qwen3.8-max-preview`, `qwen3.7-max`, `qwen3.7-plus`, `qwen3.6-flash`, `glm-5.2`, `deepseek-v4-pro`) route to a dedicated account with `platform='anthropic'`, `base_url='https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic'`, and Bearer auth.
-- Claude/Fable names (`fable`, `opus`, `sonnet`, `haiku`, `claude-*`) route only to real Anthropic-compatible accounts. Do not map them to GPT. If no such account is configured, a fast `404 model_not_found/no available accounts` with `fallback_used=false` is correct.
+- Do not publish raw Claude/Fable names (`fable`, `opus`, `sonnet`, `haiku`, `claude-*`) in this local profile. Claude Code Opus/Fable/Sonnet picker slots are env aliases and should point to Qwen high (`qwen3.8-max-preview`).
 - Keep normal message `model_fallbacks` empty unless the user explicitly asks for model fallback. Compact fallback is configured on the OpenAI/Codex account separately.
 - Token Plan pricing may be absent from public pricing catalogs. The fork uses an explicit unknown-cost fallback for the listed Token Plan chat models so usage accounting succeeds without logging `pricing not found`.
 
