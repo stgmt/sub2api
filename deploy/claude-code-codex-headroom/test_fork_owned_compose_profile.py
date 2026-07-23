@@ -35,6 +35,8 @@ def test_sub2api_service_records_fork_provenance() -> None:
     assert "SUB2API_GIT_REF=local" in env_example
     assert "${SUB2API_STATE_ROOT:-./data}/postgres:/var/lib/postgresql" in compose
     assert "${SUB2API_STATE_ROOT:-./data}/postgres:/var/lib/postgresql/data" not in compose
+    assert "SUB2API_OPENAI_CODEX_AUTH_FILE: ${SUB2API_OPENAI_CODEX_AUTH_FILE:-/app/data/codex-auth.json}" in compose
+    assert "SUB2API_OPENAI_CODEX_AUTH_FILE=/app/data/codex-auth.json" in env_example
 
 
 def test_setup_script_preserves_fork_source_values() -> None:
@@ -47,6 +49,7 @@ def test_setup_script_preserves_fork_source_values() -> None:
     assert '$Sub2apiGitRepo = "https://github.com/stgmt/sub2api.git"' in text
     assert 'Set-DotEnvValue $envMap "HEADROOM_GIT_REPO" $HeadroomGitRepo' in text
     assert 'Set-DotEnvValue $envMap "SUB2API_GIT_REF" $Sub2apiGitRef' in text
+    assert 'Set-DotEnvValue $envMap "SUB2API_OPENAI_CODEX_AUTH_FILE" "/app/data/codex-auth.json"' in text
 
 
 def test_fullpower_profile_tracks_both_forks() -> None:

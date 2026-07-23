@@ -57,6 +57,23 @@ func (r schedulerTestOpenAIAccountRepo) ListSchedulableUngroupedByPlatform(ctx c
 	return r.ListSchedulableByPlatform(ctx, platform)
 }
 
+func (r schedulerTestOpenAIAccountRepo) ListAllWithFilters(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string) ([]Account, error) {
+	var result []Account
+	for _, acc := range r.accounts {
+		if platform != "" && acc.Platform != platform {
+			continue
+		}
+		if accountType != "" && acc.Type != accountType {
+			continue
+		}
+		if status != "" && acc.Status != status {
+			continue
+		}
+		result = append(result, acc)
+	}
+	return result, nil
+}
+
 type schedulerGroupAwareOpenAIAccountRepo struct {
 	schedulerTestOpenAIAccountRepo
 }

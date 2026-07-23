@@ -35,6 +35,13 @@ if ($probeIndex -lt 0 -or $recoveryIndex -lt 0 -or $probeIndex -ge $recoveryInde
 }
 
 Assert-Contains $ensure 'Get-HyperVSwitchIpv4' "Self-heal must verify the Hyper-V bridge route"
+Assert-Contains $ensure 'RequireHyperVBridge' "Self-heal must make Hyper-V bridge fail-closed only when explicitly required"
+Assert-Contains $ensure '$bridgeOk = $true' "Optional Hyper-V bridge must not fail a healthy same-host route by default"
+Assert-Contains $ensure 'bridge_required' "Self-heal route proof must record whether the Hyper-V bridge is required"
+Assert-Contains $ensure 'HEADROOM_HYPERV_REQUIRE_BRIDGE' "Self-heal must allow profile env to require the Hyper-V bridge"
+Assert-Contains $ensure 'Sync-CodexAuthFile' "Self-heal must sync fresh host Codex OAuth auth into the sub2api bind mount"
+Assert-Contains $ensure 'codex_auth_synced' "Self-heal must emit proof when it refreshes the Codex auth bind file"
+Assert-Contains $ensure 'codex-auth.json' "Self-heal must write the canonical sub2api Codex auth file"
 Assert-Contains $ensure 'recovery_started' "Self-heal must emit a recovery-start event"
 Assert-Contains $ensure 'recovered' "Self-heal must emit recovery proof"
 Assert-Contains $ensure 'recovery_failed' "Self-heal must fail closed after an unsuccessful recovery"

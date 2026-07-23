@@ -84,6 +84,12 @@
       "prompt": "Claude Code в Hyper-V VM 25 минут ретраил Unable to connect to API (ConnectionRefused): WSL получил poweroff уже после успешного logon-autostart. Сделай умный автохил, чтобы это больше не требовало ручного запуска WSL.",
       "expected_output": "Proves the outage timeline from the Claude session, Linux journal, Docker start times, Windows portproxy, and Scheduled Task state; distinguishes pre-HTTP ConnectionRefused from Headroom/sub2api/provider errors; keeps one elevated Scheduled Task owner; replaces the logon-only action with a health-first ensure script triggered at logon and every minute; configures at least three one-minute task retries with IgnoreNew; performs no container restart on a healthy check; on failure wakes WSL, restores compose and the dynamic Hyper-V bridge through the canonical start script, verifies same-host and VM health, records recovery_started and recovered events, adds a fail-closed contract test, and proves a controlled WSL/bridge outage recovers without manual intervention.",
       "files": []
+    },
+    {
+      "id": 15,
+      "prompt": "Claude Code получил 503, а в sub2api OpenAI account status=error: OPENAI_OAUTH_TOKEN_REFRESH_FAILED refresh_token_reused. Сделай автоматический хил, чтобы без ручного SQL после codex login всё поднималось само.",
+      "expected_output": "Proves the root cause from Claude JSONL, ops_error_logs, and accounts status/schedulable fields; distinguishes this from Headroom local 429, quota cooldown, context overflow, and upstream 403; configures SUB2API_OPENAI_CODEX_AUTH_FILE=/app/data/codex-auth.json and the self-heal task to copy a validated host %USERPROFILE%\\.codex\\auth.json into the sub2api host bind mount without printing secrets; implements backend recovery that imports a fresh non-expired auth file on refresh_token_reused/invalid_refresh_token-style failures, clears status=error, clears temp-unschedulable, sets schedulable=true, invalidates stale token cache, retries OpenAI account selection once in the original request, and returns 401 authentication_error instructing codex login when the file is missing/unchanged/expired instead of masking it as 503; covers token refresh, selection retry, no-account classification, compose env, setup, and autostart scripts with focused tests; rebuilds/recreates sub2api and verifies health plus a live Headroom request or truthful 401 if the host auth file is stale.",
+      "files": []
     }
   ]
 }

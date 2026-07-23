@@ -83,6 +83,23 @@ func (r stubOpenAIAccountRepo) ListSchedulableUngroupedByPlatform(ctx context.Co
 	return r.ListSchedulableByPlatform(ctx, platform)
 }
 
+func (r stubOpenAIAccountRepo) ListAllWithFilters(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string) ([]Account, error) {
+	var result []Account
+	for _, acc := range r.accounts {
+		if platform != "" && acc.Platform != platform {
+			continue
+		}
+		if accountType != "" && acc.Type != accountType {
+			continue
+		}
+		if status != "" && acc.Status != status {
+			continue
+		}
+		result = append(result, acc)
+	}
+	return result, nil
+}
+
 type groupAwareStubOpenAIAccountRepo struct {
 	stubOpenAIAccountRepo
 }

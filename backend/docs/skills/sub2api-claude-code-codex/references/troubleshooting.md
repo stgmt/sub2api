@@ -169,6 +169,20 @@ If Claude Code reports `API Error: 503 Service temporarily unavailable` or `API 
   wsl.exe -- docker exec sub2api-codex-postgres psql -U sub2api -d sub2api -F " | " -Atc "select id, name, platform, type, status, schedulable, coalesce(error_message,''), expires_at from accounts where platform='openai' order by id;"
   ```
   Expected recovered state is `active | t` with a non-expired `expires_at`. If the runtime image is stale, set schedulable manually once, rebuild/recreate `sub2api-codex` from the fork, then run a tiny Headroom `/v1/messages` probe and a `claude --print --no-session-persistence` probe.
+- Codex/OpenAI OAuth refresh-token reuse has its own self-heal path:
+  ```text
+  token refresh fails with OPENAI_OAUTH_TOKEN_REFRESH_FAILED
+  -> upstream/body contains refresh_token_reused, invalid_refresh_token, invalid_grant, token_expired, or app_session_terminated
+  -> old image marks account status=error and schedulable=false
+  -> scheduler hides the account, so Claude Code sees no available accounts / legacy 503
+  ```
+  Current fork behavior: setup and the repeating self-heal task copy a validated host `%USERPROFILE%\.codex\auth.json` into `${SUB2API_STATE_ROOT}/sub2api/codex-auth.json`; sub2api reads it from `SUB2API_OPENAI_CODEX_AUTH_FILE=/app/data/codex-auth.json`. On refresh failure or OpenAI selection failure, sub2api imports that file only if the refresh token differs and the access-token JWT is not expired, then clears `status=error`, clears temp-unschedulable, sets `schedulable=true`, invalidates stale token cache, and retries account selection once in the original request.
+  Proof logs:
+  ```text
+  token_refresh.openai_codex_auth_file_recovered
+  openai_codex_auth_file_recovery_selection_retrying
+  ```
+  If the host auth file is missing, unchanged, invalid, or expired, patched sub2api returns `401 authentication_error` with `Run codex login on the host`; that is expected and more truthful than `503 Service temporarily unavailable`. Do not perform routine manual SQL reset for this class. Run `codex login` on the host that owns `%USERPROFILE%\.codex\auth.json`; the scheduled self-heal will sync the refreshed file on its next pass, or run `scripts/ensure-sub2api-proxy-stack.ps1` once to sync immediately. Do not print copied auth files or token values.
 - Interpret a global cooldown pattern this way:
   ```text
   upstream 429 "The usage limit has been reached"

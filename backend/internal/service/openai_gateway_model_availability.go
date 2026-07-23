@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -44,6 +46,7 @@ func (s *OpenAIGatewayService) DiagnoseModelAvailabilityForPlatform(
 	diag := ModelAvailabilityDiagnosis{}
 	matchingModelAccounts := 0
 	rateLimitedMatchingAccounts := 0
+	authErroredMatchingAccounts := 0
 	now := time.Now()
 	for i := range accounts {
 		diag.HasAccountsInPool = true
@@ -54,6 +57,13 @@ func (s *OpenAIGatewayService) DiagnoseModelAvailabilityForPlatform(
 		if accounts[i].IsModelSupported(requestedModel) {
 			diag.HasModelSupport = true
 			matchingModelAccounts++
+			if isOpenAIOAuthCredentialError(&accounts[i]) {
+				authErroredMatchingAccounts++
+				if diag.AuthErrorMessage == "" {
+					diag.AuthErrorMessage = summarizeOpenAIOAuthCredentialError(accounts[i].ErrorMessage)
+				}
+				continue
+			}
 			if resetAt := accountRequestRateLimitResetAt(ctx, &accounts[i], requestedModel, now); resetAt != nil {
 				rateLimitedMatchingAccounts++
 				if diag.RateLimitResetAt == nil || resetAt.Before(*diag.RateLimitResetAt) {
@@ -66,7 +76,49 @@ func (s *OpenAIGatewayService) DiagnoseModelAvailabilityForPlatform(
 	if matchingModelAccounts > 0 && matchingModelAccounts == rateLimitedMatchingAccounts {
 		diag.AllModelSupportingAccountsRateLimited = true
 	}
+	if matchingModelAccounts > 0 && matchingModelAccounts == authErroredMatchingAccounts {
+		diag.AllModelSupportingAccountsAuthErrored = true
+	}
 	return diag
+}
+
+func isOpenAIOAuthCredentialError(account *Account) bool {
+	if account == nil || !account.IsOpenAIOAuth() || account.Status != StatusError {
+		return false
+	}
+	msg := strings.ToLower(strings.TrimSpace(account.ErrorMessage))
+	if msg == "" {
+		return false
+	}
+	if strings.Contains(msg, "openai_oauth_token_refresh_failed") ||
+		strings.Contains(msg, "token refresh failed") {
+		return strings.Contains(msg, "refresh_token_reused") ||
+			strings.Contains(msg, "invalid_refresh_token") ||
+			strings.Contains(msg, "refresh_token_invalidated") ||
+			strings.Contains(msg, "token_expired") ||
+			strings.Contains(msg, "invalid_grant") ||
+			strings.Contains(msg, "app_session_terminated") ||
+			strings.Contains(msg, "no refresh token available")
+	}
+	return false
+}
+
+func summarizeOpenAIOAuthCredentialError(message string) string {
+	msg := strings.ToLower(message)
+	for _, code := range []string{
+		"refresh_token_reused",
+		"invalid_refresh_token",
+		"refresh_token_invalidated",
+		"token_expired",
+		"invalid_grant",
+		"app_session_terminated",
+		"no refresh token available",
+	} {
+		if strings.Contains(msg, code) {
+			return code
+		}
+	}
+	return "oauth_refresh_failed"
 }
 
 func accountRequestRateLimitResetAt(ctx context.Context, account *Account, requestedModel string, now time.Time) *time.Time {
@@ -97,27 +149,15 @@ func (s *OpenAIGatewayService) listAccountsForNoAccountDiagnosis(ctx context.Con
 		return nil, nil
 	}
 	platform = normalizeOpenAICompatiblePlatform(platform)
-	accounts, err := s.accountRepo.ListByPlatform(ctx, platform)
-	if err != nil {
-		return nil, err
-	}
 	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
-		return accounts, nil
+		return s.accountRepo.ListAllWithFilters(ctx, platform, "", "", "", 0, "")
 	}
 
-	out := make([]Account, 0, len(accounts))
-	for i := range accounts {
-		if groupID != nil {
-			if openAIAccountHasGroupID(&accounts[i], *groupID) {
-				out = append(out, accounts[i])
-			}
-			continue
-		}
-		if len(accounts[i].GroupIDs) == 0 {
-			out = append(out, accounts[i])
-		}
+	groupFilter := AccountListGroupUngrouped
+	if groupID != nil {
+		groupFilter = *groupID
 	}
-	return out, nil
+	return s.accountRepo.ListAllWithFilters(ctx, platform, "", "", "", groupFilter, "")
 }
 
 func openAIAccountHasGroupID(account *Account, groupID int64) bool {
@@ -130,4 +170,41 @@ func openAIAccountHasGroupID(account *Account, groupID int64) bool {
 		}
 	}
 	return false
+}
+
+func (s *OpenAIGatewayService) tryRecoverOpenAIOAuthAccountsFromCodexAuthFile(ctx context.Context, groupID *int64, platform string, requestedModel string) bool {
+	if s == nil || s.accountRepo == nil || normalizeOpenAICompatiblePlatform(platform) != PlatformOpenAI {
+		return false
+	}
+	requestedModel = strings.TrimSpace(requestedModel)
+	if requestedModel == "" {
+		return false
+	}
+	accounts, err := s.listAccountsForNoAccountDiagnosis(ctx, groupID, platform)
+	if err != nil {
+		slog.Warn("openai_codex_auth_file_recovery_list_failed", "platform", platform, "error", err)
+		return false
+	}
+
+	recovered := false
+	for i := range accounts {
+		account := &accounts[i]
+		if !account.IsModelSupported(requestedModel) || !isOpenAIOAuthCredentialError(account) {
+			continue
+		}
+		if recoverOpenAIOAuthFromCodexAuthFile(ctx, s.accountRepo, nil, account, errors.New(account.ErrorMessage)) {
+			s.invalidateOpenAITokenCache(ctx, account)
+			recovered = true
+		}
+	}
+	return recovered
+}
+
+func (s *OpenAIGatewayService) invalidateOpenAITokenCache(ctx context.Context, account *Account) {
+	if s == nil || s.openAITokenProvider == nil || s.openAITokenProvider.tokenCache == nil || account == nil {
+		return
+	}
+	if err := s.openAITokenProvider.tokenCache.DeleteAccessToken(ctx, OpenAITokenCacheKey(account)); err != nil {
+		slog.Warn("openai_codex_auth_file_recovery_cache_delete_failed", "account_id", account.ID, "error", err)
+	}
 }

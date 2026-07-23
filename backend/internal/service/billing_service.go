@@ -285,6 +285,12 @@ func (s *BillingService) initFallbackPricing() {
 	s.fallbackPrices["gpt-5.6-terra"] = s.fallbackPrices["gpt-5.4"]
 	s.fallbackPrices["gpt-5.6-luna"] = s.fallbackPrices["gpt-5.4"]
 
+	s.fallbackPrices["gpt-5.4-mini"] = &ModelPricing{
+		InputPricePerToken:     7.5e-7,
+		OutputPricePerToken:    4.5e-6,
+		CacheReadPricePerToken: 7.5e-8,
+		SupportsCacheBreakdown: false,
+	}
 	s.fallbackPrices["gpt-5.4-nano"] = &ModelPricing{
 		InputPricePerToken:     2e-7,
 		OutputPricePerToken:    1.25e-6,
@@ -676,6 +682,8 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 			return s.fallbackPrices["gpt-5.5-pro"]
 		case "gpt-5.5":
 			return s.fallbackPrices["gpt-5.5"]
+		case "gpt-5.4-mini":
+			return s.fallbackPrices["gpt-5.4-mini"]
 		case "gpt-5.4-nano":
 			return s.fallbackPrices["gpt-5.4-nano"]
 		case "gpt-5.4":

@@ -279,6 +279,7 @@ function Write-DotEnv([System.Collections.IDictionary]$Map, [string]$Path) {
     "SUB2API_GIT_REF",
     "SUB2API_BUILD_CONTEXT",
     "SUB2API_DOCKERFILE",
+    "SUB2API_OPENAI_CODEX_AUTH_FILE",
     "TZ",
     "RUN_MODE",
     "SIMPLE_MODE_CONFIRM",
@@ -429,6 +430,7 @@ Set-DotEnvValue $envMap "SUB2API_GIT_REPO" $Sub2apiGitRepo
 Set-DotEnvValue $envMap "SUB2API_GIT_REF" $Sub2apiGitRef
 Set-DotEnvValue $envMap "SUB2API_BUILD_CONTEXT" "../.."
 Set-DotEnvValue $envMap "SUB2API_DOCKERFILE" "Dockerfile"
+Set-DotEnvValue $envMap "SUB2API_OPENAI_CODEX_AUTH_FILE" "/app/data/codex-auth.json"
 Set-DotEnvValue $envMap "TZ" $TimeZone
 Set-DotEnvValue $envMap "RUN_MODE" "simple"
 Set-DotEnvValue $envMap "SIMPLE_MODE_CONFIRM" "true"
@@ -465,6 +467,24 @@ foreach ($stateSubdir in @("headroom", "headroom-cache", "headroom-huggingface",
     Join-Path $profileDir (Join-Path $StateRoot $stateSubdir)
   }
   New-Item -ItemType Directory -Force -Path $statePath | Out-Null
+}
+
+$hostCodexAuthPath = if ($env:USERPROFILE) { Join-Path $env:USERPROFILE ".codex\auth.json" } else { "" }
+if ($hostCodexAuthPath -and (Test-Path -LiteralPath $hostCodexAuthPath)) {
+  try {
+    $auth = Get-Content -Raw -LiteralPath $hostCodexAuthPath | ConvertFrom-Json
+    if ([string]$auth.tokens.access_token -and [string]$auth.tokens.refresh_token) {
+      $sub2apiStatePath = if ([System.IO.Path]::IsPathRooted($StateRoot)) {
+        Join-Path $StateRoot "sub2api"
+      } else {
+        Join-Path $profileDir (Join-Path $StateRoot "sub2api")
+      }
+      New-Item -ItemType Directory -Force -Path $sub2apiStatePath | Out-Null
+      Copy-Item -LiteralPath $hostCodexAuthPath -Destination (Join-Path $sub2apiStatePath "codex-auth.json") -Force
+    }
+  } catch {
+    Write-Warning "Codex auth file was not synced into sub2api state: $($_.Exception.Message)"
+  }
 }
 
 if (-not $SkipDockerUp) {

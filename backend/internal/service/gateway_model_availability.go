@@ -26,6 +26,12 @@ type ModelAvailabilityDiagnosis struct {
 	// RateLimitResetAt is the earliest reset time among model-supporting
 	// accounts when AllModelSupportingAccountsRateLimited is true.
 	RateLimitResetAt *time.Time
+	// AllModelSupportingAccountsAuthErrored is true when every account that
+	// could serve the requested model is permanently blocked by an OAuth
+	// credential refresh failure. This is not a transient service outage and
+	// should be surfaced as an authentication/credential repair problem.
+	AllModelSupportingAccountsAuthErrored bool
+	AuthErrorMessage                      string
 }
 
 // ModelAvailabilityDiagnoser is implemented by gateway services that can

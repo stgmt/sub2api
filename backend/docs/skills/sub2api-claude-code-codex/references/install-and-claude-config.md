@@ -20,7 +20,7 @@ Use the bundled setup script from PowerShell:
 powershell -ExecutionPolicy Bypass -File .\scripts\setup-sub2api-claude-code.ps1
 ```
 
-The script writes `deploy/claude-code-codex-headroom/.env`, starts the compose project `sub2api-codex`, configures Claude Code environment values, registers the Docker-backed Headroom MCP server, and installs RTK on Windows plus WSL unless `-SkipRtk` is passed. It intentionally does not embed anyone's real OAuth refresh token or sub2api API key.
+The script writes `deploy/claude-code-codex-headroom/.env`, starts the compose project `sub2api-codex`, configures Claude Code environment values, registers the Docker-backed Headroom MCP server, syncs a validated host Codex auth file into the sub2api bind mount, and installs RTK on Windows plus WSL unless `-SkipRtk` is passed. It intentionally does not print or embed anyone's real OAuth refresh token or sub2api API key.
 
 Run it from a cloned `stgmt/sub2api` checkout, or pass `-RepoRoot` so it can find `deploy/claude-code-codex-headroom/docker-compose.yml`.
 
@@ -76,6 +76,8 @@ Host persistence is part of the profile. The compose stack writes state under `$
 - `/app/data`: sub2api local app data.
 - `/var/lib/postgresql`: Postgres parent directory. Keep `PGDATA=/var/lib/postgresql/data`; do not bind the host directory directly to `/var/lib/postgresql/data` because `postgres:18-alpine` declares `/var/lib/postgresql` as a volume and the nested bind can make `initdb` loop on a non-empty data dir.
 - `/data`: Redis appendonly data.
+
+Codex/OpenAI OAuth recovery uses the same state root. The installer and the repeating self-heal task validate `%USERPROFILE%\.codex\auth.json` for `tokens.access_token` plus `tokens.refresh_token`, then copy it to `${SUB2API_STATE_ROOT}/sub2api/codex-auth.json`. The container reads it through `SUB2API_OPENAI_CODEX_AUTH_FILE=/app/data/codex-auth.json`. Do not print that file or any token values. If a host `codex login` refreshes the file, the next self-heal pass syncs it; the backend can then recover `refresh_token_reused` / invalid-refresh-token failures without manual SQL.
 
 Do not delete the state root unless the user explicitly wants to wipe Headroom memory/embeddings, sub2api state, Postgres, Redis, and warmed caches.
 
@@ -173,7 +175,7 @@ Compose project: sub2api-codex
 
 Do not keep a second `headroom-proxy` task or a Startup-folder `.cmd` launcher. A separate host `headroom.exe proxy` launcher commonly goes stale when the host binary is removed, while a second compose launcher can race WSL startup and create confusing duplicate logs. Leave only the scheduled task that starts the Docker compose stack.
 
-The setup script installs this task by default. Use `-SkipAutostart` only for a one-off/local-only setup. The task target, `scripts/ensure-sub2api-proxy-stack.ps1`, has a cheap health-first path and does not touch healthy containers. On route failure it invokes `scripts/start-sub2api-proxy-stack.ps1`, which wakes WSL, runs `docker compose --env-file .env -p sub2api-codex up -d --remove-orphans`, refreshes Claude Code `ANTHROPIC_BASE_URL` and the Hyper-V bridge from current addresses, then verifies recovery. The repeating trigger is required because a successful logon task is not re-fired when WSL later powers off.
+The setup script installs this task by default. Use `-SkipAutostart` only for a one-off/local-only setup. The task target, `scripts/ensure-sub2api-proxy-stack.ps1`, first syncs the host Codex auth file when present, then runs a cheap health-first path and does not touch healthy containers. Same-host Headroom health is enough for the normal Windows/WSL profile; Hyper-V bridge health is logged as diagnostic unless `HEADROOM_HYPERV_REQUIRE_BRIDGE=1` is set in `hyperv-bridge.env` or `-RequireHyperVBridge` is passed. On required route failure it invokes `scripts/start-sub2api-proxy-stack.ps1`, which wakes WSL, runs `docker compose --env-file .env -p sub2api-codex up -d --remove-orphans`, refreshes Claude Code `ANTHROPIC_BASE_URL` and the Hyper-V bridge from current addresses, then verifies recovery. The repeating trigger is required because a successful logon task is not re-fired when WSL later powers off.
 
 Existing installations whose task still points directly at `start-sub2api-proxy-stack.ps1` self-migrate on their next elevated run: the start script detects a missing `PT1M` trigger/retry policy and invokes the installer. This is intentional because a normal non-elevated shell cannot replace a `RunLevel=Highest` task.
 
@@ -186,9 +188,11 @@ HEADROOM_HYPERV_VM_NAME=devcontainer-ubuntu-2404
 HEADROOM_HYPERV_VM_SSH_USER=migration
 HEADROOM_HYPERV_VM_SSH_KEY=C:\Migration\devcontainer-vm-key
 HEADROOM_HYPERV_SWITCH_NAME=Default Switch
+# Optional. Set to 1 only when the Hyper-V VM is an active Claude host and bridge health must fail the watchdog.
+HEADROOM_HYPERV_REQUIRE_BRIDGE=0
 ```
 
-On a healthy minute the elevated task only probes the same-host and Default Switch routes. On failure it resolves the current VM, Default Switch, and WSL addresses; removes stale `v4tov4` entries owned by the Headroom port; recreates the VM-scoped firewall rule; atomically updates the VM's `~/.claude/settings.json`; and proves `/health` from the VM namespace. Run `scripts/test-hyperv-headroom-bridge-contract.ps1` and `scripts/test-autostart-self-heal-contract.ps1` after editing this path. Restart already-open Claude Code processes after the endpoint or hook runtime changes because they may retain the old settings registry.
+On a healthy minute the elevated task probes the same-host route and, when `hyperv-bridge.env` exists, also records the Default Switch route. With `HEADROOM_HYPERV_REQUIRE_BRIDGE=0`, a down VM bridge is `bridge_required=false` diagnostic state and must not restart a healthy local stack. With `HEADROOM_HYPERV_REQUIRE_BRIDGE=1`, failure resolves the current VM, Default Switch, and WSL addresses; removes stale `v4tov4` entries owned by the Headroom port; recreates the VM-scoped firewall rule; atomically updates the VM's `~/.claude/settings.json`; and proves `/health` from the VM namespace. Run `scripts/test-hyperv-headroom-bridge-contract.ps1` and `scripts/test-autostart-self-heal-contract.ps1` after editing this path. Restart already-open Claude Code processes after the endpoint or hook runtime changes because they may retain the old settings registry.
 
 The Linux VM still needs the full Claude profile, not only `ANTHROPIC_BASE_URL`: keep `CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK=1`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`, the current context/compact targets, small-fast model, and subagent model in its settings. Native `/compact` is intentionally non-streaming and is identified by `source=compact` plus `x-sub2api-claude-compact`; that is different from Claude Code's emergency non-streaming fallback. If the disable knob is missing, a failed streaming turn can be replayed as a much larger non-stream request and loop for many minutes.
 

@@ -1,6 +1,6 @@
 {
   "name": "sub2api-claude-code-codex-fullpower",
-  "last_updated": "2026-07-22",
+  "last_updated": "2026-07-23",
   "proxy": {
     "base_url": "http://127.0.0.1:8787",
     "chain": "Claude Code -> Headroom 127.0.0.1:8787 -> Docker DNS http://sub2api:8080 -> sub2api",
@@ -72,6 +72,10 @@
       "direct_port_use": "admin UI, diagnostics, and non-Claude clients only",
       "docker_bind": "127.0.0.1:18081->8080",
       "docker_image": "sub2api-codex:local-token-usage",
+      "codex_auth_file": "/app/data/codex-auth.json",
+      "codex_auth_file_env": "SUB2API_OPENAI_CODEX_AUTH_FILE=/app/data/codex-auth.json",
+      "codex_auth_host_sync": "setup-sub2api-claude-code.ps1 and ensure-sub2api-proxy-stack.ps1 copy a validated %USERPROFILE%\\.codex\\auth.json to ${SUB2API_STATE_ROOT}/sub2api/codex-auth.json without logging secrets",
+      "codex_auth_recovery": "On OPENAI_OAUTH_TOKEN_REFRESH_FAILED refresh_token_reused/invalid_refresh_token-style errors, import a fresh non-expired Codex auth file, clear error/temp-unschedulable state, set schedulable=true, invalidate stale token cache, and retry OpenAI account selection once; if no fresh file exists, return 401 authentication_error instructing codex login instead of generic 503.",
       "fork": "https://github.com/stgmt/sub2api",
       "git_repo": "https://github.com/stgmt/sub2api.git",
       "git_ref": "local",
@@ -167,6 +171,7 @@
       "If Claude Code reports 429 rate_limit_error or legacy 503 Service temporarily unavailable while /health is ok, check for openai_messages.account_select_failed with no available accounts.",
       "Do not treat account cooldown 503 as a context-window, ghost-stream, or localhost routing failure.",
       "OpenAI OAuth 403 auto-heal uses consecutive cooldowns 2s, 15s, 1m, then 5m. The first /v1/messages failure is retried once after 2.25s; a successful OpenAI usage resets the counter and clears only an OAuth 403 temp-unschedulable reason, never unrelated model or quota limits.",
+      "OpenAI OAuth refresh_token_reused/invalid_refresh_token recovery uses SUB2API_OPENAI_CODEX_AUTH_FILE=/app/data/codex-auth.json. The scheduled self-heal syncs a validated host Codex auth file into the sub2api bind mount; backend imports it only when the refresh token changed and the access token is not expired, then retries selection once. If the file is stale, Claude should receive 401 authentication_error with codex login guidance, not a masked 503.",
       "Use qwen3.8-max-preview as ANTHROPIC_SMALL_FAST_MODEL and as the group compact_mapped_model for compact/small-fast routing. The current compact route rewrites GPT/Codex compact requests to Qwen before provider classification so the Alibaba Token Plan account handles them.",
       "Use qwen3.8-max-preview with effort: high for the user-level Claude Code general-purpose, Explore, workflow-subagent, bench-reviewer, and bench-triage overrides so delegated agents do not inherit parent Sol/max. This is a model/effort override, not a global Agent-blocking hook.",
       "Do not install PreToolUse/SubagentStart/SubagentStop state-file hooks to block Agent calls unless the user explicitly asks for a hard cap. Current fan-out control is advisory through workflowSizeGuideline=small and general-purpose.md guardrails. Do not claim a built-in depth cap prevents hundreds of spawned descendants; local sessions showed one parent line reaching hundreds of spawned agents.",

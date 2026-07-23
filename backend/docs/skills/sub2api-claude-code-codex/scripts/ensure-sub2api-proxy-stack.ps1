@@ -11,7 +11,9 @@ param(
   [string]$HyperVVmName = "",
   [string]$HyperVVmSshUser = "",
   [string]$HyperVVmSshKey = "",
-  [string]$HyperVSwitchName = "Default Switch"
+  [string]$HyperVSwitchName = "Default Switch",
+  [bool]$RequireHyperVBridge = $false,
+  [string]$CodexAuthFile = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -69,6 +71,67 @@ function Write-SelfHealEvent {
     (($row | ConvertTo-Json -Compress -Depth 8) + [Environment]::NewLine),
     [Text.UTF8Encoding]::new($false)
   )
+}
+
+function Resolve-StateRootPath {
+  param([string]$ProfileRoot, [hashtable]$EnvMap)
+
+  $stateRoot = "./data"
+  if ($EnvMap.ContainsKey("SUB2API_STATE_ROOT") -and $EnvMap["SUB2API_STATE_ROOT"].Trim()) {
+    $stateRoot = $EnvMap["SUB2API_STATE_ROOT"].Trim()
+  }
+  if ([IO.Path]::IsPathRooted($stateRoot)) {
+    return $stateRoot
+  }
+  return Join-Path $ProfileRoot ($stateRoot -replace '^\.[\\/]', '')
+}
+
+function Test-CodexAuthFileShape {
+  param([string]$Path)
+
+  try {
+    $auth = Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json
+    $access = [string]$auth.tokens.access_token
+    $refresh = [string]$auth.tokens.refresh_token
+    return ($access.Trim().Length -gt 0 -and $refresh.Trim().Length -gt 0)
+  } catch {
+    return $false
+  }
+}
+
+function Sync-CodexAuthFile {
+  param([string]$ProfileRoot, [hashtable]$EnvMap)
+
+  $source = $CodexAuthFile
+  if (-not $source.Trim()) {
+    if (-not $env:USERPROFILE) { return @{ status = "skipped"; reason = "USERPROFILE is empty" } }
+    $source = Join-Path $env:USERPROFILE ".codex\auth.json"
+  }
+  if (-not (Test-Path -LiteralPath $source)) {
+    return @{ status = "missing"; source = $source }
+  }
+  if (-not (Test-CodexAuthFileShape -Path $source)) {
+    Write-SelfHealEvent -Event "codex_auth_sync_skipped" -Data @{ reason = "auth file lacks tokens.access_token or tokens.refresh_token"; source = $source }
+    return @{ status = "invalid"; source = $source }
+  }
+
+  $stateRoot = Resolve-StateRootPath -ProfileRoot $ProfileRoot -EnvMap $EnvMap
+  $targetDir = Join-Path $stateRoot "sub2api"
+  $target = Join-Path $targetDir "codex-auth.json"
+  New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
+
+  $sourceHash = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant()
+  $targetHash = ""
+  if (Test-Path -LiteralPath $target) {
+    $targetHash = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant()
+  }
+  if ($sourceHash -eq $targetHash) {
+    return @{ status = "unchanged"; target = $target }
+  }
+
+  Copy-Item -LiteralPath $source -Destination $target -Force
+  Write-SelfHealEvent -Event "codex_auth_synced" -Data @{ target = $target; source_mtime_utc = (Get-Item -LiteralPath $source).LastWriteTimeUtc.ToString("o") }
+  return @{ status = "synced"; target = $target }
 }
 
 function Invoke-HealthProbe {
@@ -142,10 +205,16 @@ function Get-RequiredRouteState {
     }
   }
 
+  $bridgeOk = $true
+  if ($RequireHyperVBridge) {
+    $bridgeOk = ($null -ne $bridge -and $bridge.ok)
+  }
+
   return [ordered]@{
-    ok = ($sameHost.ok -and ($null -eq $bridge -or $bridge.ok))
+    ok = ($sameHost.ok -and $bridgeOk)
     same_host = $sameHost
     bridge = $bridge
+    bridge_required = $RequireHyperVBridge
     wsl_ip = $wslIp
   }
 }
@@ -175,6 +244,7 @@ $LogDir = Join-Path $Root "logs"
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 $LogPath = Join-Path $LogDir "self-heal.jsonl"
 $StatePath = Join-Path $LogDir "self-heal-state.json"
+$envMap = Read-EnvFile -Path (Join-Path $Root ".env")
 $bridgeEnv = Read-EnvFile -Path (Join-Path $Root "hyperv-bridge.env")
 
 if (-not $HyperVVmName.Trim() -and $bridgeEnv.ContainsKey("HEADROOM_HYPERV_VM_NAME")) {
@@ -188,6 +258,9 @@ if (-not $HyperVVmSshKey.Trim() -and $bridgeEnv.ContainsKey("HEADROOM_HYPERV_SSH
 }
 if ($HyperVSwitchName -eq "Default Switch" -and $bridgeEnv.ContainsKey("HEADROOM_HYPERV_SWITCH_NAME")) {
   $HyperVSwitchName = $bridgeEnv["HEADROOM_HYPERV_SWITCH_NAME"]
+}
+if (-not $RequireHyperVBridge -and $bridgeEnv.ContainsKey("HEADROOM_HYPERV_REQUIRE_BRIDGE")) {
+  $RequireHyperVBridge = $bridgeEnv["HEADROOM_HYPERV_REQUIRE_BRIDGE"] -match "^(1|true|yes|on)$"
 }
 
 $startScript = Join-Path $ScriptDir "start-sub2api-proxy-stack.ps1"
@@ -205,6 +278,7 @@ try {
     exit 0
   }
 
+  $codexAuthSync = Sync-CodexAuthFile -ProfileRoot $Root -EnvMap $envMap
   $before = Get-RequiredRouteState
   if ($before.ok) {
     $writeHeartbeat = $true
@@ -220,16 +294,16 @@ try {
       }
     }
     if ($writeHeartbeat) {
-      Write-SelfHealEvent -Event "healthy" -Data @{ routes = $before }
+      Write-SelfHealEvent -Event "healthy" -Data @{ routes = $before; codex_auth = $codexAuthSync }
       $lastEventAt = (Get-Date).ToUniversalTime().ToString("o")
     }
     Save-State -Status "healthy" -LastEventAt $lastEventAt
-    [pscustomobject]@{ status = "healthy"; recovered = $false; routes = $before } | ConvertTo-Json -Compress -Depth 8
+    [pscustomobject]@{ status = "healthy"; recovered = $false; routes = $before; codex_auth = $codexAuthSync } | ConvertTo-Json -Compress -Depth 8
     exit 0
   }
 
   Save-State -Status "recovering" -LastEventAt (Get-Date).ToUniversalTime().ToString("o")
-  Write-SelfHealEvent -Event "recovery_started" -Data @{ routes = $before }
+  Write-SelfHealEvent -Event "recovery_started" -Data @{ routes = $before; codex_auth = $codexAuthSync }
 
   $startParams = @{
     ProfileDir = $Root

@@ -4,7 +4,9 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
 	"testing"
 	"time"
 
@@ -21,16 +23,26 @@ func testConfig() *config.Config {
 
 // mockAccountRepoForPlatform 单平台测试用的 mock
 type mockAccountRepoForPlatform struct {
-	accounts         []Account
-	accountsByID     map[int64]*Account
-	listPlatformFunc func(ctx context.Context, platform string) ([]Account, error)
-	getByIDCalls     int
+	accounts                 []Account
+	accountsByID             map[int64]*Account
+	listPlatformFunc         func(ctx context.Context, platform string) ([]Account, error)
+	getByIDCalls             int
+	updateCredentialsCalls   int
+	clearErrorCalls          int
+	setSchedulableCalls      int
+	clearTempUnschedulable   int
+	lastSchedulableAccountID int64
 }
 
 func (m *mockAccountRepoForPlatform) GetByID(ctx context.Context, id int64) (*Account, error) {
 	m.getByIDCalls++
 	if acc, ok := m.accountsByID[id]; ok {
 		return acc, nil
+	}
+	for i := range m.accounts {
+		if m.accounts[i].ID == id {
+			return &m.accounts[i], nil
+		}
 	}
 	return nil, errors.New("account not found")
 }
@@ -86,6 +98,9 @@ func (m *mockAccountRepoForPlatform) ListCRSAccountIDs(ctx context.Context) (map
 	return nil, nil
 }
 func (m *mockAccountRepoForPlatform) Update(ctx context.Context, account *Account) error {
+	if account != nil {
+		m.upsertAccount(account)
+	}
 	return nil
 }
 func (m *mockAccountRepoForPlatform) Delete(ctx context.Context, id int64) error { return nil }
@@ -96,7 +111,30 @@ func (m *mockAccountRepoForPlatform) ListWithFilters(ctx context.Context, params
 	return nil, nil, nil
 }
 func (m *mockAccountRepoForPlatform) ListAllWithFilters(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string) ([]Account, error) {
-	return nil, nil
+	if m.listPlatformFunc != nil {
+		return m.listPlatformFunc(ctx, platform)
+	}
+	var result []Account
+	for _, acc := range m.accounts {
+		if platform != "" && acc.Platform != platform {
+			continue
+		}
+		if accountType != "" && acc.Type != accountType {
+			continue
+		}
+		if status != "" && acc.Status != status {
+			continue
+		}
+		if groupID == AccountListGroupUngrouped {
+			if len(acc.GroupIDs) != 0 {
+				continue
+			}
+		} else if groupID > 0 && !openAIAccountHasGroupID(&acc, groupID) {
+			continue
+		}
+		result = append(result, acc)
+	}
+	return result, nil
 }
 func (m *mockAccountRepoForPlatform) ListByGroup(ctx context.Context, groupID int64) ([]Account, error) {
 	return nil, nil
@@ -126,9 +164,19 @@ func (m *mockAccountRepoForPlatform) SetError(ctx context.Context, id int64, err
 	return nil
 }
 func (m *mockAccountRepoForPlatform) ClearError(ctx context.Context, id int64) error {
+	m.clearErrorCalls++
+	mutateMockAccountByID(m, id, func(acc *Account) {
+		acc.Status = StatusActive
+		acc.ErrorMessage = ""
+	})
 	return nil
 }
 func (m *mockAccountRepoForPlatform) SetSchedulable(ctx context.Context, id int64, schedulable bool) error {
+	m.setSchedulableCalls++
+	m.lastSchedulableAccountID = id
+	mutateMockAccountByID(m, id, func(acc *Account) {
+		acc.Schedulable = schedulable
+	})
 	return nil
 }
 func (m *mockAccountRepoForPlatform) AutoPauseExpiredAccounts(ctx context.Context, now time.Time) (int64, error) {
@@ -178,6 +226,11 @@ func (m *mockAccountRepoForPlatform) SetTempUnschedulable(ctx context.Context, i
 	return nil
 }
 func (m *mockAccountRepoForPlatform) ClearTempUnschedulable(ctx context.Context, id int64) error {
+	m.clearTempUnschedulable++
+	mutateMockAccountByID(m, id, func(acc *Account) {
+		acc.TempUnschedulableUntil = nil
+		acc.TempUnschedulableReason = ""
+	})
 	return nil
 }
 func (m *mockAccountRepoForPlatform) ClearRateLimit(ctx context.Context, id int64) error {
@@ -218,8 +271,104 @@ func (m *mockAccountRepoForPlatform) ListShadowsByParent(ctx context.Context, pa
 	return nil, nil
 }
 
+func (m *mockAccountRepoForPlatform) UpdateCredentials(ctx context.Context, id int64, credentials map[string]any) error {
+	m.updateCredentialsCalls++
+	mutateMockAccountByID(m, id, func(acc *Account) {
+		acc.Credentials = shallowCopyMap(credentials)
+	})
+	return nil
+}
+
+func (m *mockAccountRepoForPlatform) upsertAccount(account *Account) {
+	if account == nil {
+		return
+	}
+	for i := range m.accounts {
+		if m.accounts[i].ID == account.ID {
+			m.accounts[i] = *account
+			break
+		}
+	}
+	if m.accountsByID != nil {
+		copied := *account
+		m.accountsByID[account.ID] = &copied
+	}
+}
+
+func mutateMockAccountByID(m *mockAccountRepoForPlatform, id int64, mutate func(*Account)) {
+	if m == nil || mutate == nil {
+		return
+	}
+	for i := range m.accounts {
+		if m.accounts[i].ID == id {
+			mutate(&m.accounts[i])
+			if m.accountsByID != nil {
+				copied := m.accounts[i]
+				m.accountsByID[id] = &copied
+			}
+			return
+		}
+	}
+	if m.accountsByID != nil {
+		if acc, ok := m.accountsByID[id]; ok && acc != nil {
+			mutate(acc)
+		}
+	}
+}
+
 // Verify interface implementation
 var _ AccountRepository = (*mockAccountRepoForPlatform)(nil)
+
+func TestOpenAISelectAccountWithLoadAwareness_RecoversCodexAuthFileErrorAccount(t *testing.T) {
+	authPath := t.TempDir() + "/auth.json"
+	authPayload := map[string]any{
+		"tokens": map[string]any{
+			"access_token":  testCodexJWT(t, time.Now().Add(time.Hour)),
+			"refresh_token": "fresh-codex-refresh-token",
+			"id_token":      "fresh-id-token",
+			"account_id":    "acct-live",
+		},
+	}
+	body, err := json.Marshal(authPayload)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(authPath, body, 0o600))
+	t.Setenv("SUB2API_OPENAI_CODEX_AUTH_FILE", authPath)
+
+	groupID := int64(7)
+	repo := &mockAccountRepoForPlatform{
+		accounts: []Account{
+			{
+				ID:           77,
+				Platform:     PlatformOpenAI,
+				Type:         AccountTypeOAuth,
+				Status:       StatusError,
+				Schedulable:  false,
+				GroupIDs:     []int64{groupID},
+				ErrorMessage: `Token refresh failed (non-retryable): OPENAI_OAUTH_TOKEN_REFRESH_FAILED: token refresh failed: status 401, body: {"error":{"code":"refresh_token_reused"}}`,
+				Credentials: map[string]any{
+					"access_token":  "old-access-token",
+					"refresh_token": "old-refresh-token",
+					"model_mapping": map[string]any{"gpt-5.6-sol": "gpt-5.6-sol"},
+				},
+			},
+		},
+	}
+	svc := &OpenAIGatewayService{accountRepo: repo, cfg: testConfig()}
+
+	selection, err := svc.SelectAccountWithLoadAwareness(context.Background(), &groupID, "", "gpt-5.6-sol", nil)
+
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.Equal(t, int64(77), selection.Account.ID)
+	require.Equal(t, StatusActive, selection.Account.Status)
+	require.True(t, selection.Account.Schedulable)
+	require.Equal(t, "fresh-codex-refresh-token", selection.Account.GetOpenAIRefreshToken())
+	require.NotEqual(t, "old-access-token", selection.Account.GetOpenAIAccessToken())
+	require.Equal(t, 1, repo.updateCredentialsCalls)
+	require.Equal(t, 1, repo.clearErrorCalls)
+	require.Equal(t, 1, repo.setSchedulableCalls)
+	require.Equal(t, int64(77), repo.lastSchedulableAccountID)
+}
 
 // mockGatewayCacheForPlatform 单平台测试用的 cache mock
 type mockGatewayCacheForPlatform struct {

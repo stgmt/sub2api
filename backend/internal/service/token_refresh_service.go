@@ -310,6 +310,13 @@ func (s *TokenRefreshService) refreshWithRetry(ctx context.Context, account *Acc
 
 		// 不可重试错误（invalid_grant/invalid_client 等）直接标记 error 状态并返回
 		if isNonRetryableRefreshError(err) {
+			if s.tryRecoverOpenAIOAuthFromCodexAuthFile(ctx, account, err) {
+				slog.Info("token_refresh.openai_codex_auth_file_recovery_retrying",
+					"account_id", account.ID,
+					"platform", account.Platform,
+				)
+				continue
+			}
 			errorMsg := "Token refresh failed (non-retryable): " + logredact.RedactText(err.Error())
 			s.notifyAccountSchedulingBlocked(account, time.Time{}, "token_refresh_non_retryable")
 			s.clearAntigravityForceTokenRefresh(ctx, account, "non_retryable")

@@ -46,6 +46,23 @@ func (r openAIImagesFailoverAccountRepo) ListSchedulableUngroupedByPlatform(_ co
 	return r.accountsForPlatform(platform), nil
 }
 
+func (r openAIImagesFailoverAccountRepo) ListAllWithFilters(_ context.Context, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, error) {
+	out := make([]service.Account, 0, len(r.accounts))
+	for _, account := range r.accounts {
+		if platform != "" && account.Platform != platform {
+			continue
+		}
+		if accountType != "" && account.Type != accountType {
+			continue
+		}
+		if status != "" && account.Status != status {
+			continue
+		}
+		out = append(out, account)
+	}
+	return out, nil
+}
+
 func (r openAIImagesFailoverAccountRepo) accountsForPlatform(platform string) []service.Account {
 	out := make([]service.Account, 0, len(r.accounts))
 	for _, account := range r.accounts {

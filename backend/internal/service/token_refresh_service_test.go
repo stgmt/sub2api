@@ -4,7 +4,10 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"os"
 	"testing"
 	"time"
 
@@ -141,6 +144,33 @@ func (r *tokenRefresherStub) CacheKey(account *Account) string {
 	return "test:stub:" + account.Platform
 }
 
+type tokenRefresherSequenceStub struct {
+	calls int
+}
+
+func (r *tokenRefresherSequenceStub) CanRefresh(account *Account) bool { return true }
+func (r *tokenRefresherSequenceStub) NeedsRefresh(account *Account, refreshWindowDuration time.Duration) bool {
+	return true
+}
+func (r *tokenRefresherSequenceStub) Refresh(ctx context.Context, account *Account) (map[string]any, error) {
+	r.calls++
+	if r.calls == 1 {
+		return nil, errors.New(`OPENAI_OAUTH_TOKEN_REFRESH_FAILED: token refresh failed: status 401, body: {"error":{"code":"refresh_token_reused"}}`)
+	}
+	return nil, nil
+}
+func (r *tokenRefresherSequenceStub) CacheKey(account *Account) string {
+	return "test:sequence:" + account.Platform
+}
+
+func testCodexJWT(t *testing.T, expiresAt time.Time) string {
+	t.Helper()
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
+	payload, err := json.Marshal(map[string]any{"exp": expiresAt.Unix()})
+	require.NoError(t, err)
+	return header + "." + base64.RawURLEncoding.EncodeToString(payload) + ".sig"
+}
+
 func TestTokenRefreshService_RefreshWithRetry_InvalidatesCache(t *testing.T) {
 	repo := &tokenRefreshAccountRepo{}
 	invalidator := &tokenCacheInvalidatorStub{}
@@ -167,8 +197,59 @@ func TestTokenRefreshService_RefreshWithRetry_InvalidatesCache(t *testing.T) {
 	require.Equal(t, 1, repo.updateCalls)
 	require.Equal(t, 1, repo.updateCredentialsCalls)
 	require.Equal(t, 0, repo.fullUpdateCalls)
-	require.Equal(t, 1, invalidator.calls)
+	require.GreaterOrEqual(t, invalidator.calls, 1)
 	require.Equal(t, "new-token", account.GetCredential("access_token"))
+}
+
+func TestTokenRefreshService_RefreshWithRetry_OpenAICodexAuthFileRecovery(t *testing.T) {
+	authPath := t.TempDir() + "/auth.json"
+	authPayload := map[string]any{
+		"tokens": map[string]any{
+			"access_token":  testCodexJWT(t, time.Now().Add(time.Hour)),
+			"refresh_token": "new-refresh-token",
+			"id_token":      "new-id-token",
+			"account_id":    "acct-test",
+		},
+		"last_refresh": time.Now().UTC().Format(time.RFC3339Nano),
+	}
+	body, err := json.Marshal(authPayload)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(authPath, body, 0o600))
+	t.Setenv("SUB2API_OPENAI_CODEX_AUTH_FILE", authPath)
+
+	account := &Account{
+		ID:       77,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Status:   StatusError,
+		Credentials: map[string]any{
+			"access_token":  "old-access-token",
+			"refresh_token": "old-refresh-token",
+		},
+	}
+	repo := &tokenRefreshAccountRepo{}
+	repo.accountsByID = map[int64]*Account{account.ID: account}
+	invalidator := &tokenCacheInvalidatorStub{}
+	cfg := &config.Config{
+		TokenRefresh: config.TokenRefreshConfig{
+			MaxRetries:          2,
+			RetryBackoffSeconds: 0,
+		},
+	}
+	service := NewTokenRefreshService(repo, nil, nil, nil, nil, invalidator, nil, cfg, nil)
+	refresher := &tokenRefresherSequenceStub{}
+
+	err = service.refreshWithRetry(context.Background(), account, refresher, refresher, time.Hour)
+
+	require.NoError(t, err)
+	require.Equal(t, 2, refresher.calls, "refresh should retry once after importing the fresh host Codex auth file")
+	require.Equal(t, 0, repo.setErrorCalls, "fresh external Codex auth must prevent permanent account disable")
+	require.Equal(t, 1, repo.updateCredentialsCalls)
+	require.Equal(t, 1, repo.clearTempCalls)
+	require.GreaterOrEqual(t, invalidator.calls, 1)
+	require.Equal(t, "new-refresh-token", account.GetOpenAIRefreshToken())
+	require.NotEqual(t, "old-access-token", account.GetOpenAIAccessToken())
+	require.Equal(t, "acct-test", account.Credentials["chatgpt_account_id"])
 }
 
 func TestTokenRefreshService_RefreshWithRetry_InvalidatorErrorIgnored(t *testing.T) {

@@ -147,6 +147,26 @@ func TestClassifyNoAccountError_AllSupportingAccountsRateLimited_Returns429(t *t
 	require.Contains(t, cls.Message, resetAt.Format(time.RFC3339))
 }
 
+func TestClassifyNoAccountError_AllSupportingAccountsAuthErrored_Returns401(t *testing.T) {
+	c := newTestGinContextWithRequest()
+	fd := &fakeDiagnoser{resp: service.ModelAvailabilityDiagnosis{
+		HasAccountsInPool:                     true,
+		HasModelSupport:                       true,
+		AllModelSupportingAccountsAuthErrored: true,
+		AuthErrorMessage:                      "refresh_token_reused",
+	}}
+	apiKey := &service.APIKey{GroupID: ptrInt64(7)}
+
+	cls := classifyNoAccountErrorFromGin(c, fd, apiKey, "gpt-5.6-sol", "gpt-5.6-sol", service.PlatformOpenAI)
+
+	require.Equal(t, http.StatusUnauthorized, cls.Status)
+	require.Equal(t, "authentication_error", cls.ErrType)
+	require.False(t, cls.ModelNotFound)
+	require.Contains(t, cls.Message, "gpt-5.6-sol")
+	require.Contains(t, cls.Message, "refresh_token_reused")
+	require.Contains(t, cls.Message, "codex login")
+}
+
 func TestClassifyNoAccountError_NoAccountsInPool_Stays503(t *testing.T) {
 	c := newTestGinContextWithRequest()
 	fd := &fakeDiagnoser{resp: service.ModelAvailabilityDiagnosis{HasAccountsInPool: false, HasModelSupport: false}}

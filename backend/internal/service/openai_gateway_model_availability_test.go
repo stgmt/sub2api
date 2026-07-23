@@ -169,3 +169,36 @@ func TestOpenAIDiagnoseModelAvailability_MixedRateLimitedAndUsableDoesNotReturnR
 	require.False(t, diag.AllModelSupportingAccountsRateLimited)
 	require.NotNil(t, diag.RateLimitResetAt)
 }
+
+func TestOpenAIDiagnoseModelAvailability_AllSupportingAccountsAuthErrored(t *testing.T) {
+	repo := &mockAccountRepoForPlatform{
+		listPlatformFunc: func(ctx context.Context, platform string) ([]Account, error) {
+			return []Account{
+				{
+					ID:           1,
+					Platform:     PlatformOpenAI,
+					Type:         AccountTypeOAuth,
+					Status:       StatusError,
+					Schedulable:  false,
+					GroupIDs:     []int64{7},
+					ErrorMessage: `Token refresh failed (non-retryable): OPENAI_OAUTH_TOKEN_REFRESH_FAILED: token refresh failed: status 401, body: {"error":{"code":"refresh_token_reused"}}`,
+					Credentials: map[string]any{
+						"refresh_token": "old-refresh",
+						"model_mapping": map[string]any{"gpt-5.6-sol": "gpt-5.6-sol"},
+					},
+				},
+			}, nil
+		},
+		accountsByID: map[int64]*Account{},
+	}
+	svc := &OpenAIGatewayService{accountRepo: repo, cfg: testConfig()}
+	groupID := int64(7)
+
+	diag := svc.DiagnoseModelAvailabilityForPlatform(context.Background(), &groupID, "gpt-5.6-sol", PlatformOpenAI)
+
+	require.True(t, diag.HasAccountsInPool)
+	require.True(t, diag.HasModelSupport)
+	require.True(t, diag.AllModelSupportingAccountsAuthErrored)
+	require.Equal(t, "refresh_token_reused", diag.AuthErrorMessage)
+	require.False(t, diag.AllModelSupportingAccountsRateLimited)
+}

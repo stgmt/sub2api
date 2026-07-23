@@ -95,6 +95,17 @@ func classifyNoAccountError(
 			Message: fmt.Sprintf("All configured accounts that support %q are rate-limited until %s", displayModel, result.RateLimitResetAt.Format(time.RFC3339)),
 		}
 	}
+	if result.HasModelSupport && result.AllModelSupportingAccountsAuthErrored {
+		reason := strings.TrimSpace(result.AuthErrorMessage)
+		if reason == "" {
+			reason = "oauth_refresh_failed"
+		}
+		return noAccountErrorClassification{
+			Status:  http.StatusUnauthorized,
+			ErrType: "authentication_error",
+			Message: fmt.Sprintf("All configured OpenAI/Codex accounts that support %q require OAuth credential refresh (%s). Run codex login on the host; the sub2api self-heal task will import the refreshed auth file automatically.", displayModel, reason),
+		}
+	}
 	return fallback
 }
 

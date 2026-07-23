@@ -1782,6 +1782,14 @@ func resolveOpenAIAccountUpstreamModelForRequest(account *Account, requestedMode
 }
 
 func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.Context, groupID *int64, platform string, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, stickyAccountID int64, requiredCapability OpenAIEndpointCapability) (*Account, error) {
+	account, err := s.selectAccountForModelWithExclusionsOnce(ctx, groupID, platform, sessionHash, requestedModel, excludedIDs, requireCompact, stickyAccountID, requiredCapability)
+	if err == nil || !s.shouldRetryOpenAISelectionAfterCodexAuthRecovery(ctx, groupID, platform, requestedModel, err) {
+		return account, err
+	}
+	return s.selectAccountForModelWithExclusionsOnce(ctx, groupID, platform, sessionHash, requestedModel, excludedIDs, requireCompact, stickyAccountID, requiredCapability)
+}
+
+func (s *OpenAIGatewayService) selectAccountForModelWithExclusionsOnce(ctx context.Context, groupID *int64, platform string, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, stickyAccountID int64, requiredCapability OpenAIEndpointCapability) (*Account, error) {
 	platform = normalizeOpenAICompatiblePlatform(platform)
 	if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
 		slog.Warn("channel pricing restriction blocked request",
@@ -1999,6 +2007,14 @@ func (s *OpenAIGatewayService) SelectAccountWithLoadAwareness(ctx context.Contex
 }
 
 func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Context, groupID *int64, platform string, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, requiredCapability OpenAIEndpointCapability) (*AccountSelectionResult, error) {
+	selection, err := s.selectAccountWithLoadAwarenessOnce(ctx, groupID, platform, sessionHash, requestedModel, excludedIDs, requireCompact, requiredCapability)
+	if err == nil || !s.shouldRetryOpenAISelectionAfterCodexAuthRecovery(ctx, groupID, platform, requestedModel, err) {
+		return selection, err
+	}
+	return s.selectAccountWithLoadAwarenessOnce(ctx, groupID, platform, sessionHash, requestedModel, excludedIDs, requireCompact, requiredCapability)
+}
+
+func (s *OpenAIGatewayService) selectAccountWithLoadAwarenessOnce(ctx context.Context, groupID *int64, platform string, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, requiredCapability OpenAIEndpointCapability) (*AccountSelectionResult, error) {
 	platform = normalizeOpenAICompatiblePlatform(platform)
 	if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
 		slog.Warn("channel pricing restriction blocked request",
@@ -2322,6 +2338,29 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		return nil, ErrNoAvailableCompactAccounts
 	}
 	return nil, ErrNoAvailableAccounts
+}
+
+func (s *OpenAIGatewayService) shouldRetryOpenAISelectionAfterCodexAuthRecovery(ctx context.Context, groupID *int64, platform string, requestedModel string, err error) bool {
+	if err == nil || normalizeOpenAICompatiblePlatform(platform) != PlatformOpenAI {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "channel pricing restriction") {
+		return false
+	}
+	noAvailable := errors.Is(err, ErrNoAvailableAccounts) ||
+		strings.Contains(msg, "no available openai accounts")
+	if !noAvailable {
+		return false
+	}
+	if !s.tryRecoverOpenAIOAuthAccountsFromCodexAuthFile(ctx, groupID, platform, requestedModel) {
+		return false
+	}
+	slog.Info("openai_codex_auth_file_recovery_selection_retrying",
+		"platform", normalizeOpenAICompatiblePlatform(platform),
+		"model", requestedModel,
+	)
+	return true
 }
 
 func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, groupID *int64, platform string) ([]Account, error) {
