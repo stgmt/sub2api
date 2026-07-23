@@ -205,6 +205,37 @@ HEADROOM_HYPERV_REQUIRE_BRIDGE=1
 
 On a healthy minute the elevated task probes the same-host route and, when `hyperv-bridge.env` exists, also records the Default Switch route. With `HEADROOM_HYPERV_REQUIRE_BRIDGE=0`, a down VM bridge is `bridge_required=false` diagnostic state and must not restart a healthy local stack. With `HEADROOM_HYPERV_REQUIRE_BRIDGE=1`, failure resolves the current VM, Default Switch, and WSL addresses; removes stale `v4tov4` entries owned by the Headroom port; and recreates the VM-scoped firewall rule. `HEADROOM_HYPERV_REMOTE_CONFIG_MODE=ssh` additionally updates Linux guest settings atomically and probes from its namespace; `none` is the Windows/no-SSH bridge-only mode and requires a one-time guest base-URL update. Run `scripts/test-hyperv-headroom-bridge-contract.ps1` and `scripts/test-autostart-self-heal-contract.ps1` after editing this path. Restart already-open Claude Code processes after the endpoint or hook runtime changes because they may retain the old settings registry.
 
+### Qwen delegated profile on every Claude host
+
+Do not assume host settings propagate into WSL or Hyper-V guests. Each OS/user that launches Claude has its own `~/.claude` and process environment.
+
+Windows host or Windows guest:
+
+```powershell
+./scripts/sync-claude-subagent-profile.ps1
+./scripts/sync-claude-subagent-profile.ps1 -CheckOnly
+```
+
+Native Ubuntu or WSL user:
+
+```bash
+bash ./scripts/sync-claude-subagent-profile.sh
+bash ./scripts/sync-claude-subagent-profile.sh --check
+```
+
+Both paths pin small-fast, Opus/Fable/Sonnet/Haiku picker slots, and `CLAUDE_CODE_SUBAGENT_MODEL` to `qwen3.8-max-preview`, while the five global delegated-agent files use `effort: high`. They preserve existing hooks, unknown settings, custom agent prompt bodies, and the main `ANTHROPIC_MODEL` choice.
+
+For Windows Hyper-V guests that expose no SSH/WinRM, add this opt-in sidecar configuration:
+
+```dotenv
+HEADROOM_HYPERV_STAGE_QWEN_PROFILE=1
+HEADROOM_HYPERV_QWEN_VM_NAMES=guest-one,guest-two
+HEADROOM_HYPERV_SUBAGENT_MODEL=qwen3.8-max-preview
+HEADROOM_HYPERV_SUBAGENT_EFFORT=high
+```
+
+The elevated watchdog enables Guest Service Interface, copies the portable sync to `C:\ProgramData\sub2api`, and puts a one-shot launcher in the all-users Startup folder. Host `hyperv-qwen-*.staged` files and `hyperv_subagent_profile_staged` events prove delivery, not execution. The guest applies the profile on its next interactive logon and writes `C:\ProgramData\sub2api\sync-claude-subagent-profile.log`; restart already-open Claude processes before the live `Agent(...)` verification.
+
 The Linux VM still needs the full Claude profile, not only `ANTHROPIC_BASE_URL`: keep `CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK=1`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`, the current context/compact targets, small-fast model, and subagent model in its settings. Native `/compact` is intentionally non-streaming and is identified by `source=compact` plus `x-sub2api-claude-compact`; that is different from Claude Code's emergency non-streaming fallback. If the disable knob is missing, a failed streaming turn can be replayed as a much larger non-stream request and loop for many minutes.
 
 If WSL fails with:

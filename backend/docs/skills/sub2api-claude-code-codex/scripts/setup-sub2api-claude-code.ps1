@@ -712,6 +712,12 @@ $contractEnd
     Set-ClaudeAgentOverride "bench-triage" `
       "No-tools Qwen 3.8 Max High classifier for benchmark prompt relevance and redundancy." `
       "You classify historical delegated-agent prompts without using tools.`n`nReturn compact JSON only. Judge whether each prompt is relevant, redundant, too broad, or unsafe to replay. Prefer conservative labels: a prompt can be relevant but still not worth replaying if it duplicates another prompt or asks for a huge whole-diff audit."
+
+    $subagentProfileSync = Join-Path $PSScriptRoot "sync-claude-subagent-profile.ps1"
+    if (-not (Test-Path -LiteralPath $subagentProfileSync)) {
+      throw "Claude subagent profile sync script not found: $subagentProfileSync"
+    }
+    & $subagentProfileSync -Model $SubagentModel -Effort $SubagentEffort
   }
 
   if (-not $SkipRtk) {

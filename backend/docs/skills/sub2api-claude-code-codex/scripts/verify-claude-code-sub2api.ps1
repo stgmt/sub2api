@@ -672,6 +672,11 @@ if (Test-Path -LiteralPath $wrapperModelSync) {
     -CheckOnly
 }
 
+$subagentProfileSync = Join-Path $PSScriptRoot "sync-claude-subagent-profile.ps1"
+if (Test-Path -LiteralPath $subagentProfileSync) {
+  & $subagentProfileSync -Model $SubagentModel -Effort "high" -CheckOnly
+}
+
 Test-Sub2apiAutostartTask
 Test-ClaudeRtkHook
 Show-Health "Headroom" $BaseUrl
