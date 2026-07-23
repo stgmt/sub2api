@@ -1,7 +1,7 @@
 ---
 name: sub2api-claude-code-codex
 description: >-
-  Use this skill for Claude Code through local Headroom + sub2api backed by OpenAI/Codex/ChatGPT subscription routing plus optional Alibaba Token Plan routing: Docker/WSL and native Ubuntu/Hyper-V setup, host RTK, embedding-server/watchdog, Codex OAuth, GPT-5.6 Sol/Terra/Luna, Alibaba/Qwen high compact/subagent routing, Alibaba/Qwen/GLM/DeepSeek Token Plan routing, Qwen high Claude Code picker aliases, max reasoning, context fixes, empty streams, stale fake 429/503 cooldowns, adaptive OAuth 403 auto-heal, and model_rate_limits self-heal. Triggers include "Claude Code через Codex подписку", "Headroom sub2api", "sub2api Docker", "RTK на Ubuntu", "Hyper-V Claude Code", "install-claude-rtk.sh", "embedding-server", "SocketEmbedderClient", "Falling back to per-worker embedder", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5[400k]", "быстрая компактизация", "gpt-5.3-codex-spark", "qwen3.8-max-preview", "glm-5.2", "deepseek-v4-pro", "Alibaba Token Plan", "usage 0/0", "403 Access forbidden", "503 Service temporarily unavailable", "429 rate_limit_error", and "no available accounts".
+  Operate Claude Code through local Headroom + sub2api with OpenAI/Codex subscription and optional Alibaba Token Plan routing. Use for Docker/WSL or Ubuntu/Hyper-V setup, host RTK, CUDA Kompress, embedding-server/watchdog, Codex OAuth self-heal, GPT-5.6, Qwen/GLM/DeepSeek, compact and subagent routing, picker aliases, effort/context mapping, persistence/autostart, and request tracing. Also use for empty or broken SSE streams, mixed-memory tool-call errors, stale fake 429/503 cooldowns, no available accounts, refresh_token_reused, local Headroom rate limits, context-mode hangs, and runtime/source mismatches. Triggers include "Claude Code через Codex подписку", "Headroom sub2api", "qwen3.8-max-preview", "usage 0/0", "503 Service temporarily unavailable", and "No tool output found".
 ---
 
 # sub2api Claude Code Codex
@@ -64,11 +64,13 @@ Read only the file needed for the current task:
 - `references/verification.md`: health probes, Claude Code probes, `/v1/messages` checks, usage_logs queries, compact verification, and expected evidence.
 - `references/troubleshooting.md`: 429/503/no-available-accounts, stale cooldowns, empty streams, context overflow, Luna availability, localhost relay, and usage-display bugs.
 - `references/headroom-gpu-kompress.md`: GPU backend research, fork ownership, implementation, reproducible CPU/CUDA benchmark, autostart failure, live proof, and remaining architecture work.
+- `references/session-failure-registry.md`: cross-session failure IDs, layer-specific root causes, forbidden shortcuts, and the proof required before declaring each class fixed.
 - `references/fullpower-profile.json`: machine-readable profile snapshot when scripts or exact config values are useful.
 
 ## Operating Rules
 
 - Do not print OAuth tokens, API keys, refresh tokens, passwords, or copied auth files in chat.
+- Before changing a failing stack, match the symptom against `references/session-failure-registry.md` and build one correlated trace from Claude Code through Headroom and sub2api to the selected provider. Do not diagnose from a terminal label, health endpoint, model catalog, source diff, or UI effort/context display alone. If the user asked for analysis/report only, stop after evidence and recommendations; do not run broad suites or mutate runtime state.
 - Do not wait for the user to catch persistence regressions. For every install, repair, Docker compose, Headroom, embedding-server, cache, Postgres, Redis, or "make reusable" task, proactively audit persistence before claiming done. The required proof is `docker inspect` showing `Type=bind` for Headroom `/root/.headroom`, `/root/.cache/headroom`, `/root/.cache/huggingface`, sub2api `/app/data`, Postgres parent `/var/lib/postgresql`, and Redis `/data`, plus `CCR_STORE True <nonzero>` after memory traffic. If any state path is a Docker named volume, fix the compose/profile/scripts first, recreate only the affected services, rerun `scripts/verify-claude-code-sub2api.ps1`, sync the local skill, commit, and push when repo changes were made.
 - Prefer request-time `/v1/messages` probes and `usage_logs.upstream_model` over `/v1/models` catalog output.
 - Current user-requested delegated profile is Qwen high everywhere: `ANTHROPIC_SMALL_FAST_MODEL=qwen3.8-max-preview`, `CLAUDE_CODE_SUBAGENT_MODEL=qwen3.8-max-preview`, and user-level `general-purpose`, `Explore`, `workflow-subagent`, `bench-reviewer`, and `bench-triage` frontmatter use `model: qwen3.8-max-preview` plus `effort: high`.
@@ -104,7 +106,7 @@ Read only the file needed for the current task:
 
 ## Workflow
 
-1. Inspect current state: `~/.claude/settings.json`, User env, Docker container health, group mapping, account `credentials` compact mappings, and account `extra.model_rate_limits`.
+1. Locate the exact Claude session/request, read `references/session-failure-registry.md`, classify the failing layer and incident ID, then inspect current state: `~/.claude/settings.json`, User env, Docker container health, group mapping, account `credentials` compact mappings, and account `extra.model_rate_limits`.
 2. If installing or repairing Docker/Claude config, read `references/install-and-claude-config.md` and use the bundled setup script.
 3. If the task touches persistence, embeddings, caches, Docker volumes, compose, setup, RTK, or "reusable" docs, run the host-bind audit before and after changes. Do not accept Docker named volumes as equivalent to host persistence. For RTK, require a real Claude Code Bash tool call that increments host `rtk gain` plus matching container totals; a manual container probe is not proof of automatic participation.
 4. If changing models or compact routing, read `references/group-and-compact-routing.md`, patch `groups.messages_dispatch_model_config.compact_mapped_model`, and clear any stale OpenAI account `compact_model_mapping` / `compact_model_fallbacks` unless the user explicitly requests a legacy OpenAI-only compact fallback.
@@ -149,3 +151,4 @@ For install/config/debug tasks, do not call it done until these are true or expl
 - `/v1/models` through Headroom should publish GPT/Codex plus Alibaba Token Plan IDs only: no raw `opus`, `sonnet`, `haiku`, `fable`, or `claude-*` aliases. Claude Code Opus/Fable/Sonnet/Haiku picker slots are controlled by `ANTHROPIC_DEFAULT_*` env and should point to Qwen high.
 - `~/.claude/settings.json` and User env agree on main/small models and Claude Code client context target.
 - Any GitHub issue or fork change the user asked for is pushed and linked.
+- The final report names the applicable `Fxx` incident IDs and includes evidence from the original client path. Source/config assertions without a rebuilt runtime and live request do not satisfy this criterion.

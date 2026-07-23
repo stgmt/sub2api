@@ -168,3 +168,37 @@ def test_loopback_profile_cannot_fall_back_to_headroom_60_rpm() -> None:
     assert "process.exitCode = 1" in probe
     assert "function Test-HeadroomRateLimitProfile" in verifier
     assert "expected at least 6000/100000000" in verifier
+
+
+def test_cross_session_failure_registry_and_evals_are_repo_owned() -> None:
+    skill_root = (
+        ROOT / "../../backend/docs/skills/sub2api-claude-code-codex"
+    ).resolve()
+    skill = (skill_root / "SKILL.md").read_text(encoding="utf-8")
+    registry = (skill_root / "references/session-failure-registry.md").read_text(
+        encoding="utf-8"
+    )
+    evals = json.loads((skill_root / "evals/evals.json").read_text(encoding="utf-8"))[
+        "evals"
+    ]
+
+    assert "references/session-failure-registry.md" in skill
+    for incident in range(1, 25):
+        assert f"`F{incident:02d}`" in registry
+
+    assert [item["id"] for item in evals] == list(range(1, 27))
+    new_prompts = "\n".join(item["prompt"] for item in evals if item["id"] >= 16)
+    for symptom in (
+        "/compact",
+        "No tool output found",
+        "429",
+        "incomplete chunked read",
+        "context-mode",
+        "сотни сабагентов",
+        "CLAUDE_CODE_EFFORT_LEVEL",
+        "Kompress",
+        "анализ и отчёт only",
+        "тесты зелёные",
+        "Compacted",
+    ):
+        assert symptom in new_prompts

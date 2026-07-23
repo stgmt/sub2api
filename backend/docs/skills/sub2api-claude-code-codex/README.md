@@ -8,7 +8,7 @@ Primary entrypoint:
 
 Included support material:
 
-- `references/` - setup notes, routing policy, compact behavior, verification, troubleshooting
+- `references/` - setup notes, routing policy, compact behavior, verification, troubleshooting, and the cross-session failure registry
 - `scripts/` - Windows/PowerShell helpers for setup, verification, and compact recovery hooks
 - `evals/` - lightweight eval prompts for the skill behavior
 

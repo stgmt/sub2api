@@ -90,6 +90,72 @@
       "prompt": "Claude Code получил 503, а в sub2api OpenAI account status=error: OPENAI_OAUTH_TOKEN_REFRESH_FAILED refresh_token_reused. Сделай автоматический хил, чтобы без ручного SQL после codex login всё поднималось само.",
       "expected_output": "Proves the root cause from Claude JSONL, ops_error_logs, and accounts status/schedulable fields; distinguishes this from Headroom local 429, quota cooldown, context overflow, and upstream 403; configures SUB2API_OPENAI_CODEX_AUTH_FILE=/app/data/codex-auth.json and the self-heal task to copy a validated host %USERPROFILE%\\.codex\\auth.json into the sub2api host bind mount without printing secrets; implements backend recovery that imports a fresh non-expired auth file on refresh_token_reused/invalid_refresh_token-style failures, clears status=error, clears temp-unschedulable, sets schedulable=true, invalidates stale token cache, retries OpenAI account selection once in the original request, and returns 401 authentication_error instructing codex login when the file is missing/unchanged/expired instead of masking it as 503; covers token refresh, selection retry, no-account classification, compose env, setup, and autostart scripts with focused tests; rebuilds/recreates sub2api and verifies health plus a live Headroom request or truthful 401 if the host auth file is stale.",
       "files": []
+    },
+    {
+      "id": 16,
+      "prompt": "Я вызвал /compact, но он шёл несколько минут и в логах вижу gpt-5.6-sol. Проверь, какая модель реально делала compact, и почини маршрут.",
+      "expected_output": "Classifies the incident as F05, locates the exact Claude compact request and timestamps, proves whether Headroom preserved the final compact prompt and emitted x-sub2api-claude-compact, correlates the request to sub2api usage_logs instead of trusting the progress UI, fixes marker preservation and pre-provider compact remapping when stale, rebuilds/recreates the affected runtime, and verifies a real /compact reaches qwen3.8-max-preview with reasoning_effort=high on the Alibaba account while the main model remains unchanged.",
+      "files": []
+    },
+    {
+      "id": 17,
+      "prompt": "В чистой Claude Code сессии первый запрос падает: 400 No tool output found for function call call_*. Найди точный запрос и исправь, без советов просто повторить.",
+      "expected_output": "Classifies the incident as F16, finds the exact Claude JSONL call ID and corresponding Headroom continuation, checks for a mixed memory_search plus client Bash/Read turn, fixes Headroom to defer client-owned calls and replay only server calls with matching results while removing private memory definitions, runs the focused mixed-memory regression, rebuilds/recreates Headroom, and proves the real fresh prompt completes with the deferred-client-call log marker and a sub2api 200 continuation.",
+      "files": []
+    },
+    {
+      "id": 18,
+      "prompt": "Claude пишет 429 Retry after 0.3s при параллельных агентах. Не сваливай это на лимит подписки: выясни слой и почини так, чтобы потерянный tool call не ронял агента.",
+      "expected_output": "Classifies the incident as F12 until evidence shows an upstream 429, correlates whether the request stopped at Headroom's local rate limiter or reached sub2api/provider, checks effective /stats RPM and TPM, keeps provider cooldown logic separate, configures the loopback profile to 6000 RPM and 100000000 TPM, recreates Headroom, runs the parallel burst probe, and verifies Claude Code no longer receives a local tool-result 429 under the tested fan-out.",
+      "files": []
+    },
+    {
+      "id": 19,
+      "prompt": "Сабагент остановился с Stream ended without receiving any events / incomplete chunked read. Сделай так, чтобы автономность не ломалась, но не маскируй невалидный SSE слепым retry.",
+      "expected_output": "Classifies the incident as F13, captures the raw Anthropic SSE and correlates Claude, Headroom, sub2api, and provider request IDs, distinguishes a pre-first-event disconnect from a mid-stream partial response, validates required event ordering and serialization, repairs the invalid stream at its producing layer, permits one internal retry only for replay-safe pre-event requests, adds malformed/empty/partial stream regressions, rebuilds the runtime, and proves one complete Claude Code continuation without duplicate tool execution.",
+      "files": []
+    },
+    {
+      "id": 20,
+      "prompt": "Claude завис на plugin:context-mode:ctx_batch_execute на несколько часов. Проверь, это Headroom/sub2api или сам MCP, и не трогай прокси без доказательств.",
+      "expected_output": "Classifies the incident as F15, compares MCP call timestamps with Headroom/sub2api traffic and treats absence of a proxy request as evidence against the proxy, inspects command versus indexing/search/formatting phases, verifies the whole-handler watchdog and bounded markdown chunking in the installed context-mode runtime, reproduces a forced hang with a short watchdog, and reports the plugin fix separately from a control request proving Headroom remains healthy.",
+      "files": []
+    },
+    {
+      "id": 21,
+      "prompt": "Один general-purpose агент породил сотни сабагентов. У меня workflowSizeGuideline=small, почему лимит не сработал и какие модели/effort реально использовались? Только анализ и отчёт.",
+      "expected_output": "Classifies the incident as F17, does not claim workflowSizeGuideline is a hard limit, does not install a blocking Agent hook or change runtime during an analysis-only request, reconstructs the parent-child agent graph from Claude JSONL, reports launch count, peak concurrency, nesting, model, effort, duration, token use, terminal state, and 429/502/503 distribution, and separates configured Qwen-high overrides from actual usage_logs evidence.",
+      "files": []
+    },
+    {
+      "id": 22,
+      "prompt": "/effort xhigh говорит, что CLAUDE_CODE_EFFORT_LEVEL=max overrides this session, а я хочу переключать effort интерактивно. Найди весь хардкод и докажи upstream effort.",
+      "expected_output": "Classifies the incident as F07, searches Windows User/System env, Claude settings, launchers, scheduled tasks, VM shell profiles, agent frontmatter, and Headroom routing, removes persistent CLAUDE_CODE_EFFORT_LEVEL without removing a user-selected soft effortLevel, keeps HEADROOM_EFFORT_ROUTER=0, restarts a fresh Claude process, and proves two selected efforts from a pre-Headroom body capture plus matching sub2api usage_logs rather than UI labels.",
+      "files": []
+    },
+    {
+      "id": 23,
+      "prompt": "После перезагрузки в отчёте снова написано Kompress disabled/CPU, хотя GPU уже настраивали. Найди регрессию, не верь nvidia-smi и проверь реальный автозапуск.",
+      "expected_output": "Classifies the incident as F20 and F21, inspects the canonical Scheduled Task action and effective compose file list, refuses to classify a failed WSL docker inspect as CPU, preserves sticky cuda state, removes stale bare-compose launch paths, requires GPU DeviceRequests, Torch CUDA/device, Kompress preload=pytorch, benchmark sentinel retention, live compression metrics, and LastTaskResult=0 after invoking the real autostart path, then syncs and pushes both repo skills when contracts changed.",
+      "files": []
+    },
+    {
+      "id": 24,
+      "prompt": "Изучи архитектуру и функции прокси-конкурентов, анализ и отчёт only. Не запускай их тесты и ничего не устанавливай.",
+      "expected_output": "Classifies the operation mode under F24, performs read-only architecture comparison by protocol translation, authentication/subscription support, streaming and tool-call fidelity, model mapping, compact handling, error propagation, maintenance recency, and existing test surface; it does not execute broad suites, install software, mutate runtime, or rank by stars alone, and clearly labels which claims come from source inspection versus live proof not performed.",
+      "files": []
+    },
+    {
+      "id": 25,
+      "prompt": "Ты уже поправил исходники и тесты зелёные, но Claude Code всё ещё выдаёт старую ошибку. Проверь, почему фикс не работает вживую.",
+      "expected_output": "Classifies the incident as F02 and F24, compares the changed commit with the running image labels/revision, container creation time, installed skill/cache copies, effective env and compose files, rebuilds and recreates only the affected services when requested, restarts a fresh Claude process when client state is sticky, and reproduces the original request end-to-end with a negative control instead of presenting source tests or health endpoints as runtime proof.",
+      "files": []
+    },
+    {
+      "id": 26,
+      "prompt": "Claude написал Compacted, но через один запрос снова 0% until auto-compact и context limit. Докажи, compact не сработал или окно заново залили.",
+      "expected_output": "Classifies the incident as F06, captures pre-compact context, compact response/summary size, post-compact context, and the first follow-up request; attributes rehydrated rules, skills, hooks, MCP schemas, task state, and tool outputs separately; checks whether compact actually routed via F05; avoids guessing from the terminal banner; and proposes a fix at the component that refilled the request, with a repeat compact plus one controlled follow-up as proof.",
+      "files": []
     }
   ]
 }
