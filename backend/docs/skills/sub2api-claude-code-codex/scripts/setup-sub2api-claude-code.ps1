@@ -603,6 +603,18 @@ if (-not $SkipClaudeConfig) {
     Write-Warning "Could not clear user CLAUDE_CODE_EFFORT_LEVEL: $($_.Exception.Message)"
   }
 
+  $wrapperModelSync = Join-Path $PSScriptRoot "sync-claude-wrapper-models.ps1"
+  if (Test-Path -LiteralPath $wrapperModelSync) {
+    & $wrapperModelSync `
+      -Model $Model `
+      -SmallFastModel $SmallFastModel `
+      -DefaultOpusModel $DefaultOpusModel `
+      -DefaultFableModel $DefaultFableModel `
+      -DefaultSonnetModel $DefaultSonnetModel `
+      -DefaultHaikuModel $DefaultHaikuModel `
+      -SubagentModel $SubagentModel
+  }
+
   $globalConfigPath = Join-Path $env:USERPROFILE ".claude.json"
   if (Test-Path $globalConfigPath) {
     Copy-Item -LiteralPath $globalConfigPath -Destination "$globalConfigPath.bak-sub2api-$(Get-Date -Format yyyyMMddHHmmss)"

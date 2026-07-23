@@ -659,6 +659,19 @@ Write-Host "Expected Opus/Fable/Sonnet/Haiku picker alias: qwen3.8-max-preview"
 Write-Host "Subagent model: $SubagentModel"
 Write-Host "Has API token: $([bool]$ApiKey)"
 
+$wrapperModelSync = Join-Path $PSScriptRoot "sync-claude-wrapper-models.ps1"
+if (Test-Path -LiteralPath $wrapperModelSync) {
+  & $wrapperModelSync `
+    -Model $Model `
+    -SmallFastModel $SmallFastModel `
+    -DefaultOpusModel "qwen3.8-max-preview" `
+    -DefaultFableModel "qwen3.8-max-preview" `
+    -DefaultSonnetModel "qwen3.8-max-preview" `
+    -DefaultHaikuModel $DefaultHaikuModel `
+    -SubagentModel $SubagentModel `
+    -CheckOnly
+}
+
 Test-Sub2apiAutostartTask
 Test-ClaudeRtkHook
 Show-Health "Headroom" $BaseUrl
