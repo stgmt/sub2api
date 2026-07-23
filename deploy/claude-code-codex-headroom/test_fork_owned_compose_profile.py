@@ -82,6 +82,8 @@ def test_headroom_gpu_stage_and_overlay_are_explicit() -> None:
     assert "gpus: all" in gpu_compose
     assert "target: gpu" in gpu_compose
     assert "HEADROOM_KOMPRESS_BACKEND: pytorch" in gpu_compose
+    assert 'HEADROOM_FORCE_KOMPRESS: "1"' in gpu_compose
+    assert 'HEADROOM_DISABLE_KOMPRESS: "0"' in gpu_compose
 
 
 def test_setup_and_autostart_select_gpu_overlay_from_env() -> None:
@@ -93,8 +95,11 @@ def test_setup_and_autostart_select_gpu_overlay_from_env() -> None:
     assert 'Set-DotEnvValue $envMap "HEADROOM_ACCELERATOR"' in setup
     assert 'Set-DotEnvValue $envMap "HEADROOM_DOCKER_TARGET"' in setup
     assert 'Set-DotEnvValue $envMap "HEADROOM_KOMPRESS_BACKEND"' in setup
+    assert 'if ($Existing -eq "cuda") { return "cuda" }' in setup
     assert 'docker-compose.gpu.yml' in setup
     assert 'Get-DotEnvValue -Path $envPath -Name "HEADROOM_ACCELERATOR"' in start
+    assert 'if ($HeadroomAccelerator -eq "auto")' in start
+    assert 'auto accelerator resolved to cuda; applying GPU compose overlay' in start
     assert 'docker-compose.gpu.yml' in start
 
 

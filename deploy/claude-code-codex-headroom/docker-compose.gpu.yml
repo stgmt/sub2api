@@ -5,5 +5,7 @@ services:
     gpus: all
     environment:
       HEADROOM_KOMPRESS_BACKEND: pytorch
+      HEADROOM_FORCE_KOMPRESS: "1"
+      HEADROOM_DISABLE_KOMPRESS: "0"
       NVIDIA_VISIBLE_DEVICES: all
       NVIDIA_DRIVER_CAPABILITIES: compute,utility

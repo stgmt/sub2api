@@ -16,6 +16,7 @@
       "gpu_compose_overlay": "deploy/claude-code-codex-headroom/docker-compose.gpu.yml",
       "gpu_docker_target": "gpu",
       "gpu_backend": "pytorch",
+      "gpu_profile_sticky": "Persisted cuda is never silently downgraded by auto; the GPU overlay forces Kompress on and must be included by setup, recovery, and manual starts",
       "gpu_torch": "2.11.0+cu128",
       "gpu_verification": "torch.cuda.is_available plus Kompress preload backend=pytorch",
       "gpu_benchmark": "benchmark-headroom-kompress",

@@ -95,10 +95,13 @@ docker compose --env-file deploy\claude-code-codex-headroom\.env `
 ```
 
 The GPU stage installs pinned CUDA 12.8 PyTorch, while the overlay requests all
-Docker GPUs and selects Headroom's native batched PyTorch Kompress path. The
+Docker GPUs, selects Headroom's native batched PyTorch Kompress path, and
+explicitly clears the portable CPU-disable flags. The
 setup script auto-detects NVIDIA in WSL/Windows unless `-HeadroomAccelerator
 cpu` is passed. The autostart script reads `HEADROOM_ACCELERATOR` from `.env`
-and reapplies the overlay after reboot.
+and reapplies the overlay after reboot. `auto` is resolved again at startup,
+while an already persisted `cuda` selection is never silently downgraded by a
+transient probe failure; use the explicit `cpu` override to disable it.
 
 Verify the runtime and run the deterministic benchmark:
 

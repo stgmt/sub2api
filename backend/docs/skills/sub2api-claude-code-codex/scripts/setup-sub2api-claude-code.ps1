@@ -132,8 +132,12 @@ function Test-IsWindowsHost {
   return [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)
 }
 
-function Resolve-HeadroomAccelerator([string]$Requested) {
+function Resolve-HeadroomAccelerator([string]$Requested, [string]$Existing = "") {
   if ($Requested -ne "auto") { return $Requested }
+
+  # Once CUDA has been selected and proven, a transient WSL/NVIDIA probe failure
+  # must not silently rewrite the installation back to the CPU profile.
+  if ($Existing -eq "cuda") { return "cuda" }
 
   if (Get-Command wsl.exe -ErrorAction SilentlyContinue) {
     & wsl.exe -- bash -lc "command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1"
@@ -342,7 +346,9 @@ if (-not (Test-Path -LiteralPath $composePath)) {
 }
 
 $ClaudeBaseUrl = if ($BaseUrl.Trim()) { $BaseUrl.Trim().TrimEnd("/") } else { "http://127.0.0.1`:$HeadroomPort" }
-$resolvedHeadroomAccelerator = Resolve-HeadroomAccelerator $HeadroomAccelerator
+$envMap = Read-DotEnv -Path $envPath
+$existingHeadroomAccelerator = if ($envMap.Contains("HEADROOM_ACCELERATOR")) { [string]$envMap["HEADROOM_ACCELERATOR"] } else { "" }
+$resolvedHeadroomAccelerator = Resolve-HeadroomAccelerator $HeadroomAccelerator $existingHeadroomAccelerator
 $headroomDockerTarget = if ($resolvedHeadroomAccelerator -eq "cuda") { "gpu" } else { "cpu" }
 $headroomKompressBackend = if ($resolvedHeadroomAccelerator -eq "cuda") { "pytorch" } else { "auto" }
 $resolvedHeadroomForceKompress = if ($HeadroomForceKompress -eq "auto") {
@@ -369,7 +375,6 @@ $composeRtkStateRoot = if ((Test-IsWindowsHost) -and (Get-Command wsl.exe -Error
   $resolvedRtkStateRoot
 }
 
-$envMap = Read-DotEnv -Path $envPath
 if ((Test-Path -LiteralPath $envPath) -and -not $ForceRegenerateSecrets) {
   Copy-Item -LiteralPath $envPath -Destination "$envPath.bak-sub2api-$(Get-Date -Format yyyyMMddHHmmss)"
 }

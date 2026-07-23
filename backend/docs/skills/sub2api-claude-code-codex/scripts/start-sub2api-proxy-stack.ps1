@@ -460,7 +460,17 @@ try {
   $envPath = Join-Path $Root ".env"
   $hyperVEnvPath = Join-Path $Root "hyperv-bridge.env"
   $StateRoot = Get-DotEnvValue -Path $envPath -Name "SUB2API_STATE_ROOT" -Fallback "./data"
-  $HeadroomAccelerator = Get-DotEnvValue -Path $envPath -Name "HEADROOM_ACCELERATOR" -Fallback "cpu"
+  $HeadroomAccelerator = Get-DotEnvValue -Path $envPath -Name "HEADROOM_ACCELERATOR" -Fallback "auto"
+  if ($HeadroomAccelerator -eq "auto") {
+    try {
+      Invoke-WslBash "command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1"
+      $HeadroomAccelerator = "cuda"
+      Write-StackLog "auto accelerator resolved to cuda; applying GPU compose overlay"
+    } catch {
+      $HeadroomAccelerator = "cpu"
+      Write-StackLog "auto accelerator resolved to cpu: $($_.Exception.Message)"
+    }
+  }
   if ([string]::IsNullOrWhiteSpace($HyperVVmName)) {
     $HyperVVmName = Get-DotEnvValue -Path $hyperVEnvPath -Name "HEADROOM_HYPERV_VM_NAME" -Fallback ""
   }

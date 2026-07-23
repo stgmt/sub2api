@@ -35,13 +35,17 @@ Related public evidence:
 
 - `Dockerfile.headroom` keeps a portable final `cpu` stage and adds an opt-in
   `gpu` stage with pinned `torch==2.11.0+cu128`.
-- `docker-compose.gpu.yml` selects the GPU stage, requests all Docker GPUs, and
-  sets `HEADROOM_KOMPRESS_BACKEND=pytorch`.
+- `docker-compose.gpu.yml` selects the GPU stage, requests all Docker GPUs,
+  sets `HEADROOM_KOMPRESS_BACKEND=pytorch`, and overrides stale portable
+  `HEADROOM_FORCE_KOMPRESS=0` / `HEADROOM_DISABLE_KOMPRESS=1` values.
 - `.env` persists `HEADROOM_ACCELERATOR=cuda`, `HEADROOM_DOCKER_TARGET=gpu`, and
   `HEADROOM_KOMPRESS_BACKEND=pytorch` so the single scheduled-task owner
   reapplies the same profile after reboot.
 - `setup-sub2api-claude-code.ps1` auto-detects NVIDIA under WSL or Windows but
-  accepts an explicit CPU override.
+  accepts an explicit CPU override. Once `cuda` is persisted, `auto` preserves
+  it across transient WSL/NVIDIA probe failures instead of silently downgrading.
+- `start-sub2api-proxy-stack.ps1` resolves a legacy `auto` value on each full
+  recovery and includes the GPU overlay whenever WSL exposes NVIDIA.
 - `verify-claude-code-sub2api.ps1` requires Docker DeviceRequests, Torch CUDA,
   the expected device name, and a PyTorch Kompress preload before claiming GPU.
 - `benchmark-headroom-kompress.py` uses a deterministic payload and reports
@@ -114,6 +118,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File backend\docs\skills\sub2api-
 - Keep one autostart owner: `Sub2API Codex Proxy Stack Autostart`.
 - Keep Headroom, model caches, sub2api, Postgres, and Redis on host bind mounts.
 - Never recreate secrets or OAuth state merely to change accelerator profile.
+- Never start this profile with a bare `docker compose up`: use the setup/start
+  scripts or include `docker-compose.gpu.yml`. The GPU overlay is the runtime
+  ownership boundary for DeviceRequests and the Kompress enable flags.
 - A source commit is not runtime proof. Recreate the affected Headroom service,
   inspect DeviceRequests, and run the live preload after every image/ref change.
 - CPU must remain a supported explicit fallback for machines without NVIDIA.
