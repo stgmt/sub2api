@@ -192,7 +192,18 @@ HEADROOM_HYPERV_SWITCH_NAME=Default Switch
 HEADROOM_HYPERV_REQUIRE_BRIDGE=0
 ```
 
-On a healthy minute the elevated task probes the same-host route and, when `hyperv-bridge.env` exists, also records the Default Switch route. With `HEADROOM_HYPERV_REQUIRE_BRIDGE=0`, a down VM bridge is `bridge_required=false` diagnostic state and must not restart a healthy local stack. With `HEADROOM_HYPERV_REQUIRE_BRIDGE=1`, failure resolves the current VM, Default Switch, and WSL addresses; removes stale `v4tov4` entries owned by the Headroom port; recreates the VM-scoped firewall rule; atomically updates the VM's `~/.claude/settings.json`; and proves `/health` from the VM namespace. Run `scripts/test-hyperv-headroom-bridge-contract.ps1` and `scripts/test-autostart-self-heal-contract.ps1` after editing this path. Restart already-open Claude Code processes after the endpoint or hook runtime changes because they may retain the old settings registry.
+For a Windows guest without SSH, use bridge-only mode and make the bridge required:
+
+```dotenv
+HEADROOM_HYPERV_VM_NAME=win10-ltsc-docker
+HEADROOM_HYPERV_REMOTE_CONFIG_MODE=none
+HEADROOM_HYPERV_SWITCH_NAME=Default Switch
+HEADROOM_HYPERV_REQUIRE_BRIDGE=1
+```
+
+`hyperv-bridge.env` is authoritative over VM values embedded in an older scheduled-task action. In `none` mode the elevated owner still discovers the current VM, Default Switch, and WSL addresses, replaces stale portproxy entries, restricts the firewall rule to the current VM IP, and proves the bridge from the host. It deliberately skips SSH and guest settings changes. Update the Windows guest once to the stable switch address, for example `http://<Default-Switch-IP>:8787`, then restart Claude Code. Do not leave the guest on the WSL `eth0` address.
+
+On a healthy minute the elevated task probes the same-host route and, when `hyperv-bridge.env` exists, also records the Default Switch route. With `HEADROOM_HYPERV_REQUIRE_BRIDGE=0`, a down VM bridge is `bridge_required=false` diagnostic state and must not restart a healthy local stack. With `HEADROOM_HYPERV_REQUIRE_BRIDGE=1`, failure resolves the current VM, Default Switch, and WSL addresses; removes stale `v4tov4` entries owned by the Headroom port; and recreates the VM-scoped firewall rule. `HEADROOM_HYPERV_REMOTE_CONFIG_MODE=ssh` additionally updates Linux guest settings atomically and probes from its namespace; `none` is the Windows/no-SSH bridge-only mode and requires a one-time guest base-URL update. Run `scripts/test-hyperv-headroom-bridge-contract.ps1` and `scripts/test-autostart-self-heal-contract.ps1` after editing this path. Restart already-open Claude Code processes after the endpoint or hook runtime changes because they may retain the old settings registry.
 
 The Linux VM still needs the full Claude profile, not only `ANTHROPIC_BASE_URL`: keep `CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK=1`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`, the current context/compact targets, small-fast model, and subagent model in its settings. Native `/compact` is intentionally non-streaming and is identified by `source=compact` plus `x-sub2api-claude-compact`; that is different from Claude Code's emergency non-streaming fallback. If the disable knob is missing, a failed streaming turn can be replayed as a much larger non-stream request and loop for many minutes.
 

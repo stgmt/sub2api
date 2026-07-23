@@ -11,7 +11,9 @@ param(
   [string]$HyperVVmName = "",
   [string]$HyperVVmSshUser = "",
   [string]$HyperVVmSshKey = "",
-  [string]$HyperVSwitchName = "Default Switch"
+  [string]$HyperVSwitchName = "Default Switch",
+  [ValidateSet("ssh", "none")]
+  [string]$HyperVRemoteConfigMode = "ssh"
 )
 
 $ErrorActionPreference = "Stop"
@@ -94,6 +96,9 @@ if ($HyperVVmSshKey.Trim()) {
 }
 if ($HyperVSwitchName.Trim()) {
   $ensureArgs += @("-HyperVSwitchName", "`"$HyperVSwitchName`"")
+}
+if ($HyperVRemoteConfigMode.Trim()) {
+  $ensureArgs += @("-HyperVRemoteConfigMode", "`"$HyperVRemoteConfigMode`"")
 }
 
 $launcherArgs = @("//B", "//NoLogo", "`"$hiddenLauncher`"", "powershell.exe") + $ensureArgs

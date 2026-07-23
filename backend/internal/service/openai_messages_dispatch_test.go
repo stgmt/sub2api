@@ -37,6 +37,24 @@ func TestNormalizeOpenAIMessagesDispatchModelConfig(t *testing.T) {
 	}, cfg.ModelFallbacks)
 }
 
+func TestResolveMessagesDispatchExplicitModel(t *testing.T) {
+	t.Parallel()
+
+	group := &Group{
+		MessagesDispatchModelConfig: OpenAIMessagesDispatchModelConfig{
+			HaikuMappedModel: "qwen3.8-max-preview",
+			ExactModelMappings: map[string]string{
+				"fable": "qwen3.8-max-preview",
+			},
+		},
+	}
+
+	require.Equal(t, "qwen3.8-max-preview", group.ResolveMessagesDispatchExplicitModel("claude-haiku-4-5-20251001"))
+	require.Equal(t, "qwen3.8-max-preview", group.ResolveMessagesDispatchExplicitModel("fable"))
+	require.Empty(t, group.ResolveMessagesDispatchExplicitModel("claude-sonnet-4-6"))
+	require.Empty(t, (&Group{}).ResolveMessagesDispatchExplicitModel("claude-haiku-4-5-20251001"))
+}
+
 func TestGroupResolveMessagesDispatchModel_GrokMapsClaudeFamilyToGrok(t *testing.T) {
 	t.Parallel()
 

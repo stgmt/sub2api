@@ -134,6 +134,36 @@ func (g *Group) ResolveMessagesDispatchModel(requestedModel string) string {
 	}
 }
 
+// ResolveMessagesDispatchExplicitModel returns only mappings explicitly set on
+// the group. Mixed-provider routing uses this before provider classification so
+// compatibility aliases can intentionally cross-route without reviving the
+// legacy implicit Claude-to-OpenAI defaults.
+func (g *Group) ResolveMessagesDispatchExplicitModel(requestedModel string) string {
+	if g == nil {
+		return ""
+	}
+	requestedModel = strings.TrimSpace(requestedModel)
+	if requestedModel == "" {
+		return ""
+	}
+
+	cfg := normalizeOpenAIMessagesDispatchModelConfig(g.MessagesDispatchModelConfig)
+	if mappedModel := strings.TrimSpace(cfg.ExactModelMappings[requestedModel]); mappedModel != "" {
+		return mappedModel
+	}
+
+	switch claudeMessagesDispatchFamily(requestedModel) {
+	case "opus":
+		return strings.TrimSpace(cfg.OpusMappedModel)
+	case "sonnet":
+		return strings.TrimSpace(cfg.SonnetMappedModel)
+	case "haiku":
+		return strings.TrimSpace(cfg.HaikuMappedModel)
+	default:
+		return ""
+	}
+}
+
 func (g *Group) ResolveMessagesDispatchFallbackModels(requestedModel, mappedModel string) []string {
 	if g == nil {
 		return nil

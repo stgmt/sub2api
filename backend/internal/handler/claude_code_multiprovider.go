@@ -62,6 +62,20 @@ func (h *Handlers) MultiproviderMessages(c *gin.Context) {
 				}
 				resetGinRequestBody(c, body)
 			}
+		} else {
+			var rewriteErr error
+			body, model, rewriteErr = rewriteExplicitClaudeCodeModelForMultiprovider(body, model, groupPlatform, apiKey.Group)
+			if rewriteErr != nil {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"type": "error",
+					"error": gin.H{
+						"type":    "invalid_request_error",
+						"message": "Failed to rewrite explicitly mapped request model: " + rewriteErr.Error(),
+					},
+				})
+				return
+			}
+			resetGinRequestBody(c, body)
 		}
 	}
 
@@ -98,6 +112,19 @@ func (h *Handlers) MultiproviderCountTokens(c *gin.Context) {
 	groupPlatform := ""
 	if apiKey, _ := middleware2.GetAPIKeyFromContext(c); apiKey != nil && apiKey.Group != nil {
 		groupPlatform = apiKey.Group.Platform
+		var rewriteErr error
+		body, model, rewriteErr = rewriteExplicitClaudeCodeModelForMultiprovider(body, model, groupPlatform, apiKey.Group)
+		if rewriteErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"type": "error",
+				"error": gin.H{
+					"type":    "invalid_request_error",
+					"message": "Failed to rewrite explicitly mapped count_tokens model: " + rewriteErr.Error(),
+				},
+			})
+			return
+		}
+		resetGinRequestBody(c, body)
 	}
 
 	switch classifyClaudeCodeCountTokensRoute(model, groupPlatform) {
@@ -169,6 +196,22 @@ func rewriteClaudeCodeCompactModelForMultiprovider(body []byte, compactMappedMod
 		return nil, "", err
 	}
 	return nextBody, mappedModel, nil
+}
+
+func rewriteExplicitClaudeCodeModelForMultiprovider(
+	body []byte,
+	requestedModel string,
+	groupPlatform string,
+	group *service.Group,
+) ([]byte, string, error) {
+	if group == nil || !strings.EqualFold(strings.TrimSpace(groupPlatform), service.PlatformOpenAI) {
+		return body, requestedModel, nil
+	}
+	mappedModel := group.ResolveMessagesDispatchExplicitModel(requestedModel)
+	if mappedModel == "" {
+		return body, requestedModel, nil
+	}
+	return rewriteClaudeCodeCompactModelForMultiprovider(body, mappedModel)
 }
 
 func classifyClaudeCodeMessagesRoute(model, groupPlatform string) claudeCodeMessagesRoute {

@@ -11,7 +11,9 @@ param(
   [string]$HyperVVmName = "",
   [string]$HyperVVmSshUser = "",
   [string]$HyperVVmSshKey = "",
-  [string]$HyperVSwitchName = "Default Switch"
+  [string]$HyperVSwitchName = "Default Switch",
+  [ValidateSet("ssh", "none")]
+  [string]$HyperVRemoteConfigMode = "ssh"
 )
 
 $ErrorActionPreference = "Stop"
@@ -394,6 +396,15 @@ function Sync-HyperVHeadroomBridge {
   $vmBaseUrl = "http://${switchIp}:$HeadroomPort"
   Write-StackLog "Hyper-V Headroom bridge: vm=$HyperVVmName vmIp=$vmIp switchIp=$switchIp wslIp=$WslIp"
 
+  if ($HyperVRemoteConfigMode -eq "none") {
+    $bridgeHealth = Invoke-WebRequest -UseBasicParsing -Uri "$vmBaseUrl/health" -TimeoutSec 8
+    if ($bridgeHealth.StatusCode -ne 200) {
+      throw "Hyper-V Headroom bridge host-side health failed with HTTP $($bridgeHealth.StatusCode)"
+    }
+    Write-StackLog "Hyper-V guest config update skipped by mode=none; bridge host-side health ok at $vmBaseUrl"
+    return $vmBaseUrl
+  }
+
   if ([string]::IsNullOrWhiteSpace($HyperVVmSshUser) -or [string]::IsNullOrWhiteSpace($HyperVVmSshKey)) {
     throw "Hyper-V SSH user/key are required when HEADROOM_HYPERV_VM_NAME is configured"
   }
@@ -481,6 +492,7 @@ try {
     $HyperVVmSshKey = Get-DotEnvValue -Path $hyperVEnvPath -Name "HEADROOM_HYPERV_VM_SSH_KEY" -Fallback ""
   }
   $HyperVSwitchName = Get-DotEnvValue -Path $hyperVEnvPath -Name "HEADROOM_HYPERV_SWITCH_NAME" -Fallback $HyperVSwitchName
+  $HyperVRemoteConfigMode = Get-DotEnvValue -Path $hyperVEnvPath -Name "HEADROOM_HYPERV_REMOTE_CONFIG_MODE" -Fallback $HyperVRemoteConfigMode
   $ComposeFiles = "-f docker-compose.yml"
   if ($HeadroomAccelerator -eq "cuda") {
     $gpuComposePath = Join-Path $Root "docker-compose.gpu.yml"

@@ -12,6 +12,8 @@ param(
   [string]$HyperVVmSshUser = "",
   [string]$HyperVVmSshKey = "",
   [string]$HyperVSwitchName = "Default Switch",
+  [ValidateSet("ssh", "none")]
+  [string]$HyperVRemoteConfigMode = "ssh",
   [bool]$RequireHyperVBridge = $false,
   [string]$CodexAuthFile = ""
 )
@@ -247,17 +249,24 @@ $StatePath = Join-Path $LogDir "self-heal-state.json"
 $envMap = Read-EnvFile -Path (Join-Path $Root ".env")
 $bridgeEnv = Read-EnvFile -Path (Join-Path $Root "hyperv-bridge.env")
 
-if (-not $HyperVVmName.Trim() -and $bridgeEnv.ContainsKey("HEADROOM_HYPERV_VM_NAME")) {
+if ($bridgeEnv.ContainsKey("HEADROOM_HYPERV_VM_NAME") -and $bridgeEnv["HEADROOM_HYPERV_VM_NAME"].Trim()) {
   $HyperVVmName = $bridgeEnv["HEADROOM_HYPERV_VM_NAME"]
 }
-if (-not $HyperVVmSshUser.Trim() -and $bridgeEnv.ContainsKey("HEADROOM_HYPERV_SSH_USER")) {
+if ($bridgeEnv.ContainsKey("HEADROOM_HYPERV_VM_SSH_USER") -and $bridgeEnv["HEADROOM_HYPERV_VM_SSH_USER"].Trim()) {
+  $HyperVVmSshUser = $bridgeEnv["HEADROOM_HYPERV_VM_SSH_USER"]
+} elseif ($bridgeEnv.ContainsKey("HEADROOM_HYPERV_SSH_USER") -and $bridgeEnv["HEADROOM_HYPERV_SSH_USER"].Trim()) {
   $HyperVVmSshUser = $bridgeEnv["HEADROOM_HYPERV_SSH_USER"]
 }
-if (-not $HyperVVmSshKey.Trim() -and $bridgeEnv.ContainsKey("HEADROOM_HYPERV_SSH_KEY")) {
+if ($bridgeEnv.ContainsKey("HEADROOM_HYPERV_VM_SSH_KEY") -and $bridgeEnv["HEADROOM_HYPERV_VM_SSH_KEY"].Trim()) {
+  $HyperVVmSshKey = $bridgeEnv["HEADROOM_HYPERV_VM_SSH_KEY"]
+} elseif ($bridgeEnv.ContainsKey("HEADROOM_HYPERV_SSH_KEY") -and $bridgeEnv["HEADROOM_HYPERV_SSH_KEY"].Trim()) {
   $HyperVVmSshKey = $bridgeEnv["HEADROOM_HYPERV_SSH_KEY"]
 }
-if ($HyperVSwitchName -eq "Default Switch" -and $bridgeEnv.ContainsKey("HEADROOM_HYPERV_SWITCH_NAME")) {
+if ($bridgeEnv.ContainsKey("HEADROOM_HYPERV_SWITCH_NAME") -and $bridgeEnv["HEADROOM_HYPERV_SWITCH_NAME"].Trim()) {
   $HyperVSwitchName = $bridgeEnv["HEADROOM_HYPERV_SWITCH_NAME"]
+}
+if ($bridgeEnv.ContainsKey("HEADROOM_HYPERV_REMOTE_CONFIG_MODE") -and $bridgeEnv["HEADROOM_HYPERV_REMOTE_CONFIG_MODE"].Trim()) {
+  $HyperVRemoteConfigMode = $bridgeEnv["HEADROOM_HYPERV_REMOTE_CONFIG_MODE"]
 }
 if (-not $RequireHyperVBridge -and $bridgeEnv.ContainsKey("HEADROOM_HYPERV_REQUIRE_BRIDGE")) {
   $RequireHyperVBridge = $bridgeEnv["HEADROOM_HYPERV_REQUIRE_BRIDGE"] -match "^(1|true|yes|on)$"
@@ -315,6 +324,7 @@ try {
     HyperVVmSshUser = $HyperVVmSshUser
     HyperVVmSshKey = $HyperVVmSshKey
     HyperVSwitchName = $HyperVSwitchName
+    HyperVRemoteConfigMode = $HyperVRemoteConfigMode
   }
   if ($RepoRoot.Trim()) { $startParams.RepoRoot = $RepoRoot }
 

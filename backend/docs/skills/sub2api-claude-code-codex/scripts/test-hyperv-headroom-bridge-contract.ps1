@@ -14,6 +14,8 @@ $checks = [ordered]@{
   "atomic remote settings update" = 'os.replace(tmp, path)'
   "remote endpoint update" = 'ANTHROPIC_BASE_URL'
   "probe from the VM namespace" = 'HYPERV_HEADROOM_HEALTH_OK'
+  "Windows guest bridge-only mode" = '$HyperVRemoteConfigMode -eq "none"'
+  "bridge-only host health proof" = 'bridge host-side health ok'
   "Windows settings stay BOM-free" = 'Write-Utf8NoBom -Path $settingsPath'
   "configured bridge fails closed" = 'Hyper-V SSH user/key are required when HEADROOM_HYPERV_VM_NAME is configured'
 }

@@ -172,3 +172,41 @@ func TestRewriteClaudeCodeCompactModelForMultiprovider_NoopsWhenAlreadyMapped(t 
 	require.Equal(t, body, rewritten)
 	require.Equal(t, "qwen3.8-max-preview", model)
 }
+
+func TestRewriteExplicitClaudeCodeModelForMultiprovider_RoutesConfiguredAliasBeforeClassification(t *testing.T) {
+	t.Parallel()
+
+	body := []byte(`{"model":"claude-haiku-4-5-20251001","messages":[{"role":"user","content":"hi"}]}`)
+	group := &service.Group{
+		Platform: service.PlatformOpenAI,
+		MessagesDispatchModelConfig: service.OpenAIMessagesDispatchModelConfig{
+			HaikuMappedModel: "qwen3.8-max-preview",
+		},
+	}
+
+	rewritten, model, err := rewriteExplicitClaudeCodeModelForMultiprovider(
+		body,
+		"claude-haiku-4-5-20251001",
+		service.PlatformOpenAI,
+		group,
+	)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"model":"qwen3.8-max-preview","messages":[{"role":"user","content":"hi"}]}`, string(rewritten))
+	require.Equal(t, "qwen3.8-max-preview", model)
+	require.Equal(t, claudeCodeMessagesRouteAnthropic, classifyClaudeCodeMessagesRoute(model, service.PlatformOpenAI))
+}
+
+func TestRewriteExplicitClaudeCodeModelForMultiprovider_PreservesUnmappedClaudePassthrough(t *testing.T) {
+	t.Parallel()
+
+	body := []byte(`{"model":"claude-opus-4-8"}`)
+	rewritten, model, err := rewriteExplicitClaudeCodeModelForMultiprovider(
+		body,
+		"claude-opus-4-8",
+		service.PlatformOpenAI,
+		&service.Group{Platform: service.PlatformOpenAI},
+	)
+	require.NoError(t, err)
+	require.Equal(t, body, rewritten)
+	require.Equal(t, "claude-opus-4-8", model)
+}
