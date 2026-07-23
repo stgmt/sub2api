@@ -122,6 +122,9 @@ def test_verifier_retries_wsl_and_cannot_false_green_gpu_as_cpu() -> None:
     assert 'if ($LASTEXITCODE -ne 0)' in verifier
     assert "GPU/CPU profile cannot be classified" in verifier
     assert verifier.count("Test-HeadroomGpuRuntime") == 3
+    assert '$oldErrorActionPreference = $ErrorActionPreference' in verifier
+    assert '$ErrorActionPreference = "Continue"' in verifier
+    assert '$ErrorActionPreference = $oldErrorActionPreference' in verifier
 
 
 def test_gpu_research_and_manual_watchdog_are_repo_owned() -> None:

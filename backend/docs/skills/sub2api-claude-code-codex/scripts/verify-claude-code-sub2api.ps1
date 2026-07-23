@@ -283,11 +283,15 @@ function Invoke-DockerCommand {
   )
 
   $oldNativeErrorPreference = $null
+  $oldErrorActionPreference = $ErrorActionPreference
   $hasNativeErrorPreference = Get-Variable -Name PSNativeCommandUseErrorActionPreference -Scope Local -ErrorAction SilentlyContinue
   if ($hasNativeErrorPreference) {
     $oldNativeErrorPreference = $PSNativeCommandUseErrorActionPreference
     $PSNativeCommandUseErrorActionPreference = $false
   }
+  # Windows PowerShell 5.1 wraps native stderr as ErrorRecord objects even
+  # with 2>&1. Keep warnings in captured output and judge success by exit code.
+  $ErrorActionPreference = "Continue"
 
   try {
     if (Get-Command docker -ErrorAction SilentlyContinue) {
@@ -313,6 +317,7 @@ function Invoke-DockerCommand {
       throw "docker and wsl.exe not found"
     }
   } finally {
+    $ErrorActionPreference = $oldErrorActionPreference
     if ($hasNativeErrorPreference) {
       $PSNativeCommandUseErrorActionPreference = $oldNativeErrorPreference
     }
