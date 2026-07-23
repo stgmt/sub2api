@@ -31,6 +31,8 @@ if ($effortOverride) { throw "Clear User env CLAUDE_CODE_EFFORT_LEVEL=$effortOve
 Invoke-RestMethod "http://127.0.0.1:8787/health"
 Invoke-RestMethod "http://127.0.0.1:18081/health"
 (Invoke-RestMethod "http://127.0.0.1:8787/stats").rate_limiter | ConvertTo-Json -Compress
+$history = (Invoke-RestMethod "http://127.0.0.1:8787/stats").request_history
+$history | Select-Object durable,log_file,@{n="requests";e={$_.requests.total}},@{n="first";e={$_.range.first_timestamp}},@{n="last";e={$_.range.last_timestamp}} | ConvertTo-Json -Compress
 node scripts/test-headroom-rate-limit-burst.mjs http://127.0.0.1:8787 96
 Get-ScheduledTask -TaskName "Sub2API Codex Proxy Stack Autostart" | Select-Object TaskName,State,@{n="RunLevel";e={$_.Principal.RunLevel}},@{n="Action";e={$_.Actions.Arguments}}
 Get-ScheduledTask | Where-Object { $_.TaskName -eq "headroom-proxy" -or ($_.Actions.Arguments -match "headroom-proxy|headroom.exe proxy") }
@@ -64,6 +66,7 @@ JSON modelUsage contextWindow matches the configured Claude Code client target, 
 JSON modelUsage may still show maxOutputTokens: 32000
 Headroom health reports ready and upstream http://sub2api:8080
 Headroom `/stats.rate_limiter` reports at least 6000 RPM and 100000000 TPM; the 96-way invalid-key burst reports `rate_limited=0` and never exposes a local 429 to Claude Code
+Headroom `/stats.request_history` reports `durable=true`, the bind-mounted request JSONL path, and lifetime request/token/latency/model/provider aggregates. The values remain identical after one Headroom recreate, increase by exactly one after a fresh request, and keep that increment after a second recreate; `/stats.requests.scope` remains `runtime`
 sub2api health reports ok on the direct diagnostic/admin port
 Windows autostart is single-owner: `Sub2API Codex Proxy Stack Autostart` exists, `RunLevel=Highest`, action calls `ensure-sub2api-proxy-stack.ps1`, triggers include logon plus `PT1M` repetition, settings include at least three one-minute retries and `IgnoreNew`, `LastTaskResult=0` after a manual `Start-ScheduledTask`, stale `headroom-proxy` is absent, and Startup-folder proxy launchers are absent or renamed with `.disabled`
 Controlled self-heal proof passes: stop the WSL distro or remove the owned Headroom `portproxy`, observe `recovery_started` then `recovered` in `logs/self-heal.jsonl`, and require Windows localhost plus Hyper-V VM `/health` to return 200 within two watchdog intervals without manually starting WSL or Docker

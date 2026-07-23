@@ -14,14 +14,14 @@ def test_headroom_image_builds_from_stgmt_fork_ref() -> None:
     compose = read("docker-compose.yml")
 
     assert "ARG HEADROOM_GIT_REPO=https://github.com/stgmt/headroom.git" in dockerfile
-    assert "ARG HEADROOM_GIT_REF=7077f5589b528a6f16ca43fcddad54c86bbc85d5" in dockerfile
+    assert "ARG HEADROOM_GIT_REF=63312f11a4086b4578e16a3f3cd5243d9e74ad05" in dockerfile
     assert "ARG HEADROOM_RUST_TOOLCHAIN=1.88.0" in dockerfile
     assert "build-essential curl pkg-config" in dockerfile
     assert '--default-toolchain "${HEADROOM_RUST_TOOLCHAIN}"' in dockerfile
     assert "git+${HEADROOM_GIT_REPO}@${HEADROOM_GIT_REF}" in dockerfile
     assert "headroom-ai[proxy,code,relevance,html,spreadsheet,otel,reports,mcp]==" not in dockerfile
     assert "HEADROOM_GIT_REPO: ${HEADROOM_GIT_REPO:-https://github.com/stgmt/headroom.git}" in compose
-    assert "HEADROOM_GIT_REF: ${HEADROOM_GIT_REF:-7077f5589b528a6f16ca43fcddad54c86bbc85d5}" in compose
+    assert "HEADROOM_GIT_REF: ${HEADROOM_GIT_REF:-63312f11a4086b4578e16a3f3cd5243d9e74ad05}" in compose
     assert "HEADROOM_RUST_TOOLCHAIN: ${HEADROOM_RUST_TOOLCHAIN:-1.88.0}" in compose
 
 
@@ -44,7 +44,7 @@ def test_setup_script_preserves_fork_source_values() -> None:
     text = setup.read_text(encoding="utf-8")
 
     assert '$HeadroomGitRepo = "https://github.com/stgmt/headroom.git"' in text
-    assert '$HeadroomGitRef = "7077f5589b528a6f16ca43fcddad54c86bbc85d5"' in text
+    assert '$HeadroomGitRef = "63312f11a4086b4578e16a3f3cd5243d9e74ad05"' in text
     assert '$HeadroomRustToolchain = "1.88.0"' in text
     assert '$Sub2apiGitRepo = "https://github.com/stgmt/sub2api.git"' in text
     assert 'Set-DotEnvValue $envMap "HEADROOM_GIT_REPO" $HeadroomGitRepo' in text
@@ -61,7 +61,7 @@ def test_fullpower_profile_tracks_both_forks() -> None:
 
     assert profile["proxy"]["headroom"]["fork"] == "https://github.com/stgmt/headroom"
     assert profile["proxy"]["headroom"]["git_repo"] == "https://github.com/stgmt/headroom.git"
-    assert profile["proxy"]["headroom"]["git_ref"] == "7077f5589b528a6f16ca43fcddad54c86bbc85d5"
+    assert profile["proxy"]["headroom"]["git_ref"] == "63312f11a4086b4578e16a3f3cd5243d9e74ad05"
     assert profile["proxy"]["headroom"]["rust_toolchain"] == "1.88.0"
     assert profile["proxy"]["sub2api"]["fork"] == "https://github.com/stgmt/sub2api"
 
@@ -168,6 +168,9 @@ def test_loopback_profile_cannot_fall_back_to_headroom_60_rpm() -> None:
     assert "process.exitCode = 1" in probe
     assert "function Test-HeadroomRateLimitProfile" in verifier
     assert "expected at least 6000/100000000" in verifier
+    assert "function Test-HeadroomRequestHistory" in verifier
+    assert "did not expose durable request_history" in verifier
+    assert 'Test-HeadroomRequestHistory $BaseUrl' in verifier
 
 
 def test_cross_session_failure_registry_and_evals_are_repo_owned() -> None:
@@ -183,10 +186,10 @@ def test_cross_session_failure_registry_and_evals_are_repo_owned() -> None:
     ]
 
     assert "references/session-failure-registry.md" in skill
-    for incident in range(1, 25):
+    for incident in range(1, 26):
         assert f"`F{incident:02d}`" in registry
 
-    assert [item["id"] for item in evals] == list(range(1, 27))
+    assert [item["id"] for item in evals] == list(range(1, 28))
     new_prompts = "\n".join(item["prompt"] for item in evals if item["id"] >= 16)
     for symptom in (
         "/compact",
@@ -200,5 +203,6 @@ def test_cross_session_failure_registry_and_evals_are_repo_owned() -> None:
         "анализ и отчёт only",
         "тесты зелёные",
         "Compacted",
+        "proxy-requests.jsonl",
     ):
         assert symptom in new_prompts

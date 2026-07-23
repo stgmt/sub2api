@@ -156,6 +156,12 @@
       "prompt": "Claude написал Compacted, но через один запрос снова 0% until auto-compact и context limit. Докажи, compact не сработал или окно заново залили.",
       "expected_output": "Classifies the incident as F06, captures pre-compact context, compact response/summary size, post-compact context, and the first follow-up request; attributes rehydrated rules, skills, hooks, MCP schemas, task state, and tool outputs separately; checks whether compact actually routed via F05; avoids guessing from the terminal banner; and proposes a fix at the component that refilled the request, with a repeat compact plus one controlled follow-up as proof.",
       "files": []
+    },
+    {
+      "id": 27,
+      "prompt": "После рестарта Headroom /stats показывает только несколько сотен запросов текущего uptime, хотя proxy-requests.jsonl сохранён. Сделай lifetime статистику из логов и докажи, что она не обнуляется.",
+      "expected_output": "Classifies the incident as F25, proves the mismatch between runtime /stats counters, persistent_savings, and the bind-mounted request JSONL; implements one-time startup hydration that streams the JSONL, skips malformed lines, deduplicates request IDs, restores the recent feed, and updates lifetime aggregates on append; exposes /stats.request_history plus nested requests/tokens/latency lifetime blocks while preserving runtime fields; keeps /stats/reset runtime-only; covers malformed, duplicate, truncated-tail, append, and cached-stats behavior; rebuilds/recreates Headroom; verifies identical totals and range across restart, exactly one new unique request after a live probe, and the same increment after a second restart.",
+      "files": []
     }
   ]
 }

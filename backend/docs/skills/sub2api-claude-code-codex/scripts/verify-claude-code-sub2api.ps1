@@ -224,6 +224,27 @@ function Test-HeadroomRateLimitProfile([string]$Url) {
   Write-Host "Headroom rate limiter: rpm=$rpm tpm=$tpm"
 }
 
+function Test-HeadroomRequestHistory([string]$Url) {
+  $stats = Invoke-RestMethod "$Url/stats" -TimeoutSec 30
+  $history = $stats.request_history
+  if (-not $history) {
+    throw "Headroom /stats did not expose durable request_history."
+  }
+  if (-not $history.durable -or -not $history.log_file) {
+    throw "Headroom request_history is not backed by a persisted JSONL log."
+  }
+
+  $total = [int64]$history.requests.total
+  $nestedTotal = [int64]$stats.requests.lifetime.total
+  if ($total -ne $nestedTotal) {
+    throw "Headroom request history mismatch: root=$total nested=$nestedTotal."
+  }
+  if ($stats.requests.scope -ne "runtime") {
+    throw "Headroom /stats.requests must identify its current-process scope as runtime."
+  }
+  Write-Host "Headroom request history: total=$total range=$($history.range.first_timestamp)..$($history.range.last_timestamp) malformed=$($history.coverage.malformed_lines)"
+}
+
 function Test-HeadroomEffortPreservationProfile {
   if (-not (Test-DockerRuntimeAvailable)) {
     Write-Warning "docker and wsl.exe not found; skipping Headroom effort-router check."
@@ -638,6 +659,7 @@ Test-ClaudeRtkHook
 Show-Health "Headroom" $BaseUrl
 Show-Health "sub2api" $Sub2apiBaseUrl
 Test-HeadroomRateLimitProfile $BaseUrl
+Test-HeadroomRequestHistory $BaseUrl
 Test-HeadroomEffortPreservationProfile
 
 if (-not $SkipApiProbe) {
