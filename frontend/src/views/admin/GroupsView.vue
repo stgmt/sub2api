@@ -3668,7 +3668,12 @@ const createForm = reactive({
   opus_mapped_model: createMessagesDispatchDefaults.opus_mapped_model,
   sonnet_mapped_model: createMessagesDispatchDefaults.sonnet_mapped_model,
   haiku_mapped_model: createMessagesDispatchDefaults.haiku_mapped_model,
+  compact_mapped_model: createMessagesDispatchDefaults.compact_mapped_model,
+  sdk_cli_mapped_model: createMessagesDispatchDefaults.sdk_cli_mapped_model,
+  sdk_cli_reasoning_effort:
+    createMessagesDispatchDefaults.sdk_cli_reasoning_effort,
   exact_model_mappings: [] as MessagesDispatchMappingRow[],
+  model_fallbacks: {} as Record<string, string[]>,
   // 账号过滤控制（OpenAI/Antigravity 平台）
   require_oauth_only: false,
   require_privacy_set: false,
@@ -4008,7 +4013,12 @@ const editForm = reactive({
   opus_mapped_model: editMessagesDispatchDefaults.opus_mapped_model,
   sonnet_mapped_model: editMessagesDispatchDefaults.sonnet_mapped_model,
   haiku_mapped_model: editMessagesDispatchDefaults.haiku_mapped_model,
+  compact_mapped_model: editMessagesDispatchDefaults.compact_mapped_model,
+  sdk_cli_mapped_model: editMessagesDispatchDefaults.sdk_cli_mapped_model,
+  sdk_cli_reasoning_effort:
+    editMessagesDispatchDefaults.sdk_cli_reasoning_effort,
   exact_model_mappings: [] as MessagesDispatchMappingRow[],
+  model_fallbacks: {} as Record<string, string[]>,
   // 账号过滤控制（OpenAI/Antigravity 平台）
   require_oauth_only: false,
   require_privacy_set: false,
@@ -4371,7 +4381,11 @@ const handleCreateGroup = async () => {
               opus_mapped_model: createForm.opus_mapped_model,
               sonnet_mapped_model: createForm.sonnet_mapped_model,
               haiku_mapped_model: createForm.haiku_mapped_model,
+              compact_mapped_model: createForm.compact_mapped_model,
+              sdk_cli_mapped_model: createForm.sdk_cli_mapped_model,
+              sdk_cli_reasoning_effort: createForm.sdk_cli_reasoning_effort,
               exact_model_mappings: createForm.exact_model_mappings,
+              model_fallbacks: createForm.model_fallbacks,
             })
           : undefined,
     };
@@ -4455,8 +4469,15 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.opus_mapped_model = messagesDispatchFormState.opus_mapped_model;
   editForm.sonnet_mapped_model = messagesDispatchFormState.sonnet_mapped_model;
   editForm.haiku_mapped_model = messagesDispatchFormState.haiku_mapped_model;
+  editForm.compact_mapped_model =
+    messagesDispatchFormState.compact_mapped_model;
+  editForm.sdk_cli_mapped_model =
+    messagesDispatchFormState.sdk_cli_mapped_model;
+  editForm.sdk_cli_reasoning_effort =
+    messagesDispatchFormState.sdk_cli_reasoning_effort;
   editForm.exact_model_mappings =
     messagesDispatchFormState.exact_model_mappings;
+  editForm.model_fallbacks = messagesDispatchFormState.model_fallbacks;
   editForm.require_oauth_only = group.require_oauth_only ?? false;
   editForm.require_privacy_set = group.require_privacy_set ?? false;
   editForm.model_routing_enabled = group.model_routing_enabled || false;
@@ -4536,7 +4557,11 @@ const handleUpdateGroup = async () => {
               opus_mapped_model: editForm.opus_mapped_model,
               sonnet_mapped_model: editForm.sonnet_mapped_model,
               haiku_mapped_model: editForm.haiku_mapped_model,
+              compact_mapped_model: editForm.compact_mapped_model,
+              sdk_cli_mapped_model: editForm.sdk_cli_mapped_model,
+              sdk_cli_reasoning_effort: editForm.sdk_cli_reasoning_effort,
               exact_model_mappings: editForm.exact_model_mappings,
+              model_fallbacks: editForm.model_fallbacks,
             })
           : undefined,
     };

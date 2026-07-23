@@ -107,6 +107,17 @@ Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*run-claude
 wsl.exe -- docker exec sub2api-codex-postgres psql -U sub2api -d sub2api -F " | " -Atc "select requested_model, model_mapping_chain, count(*), sum(input_tokens), sum(output_tokens) from usage_logs where created_at > now() - interval '30 minutes' group by requested_model, model_mapping_chain order by 1,2;"
 ```
 
+For standalone print-mode and server-side SDK routing:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\sync-sub2api-sdk-cli-routing.ps1 -CheckOnly
+$before = wsl.exe -d Ubuntu-24.04 -- bash -lc 'docker exec sub2api-codex-postgres psql -U sub2api -d sub2api -Atc "select coalesce(max(id),0) from usage_logs"'
+claude -p --model gpt-5.6-sol --effort max --no-session-persistence "Reply exactly SDK_QWEN_OK"
+wsl.exe -d Ubuntu-24.04 -- bash -lc "docker exec sub2api-codex-postgres psql -U sub2api -d sub2api -F '|' -Atc \"select id,requested_model,upstream_model,reasoning_effort,user_agent from usage_logs where id > $before order by id\""
+```
+
+Expected: the `sdk-cli` row has `requested_model=qwen3.8-max-preview`, `reasoning_effort=high`, and the Alibaba account even though the print command explicitly requested Sol/max. Alibaba passthrough may leave `upstream_model` empty. A control request carrying `claude-cli/... (external, cli)` must still route Sol to the OpenAI/Codex account.
+
 Expected for the current advisory subagent profile:
 
 ```text

@@ -21,12 +21,25 @@ func normalizeOpenAIMessagesDispatchFallbackModel(model string) string {
 	return strings.TrimSpace(model)
 }
 
+func normalizeOpenAIMessagesDispatchReasoningEffort(effort string) string {
+	effort = strings.ToLower(strings.TrimSpace(effort))
+	effort = strings.ReplaceAll(effort, "-", "")
+	switch effort {
+	case "low", "medium", "high", "xhigh", "max":
+		return effort
+	default:
+		return ""
+	}
+}
+
 func normalizeOpenAIMessagesDispatchModelConfig(cfg OpenAIMessagesDispatchModelConfig) OpenAIMessagesDispatchModelConfig {
 	out := OpenAIMessagesDispatchModelConfig{
-		OpusMappedModel:    normalizeOpenAIMessagesDispatchMappedModel(cfg.OpusMappedModel),
-		SonnetMappedModel:  normalizeOpenAIMessagesDispatchMappedModel(cfg.SonnetMappedModel),
-		HaikuMappedModel:   normalizeOpenAIMessagesDispatchMappedModel(cfg.HaikuMappedModel),
-		CompactMappedModel: normalizeOpenAIMessagesDispatchFallbackModel(cfg.CompactMappedModel),
+		OpusMappedModel:       normalizeOpenAIMessagesDispatchMappedModel(cfg.OpusMappedModel),
+		SonnetMappedModel:     normalizeOpenAIMessagesDispatchMappedModel(cfg.SonnetMappedModel),
+		HaikuMappedModel:      normalizeOpenAIMessagesDispatchMappedModel(cfg.HaikuMappedModel),
+		CompactMappedModel:    normalizeOpenAIMessagesDispatchFallbackModel(cfg.CompactMappedModel),
+		SDKCLIMappedModel:     normalizeOpenAIMessagesDispatchFallbackModel(cfg.SDKCLIMappedModel),
+		SDKCLIReasoningEffort: normalizeOpenAIMessagesDispatchReasoningEffort(cfg.SDKCLIReasoningEffort),
 	}
 
 	if len(cfg.ExactModelMappings) > 0 {
@@ -191,6 +204,14 @@ func (g *Group) ResolveMessagesDispatchCompactModel() string {
 	}
 	cfg := normalizeOpenAIMessagesDispatchModelConfig(g.MessagesDispatchModelConfig)
 	return strings.TrimSpace(cfg.CompactMappedModel)
+}
+
+func (g *Group) ResolveMessagesDispatchSDKCLIProfile() (model, reasoningEffort string) {
+	if g == nil {
+		return "", ""
+	}
+	cfg := normalizeOpenAIMessagesDispatchModelConfig(g.MessagesDispatchModelConfig)
+	return strings.TrimSpace(cfg.SDKCLIMappedModel), strings.TrimSpace(cfg.SDKCLIReasoningEffort)
 }
 
 func sanitizeGroupMessagesDispatchFields(g *Group) {

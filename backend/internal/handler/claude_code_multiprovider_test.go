@@ -152,6 +152,31 @@ func TestIsClaudeCodeCompactRequestForMultiprovider(t *testing.T) {
 	require.False(t, isClaudeCodeCompactRequestForMultiprovider(c, []byte(`{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"ordinary task"}]}`)))
 }
 
+func TestIsClaudeCodeSDKCLIRequest(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		userAgent string
+		want      bool
+	}{
+		{name: "standalone print", userAgent: "claude-cli/2.1.202 (external, sdk-cli)", want: true},
+		{name: "agent sdk", userAgent: "claude-cli/2.1.202 (external, sdk-cli, agent-sdk/0.3.201)", want: true},
+		{name: "interactive cli", userAgent: "claude-cli/2.1.202 (external, cli)", want: false},
+		{name: "unrelated sdk", userAgent: "other/1.0 (external, sdk-cli)", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("POST", "/v1/messages", strings.NewReader(`{}`))
+			req.Header.Set("User-Agent", tt.userAgent)
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = req
+			require.Equal(t, tt.want, isClaudeCodeSDKCLIRequest(c))
+		})
+	}
+}
+
 func TestRewriteClaudeCodeCompactModelForMultiprovider_RoutesGPTCompactToQwenFamily(t *testing.T) {
 	t.Parallel()
 
@@ -171,6 +196,25 @@ func TestRewriteClaudeCodeCompactModelForMultiprovider_NoopsWhenAlreadyMapped(t 
 	require.NoError(t, err)
 	require.Equal(t, body, rewritten)
 	require.Equal(t, "qwen3.8-max-preview", model)
+}
+
+func TestRewriteClaudeCodeSDKCLIProfileForMultiprovider_ForcesQwenHigh(t *testing.T) {
+	t.Parallel()
+
+	body := []byte(`{"model":"gpt-5.6-sol","output_config":{"effort":"max"},"messages":[{"role":"user","content":"hi"}]}`)
+	rewritten, model, err := rewriteClaudeCodeSDKCLIProfileForMultiprovider(body, "qwen3.8-max-preview", "high")
+	require.NoError(t, err)
+	require.JSONEq(t, `{"model":"qwen3.8-max-preview","output_config":{"effort":"high"},"messages":[{"role":"user","content":"hi"}]}`, string(rewritten))
+	require.Equal(t, "qwen3.8-max-preview", model)
+	require.Equal(t, claudeCodeMessagesRouteAnthropic, classifyClaudeCodeMessagesRoute(model, service.PlatformOpenAI))
+}
+
+func TestRewriteClaudeCodeSDKCLIEffortForMultiprovider_AddsOutputConfig(t *testing.T) {
+	t.Parallel()
+
+	rewritten, err := rewriteClaudeCodeSDKCLIEffortForMultiprovider([]byte(`{"model":"qwen3.8-max-preview"}`), " HIGH ")
+	require.NoError(t, err)
+	require.JSONEq(t, `{"model":"qwen3.8-max-preview","output_config":{"effort":"high"}}`, string(rewritten))
 }
 
 func TestRewriteExplicitClaudeCodeModelForMultiprovider_RoutesConfiguredAliasBeforeClassification(t *testing.T) {

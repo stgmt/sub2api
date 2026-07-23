@@ -162,6 +162,12 @@
       "prompt": "После рестарта Headroom /stats показывает только несколько сотен запросов текущего uptime, хотя proxy-requests.jsonl сохранён. Сделай lifetime статистику из логов и докажи, что она не обнуляется.",
       "expected_output": "Classifies the incident as F25, proves the mismatch between runtime /stats counters, persistent_savings, and the bind-mounted request JSONL; implements one-time startup hydration that streams the JSONL, skips malformed lines, deduplicates request IDs, restores the recent feed, and updates lifetime aggregates on append; exposes /stats.request_history plus nested requests/tokens/latency lifetime blocks while preserving runtime fields; keeps /stats/reset runtime-only; covers malformed, duplicate, truncated-tail, append, and cached-stats behavior; rebuilds/recreates Headroom; verifies identical totals and range across restart, exactly one new unique request after a live probe, and the same increment after a second restart.",
       "files": []
+    },
+    {
+      "id": 28,
+      "prompt": "Сделай так, чтобы не только Agent сабагенты, но и любой claude -p во всех хостах и VM шёл на qwen3.8-max-preview high, а обычный интерактивный Claude оставался переключаемым.",
+      "expected_output": "Keeps user-level Agent overrides on qwen3.8-max-preview high, adds opt-in group messages_dispatch_model_config.sdk_cli_mapped_model=qwen3.8-max-preview and sdk_cli_reasoning_effort=high, identifies only claude-cli external sdk-cli traffic so Agent SDK and standalone claude -p/--print are rewritten before provider classification, applies the same model rule to count_tokens, preserves compact model precedence, does not rewrite external cli interactive requests, preserves the new fields through admin config round trips, rebuilds/recreates sub2api, and proves an explicit claude -p --model gpt-5.6-sol --effort max request logs requested_model Qwen, Alibaba account, and high effort while an interactive-user-agent control remains GPT. It does not require upstream_model for Alibaba passthrough because that field may be empty.",
+      "files": []
     }
   ]
 }

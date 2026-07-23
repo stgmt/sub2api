@@ -8,10 +8,12 @@ func TestNormalizeOpenAIMessagesDispatchModelConfig(t *testing.T) {
 	t.Parallel()
 
 	cfg := normalizeOpenAIMessagesDispatchModelConfig(OpenAIMessagesDispatchModelConfig{
-		OpusMappedModel:    " gpt-5.4-high ",
-		SonnetMappedModel:  "gpt-5.3-codex",
-		HaikuMappedModel:   " gpt-5.3-codex-spark ",
-		CompactMappedModel: " qwen3.8-max-preview ",
+		OpusMappedModel:       " gpt-5.4-high ",
+		SonnetMappedModel:     "gpt-5.3-codex",
+		HaikuMappedModel:      " gpt-5.3-codex-spark ",
+		CompactMappedModel:    " qwen3.8-max-preview ",
+		SDKCLIMappedModel:     " qwen3.8-max-preview ",
+		SDKCLIReasoningEffort: " HIGH ",
 		ExactModelMappings: map[string]string{
 			" claude-sonnet-4-5-20250929 ": " gpt-5.2-high ",
 			"":                             "gpt-5.4",
@@ -28,6 +30,8 @@ func TestNormalizeOpenAIMessagesDispatchModelConfig(t *testing.T) {
 	require.Equal(t, "gpt-5.3-codex", cfg.SonnetMappedModel)
 	require.Equal(t, "gpt-5.3-codex-spark", cfg.HaikuMappedModel)
 	require.Equal(t, "qwen3.8-max-preview", cfg.CompactMappedModel)
+	require.Equal(t, "qwen3.8-max-preview", cfg.SDKCLIMappedModel)
+	require.Equal(t, "high", cfg.SDKCLIReasoningEffort)
 	require.Equal(t, map[string]string{
 		"claude-sonnet-4-5-20250929": "gpt-5.2",
 	}, cfg.ExactModelMappings)
@@ -101,4 +105,31 @@ func TestGroupResolveMessagesDispatchCompactModel(t *testing.T) {
 
 	require.Equal(t, "qwen3.8-max-preview", group.ResolveMessagesDispatchCompactModel())
 	require.Empty(t, (*Group)(nil).ResolveMessagesDispatchCompactModel())
+}
+
+func TestGroupResolveMessagesDispatchSDKCLIProfile(t *testing.T) {
+	t.Parallel()
+
+	group := &Group{
+		Platform: PlatformOpenAI,
+		MessagesDispatchModelConfig: OpenAIMessagesDispatchModelConfig{
+			SDKCLIMappedModel:     " qwen3.8-max-preview ",
+			SDKCLIReasoningEffort: " HIGH ",
+		},
+	}
+
+	model, effort := group.ResolveMessagesDispatchSDKCLIProfile()
+	require.Equal(t, "qwen3.8-max-preview", model)
+	require.Equal(t, "high", effort)
+
+	model, effort = (*Group)(nil).ResolveMessagesDispatchSDKCLIProfile()
+	require.Empty(t, model)
+	require.Empty(t, effort)
+}
+
+func TestNormalizeOpenAIMessagesDispatchReasoningEffortRejectsUnknownValue(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, "xhigh", normalizeOpenAIMessagesDispatchReasoningEffort("x-high"))
+	require.Empty(t, normalizeOpenAIMessagesDispatchReasoningEffort("turbo"))
 }

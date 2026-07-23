@@ -6,6 +6,7 @@ param(
   [string]$SmallFastModel = [Environment]::GetEnvironmentVariable("ANTHROPIC_SMALL_FAST_MODEL", "User"),
   [string]$DefaultHaikuModel = [Environment]::GetEnvironmentVariable("ANTHROPIC_DEFAULT_HAIKU_MODEL", "User"),
   [string]$SubagentModel = [Environment]::GetEnvironmentVariable("CLAUDE_CODE_SUBAGENT_MODEL", "User"),
+  [string]$MessagesDispatchGroupName = "codex-gpt56-claude-code",
   [string]$ExpectedUpstream = "gpt-5.6-sol",
   [string]$ProjectName = "sub2api-codex",
   [string]$RtkVersion = "0.42.4",
@@ -669,6 +670,16 @@ if (Test-Path -LiteralPath $wrapperModelSync) {
     -DefaultSonnetModel "qwen3.8-max-preview" `
     -DefaultHaikuModel $DefaultHaikuModel `
     -SubagentModel $SubagentModel `
+    -CheckOnly
+}
+
+$sdkCLIRoutingSync = Join-Path $PSScriptRoot "sync-sub2api-sdk-cli-routing.ps1"
+if (Test-Path -LiteralPath $sdkCLIRoutingSync) {
+  & $sdkCLIRoutingSync `
+    -GroupName $MessagesDispatchGroupName `
+    -Model $SubagentModel `
+    -Effort "high" `
+    -WslDistro $WslDistro `
     -CheckOnly
 }
 

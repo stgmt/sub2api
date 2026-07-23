@@ -46,6 +46,9 @@ func (h *Handlers) MultiproviderMessages(c *gin.Context) {
 	groupPlatform := ""
 	if apiKey, _ := middleware2.GetAPIKeyFromContext(c); apiKey != nil && apiKey.Group != nil {
 		groupPlatform = apiKey.Group.Platform
+		sdkCLIRequest := isClaudeCodeSDKCLIRequest(c)
+		sdkCLIModel, sdkCLIEffort := apiKey.Group.ResolveMessagesDispatchSDKCLIProfile()
+		modelRewritten := false
 		if isClaudeCodeCompactRequestForMultiprovider(c, body) {
 			if compactMappedModel := apiKey.Group.ResolveMessagesDispatchCompactModel(); compactMappedModel != "" {
 				var rewriteErr error
@@ -60,9 +63,25 @@ func (h *Handlers) MultiproviderMessages(c *gin.Context) {
 					})
 					return
 				}
-				resetGinRequestBody(c, body)
+				modelRewritten = true
 			}
-		} else {
+		}
+		if !modelRewritten && sdkCLIRequest && sdkCLIModel != "" {
+			var rewriteErr error
+			body, model, rewriteErr = rewriteClaudeCodeSDKCLIProfileForMultiprovider(body, sdkCLIModel, sdkCLIEffort)
+			if rewriteErr != nil {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"type": "error",
+					"error": gin.H{
+						"type":    "invalid_request_error",
+						"message": "Failed to rewrite sdk-cli request profile: " + rewriteErr.Error(),
+					},
+				})
+				return
+			}
+			modelRewritten = true
+		}
+		if !modelRewritten && !isClaudeCodeCompactRequestForMultiprovider(c, body) {
 			var rewriteErr error
 			body, model, rewriteErr = rewriteExplicitClaudeCodeModelForMultiprovider(body, model, groupPlatform, apiKey.Group)
 			if rewriteErr != nil {
@@ -75,8 +94,22 @@ func (h *Handlers) MultiproviderMessages(c *gin.Context) {
 				})
 				return
 			}
-			resetGinRequestBody(c, body)
 		}
+		if sdkCLIRequest && sdkCLIEffort != "" {
+			var rewriteErr error
+			body, rewriteErr = rewriteClaudeCodeSDKCLIEffortForMultiprovider(body, sdkCLIEffort)
+			if rewriteErr != nil {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"type": "error",
+					"error": gin.H{
+						"type":    "invalid_request_error",
+						"message": "Failed to rewrite sdk-cli reasoning effort: " + rewriteErr.Error(),
+					},
+				})
+				return
+			}
+		}
+		resetGinRequestBody(c, body)
 	}
 
 	switch classifyClaudeCodeMessagesRoute(model, groupPlatform) {
@@ -113,7 +146,11 @@ func (h *Handlers) MultiproviderCountTokens(c *gin.Context) {
 	if apiKey, _ := middleware2.GetAPIKeyFromContext(c); apiKey != nil && apiKey.Group != nil {
 		groupPlatform = apiKey.Group.Platform
 		var rewriteErr error
-		body, model, rewriteErr = rewriteExplicitClaudeCodeModelForMultiprovider(body, model, groupPlatform, apiKey.Group)
+		if sdkCLIModel, _ := apiKey.Group.ResolveMessagesDispatchSDKCLIProfile(); isClaudeCodeSDKCLIRequest(c) && sdkCLIModel != "" {
+			body, model, rewriteErr = rewriteClaudeCodeCompactModelForMultiprovider(body, sdkCLIModel)
+		} else {
+			body, model, rewriteErr = rewriteExplicitClaudeCodeModelForMultiprovider(body, model, groupPlatform, apiKey.Group)
+		}
 		if rewriteErr != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"type": "error",
@@ -185,6 +222,14 @@ func isClaudeCodeCompactRequestForMultiprovider(c *gin.Context, body []byte) boo
 	return false
 }
 
+func isClaudeCodeSDKCLIRequest(c *gin.Context) bool {
+	if c == nil {
+		return false
+	}
+	userAgent := strings.ToLower(strings.TrimSpace(c.GetHeader("User-Agent")))
+	return strings.HasPrefix(userAgent, "claude-cli/") && strings.Contains(userAgent, "external, sdk-cli")
+}
+
 func rewriteClaudeCodeCompactModelForMultiprovider(body []byte, compactMappedModel string) ([]byte, string, error) {
 	mappedModel := strings.TrimSpace(compactMappedModel)
 	requestedModel := strings.TrimSpace(gjson.GetBytes(body, "model").String())
@@ -196,6 +241,26 @@ func rewriteClaudeCodeCompactModelForMultiprovider(body []byte, compactMappedMod
 		return nil, "", err
 	}
 	return nextBody, mappedModel, nil
+}
+
+func rewriteClaudeCodeSDKCLIProfileForMultiprovider(body []byte, mappedModel, reasoningEffort string) ([]byte, string, error) {
+	nextBody, model, err := rewriteClaudeCodeCompactModelForMultiprovider(body, mappedModel)
+	if err != nil {
+		return nil, "", err
+	}
+	nextBody, err = rewriteClaudeCodeSDKCLIEffortForMultiprovider(nextBody, reasoningEffort)
+	if err != nil {
+		return nil, "", err
+	}
+	return nextBody, model, nil
+}
+
+func rewriteClaudeCodeSDKCLIEffortForMultiprovider(body []byte, reasoningEffort string) ([]byte, error) {
+	reasoningEffort = strings.ToLower(strings.TrimSpace(reasoningEffort))
+	if reasoningEffort == "" {
+		return body, nil
+	}
+	return sjson.SetBytes(body, "output_config.effort", reasoningEffort)
 }
 
 func rewriteExplicitClaudeCodeModelForMultiprovider(

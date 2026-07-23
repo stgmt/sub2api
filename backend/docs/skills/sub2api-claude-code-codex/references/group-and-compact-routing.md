@@ -24,6 +24,8 @@ request time and forces the right provider platform:
     "opus_mapped_model": "qwen3.8-max-preview",
     "sonnet_mapped_model": "qwen3.8-max-preview",
     "haiku_mapped_model": "qwen3.8-max-preview",
+    "sdk_cli_mapped_model": "qwen3.8-max-preview",
+    "sdk_cli_reasoning_effort": "high",
     "exact_model_mappings": {
       "opus": "qwen3.8-max-preview",
       "fable": "qwen3.8-max-preview",
@@ -84,6 +86,7 @@ Routing contract:
 - Do not publish raw Claude/Fable names (`fable`, `opus`, `sonnet`, `haiku`, `claude-*`) in this local profile. Keep the hidden exact/family mappings above as compatibility inputs for stale Claude hosts and already-running sessions; they route to Qwen high without adding those aliases to `/v1/models`. Claude Code Opus/Fable/Sonnet/Haiku picker slots should still point to Qwen high (`qwen3.8-max-preview`).
 - Mixed-provider routing must apply an explicit Claude alias mapping before provider classification. Otherwise `claude-haiku-4-5-20251001` is sent to native Anthropic passthrough, bypasses the group mapping, and returns a fast `404 no available accounts` even though the Qwen account is healthy.
 - Keep normal message `model_fallbacks` empty unless the user explicitly asks for model fallback. Current compact routing is `messages_dispatch_model_config.compact_mapped_model=qwen3.8-max-preview`, which is applied before provider classification so GPT/Codex `/compact` requests cross-route to the Alibaba Token Plan Anthropic-compatible account.
+- `sdk_cli_mapped_model=qwen3.8-max-preview` plus `sdk_cli_reasoning_effort=high` covers every Claude SDK process whose inbound User-Agent contains `claude-cli/... (external, sdk-cli...)`: real `Agent(...)` children, Agent SDK workers, and standalone `claude -p/--print`. This rule intentionally wins over an explicit GPT model in print mode. It must not match the interactive `(external, cli)` User-Agent, so the normal picker and `/model` remain usable.
 - Token Plan pricing may be absent from public pricing catalogs. The fork uses an explicit unknown-cost fallback for the listed Token Plan chat models so usage accounting succeeds without logging `pricing not found`.
 
 If exact admin API endpoints differ across sub2api versions, use the admin UI and match these field names. The important fields in current sub2api are `allow_messages_dispatch`, `require_oauth_only`, `default_mapped_model`, and `messages_dispatch_model_config`.
@@ -123,14 +126,17 @@ inputs`) is treated as compact-model unavailability and the configured
 For the local Docker/Postgres install, patch the field without exposing tokens:
 
 ```powershell
+$skill = "backend/docs/skills/sub2api-claude-code-codex/scripts"
+powershell -ExecutionPolicy Bypass -File "$skill/sync-sub2api-sdk-cli-routing.ps1"
+
 $sql = @'
 update groups
-set messages_dispatch_model_config = jsonb_set(
+set messages_dispatch_model_config = jsonb_set(jsonb_set(jsonb_set(
   coalesce(messages_dispatch_model_config, '{}'::jsonb),
-  '{compact_mapped_model}',
-  '"qwen3.8-max-preview"'::jsonb,
-  true
-), updated_at = now()
+  '{compact_mapped_model}', '"qwen3.8-max-preview"'::jsonb, true),
+  '{sdk_cli_mapped_model}', '"qwen3.8-max-preview"'::jsonb, true),
+  '{sdk_cli_reasoning_effort}', '"high"'::jsonb, true),
+  updated_at = now()
 where platform='openai' and allow_messages_dispatch=true;
 
 update accounts

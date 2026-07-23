@@ -500,7 +500,11 @@ export interface OpenAIMessagesDispatchModelConfig {
   opus_mapped_model?: string
   sonnet_mapped_model?: string
   haiku_mapped_model?: string
+  compact_mapped_model?: string
+  sdk_cli_mapped_model?: string
+  sdk_cli_reasoning_effort?: string
   exact_model_mappings?: Record<string, string>
+  model_fallbacks?: Record<string, string[]>
 }
 
 export interface Group {

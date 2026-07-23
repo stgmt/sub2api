@@ -10,6 +10,7 @@ The user explicitly chose one delegated profile:
 Lead/main model: gpt-5.6-sol
 Subagents: qwen3.8-max-preview, effort high
 Workflow workers: qwen3.8-max-preview, effort high
+Standalone claude -p / --print: qwen3.8-max-preview, effort high
 Small-fast: qwen3.8-max-preview
 Compact: qwen3.8-max-preview, effort high
 Picker aliases Opus/Fable/Sonnet/Haiku: qwen3.8-max-preview
@@ -23,6 +24,7 @@ This is a policy choice for this machine and fork, not a generic benchmark law.
 
 - The lead session stays on `gpt-5.6-sol` so full-power work can still use the Codex/OpenAI OAuth route.
 - Delegated/workflow traffic uses Qwen high so agents do not inherit lead Sol/max and burn the limited main route under fan-out.
+- `claude -p` uses the same Claude SDK User-Agent family as delegated agents. Local agent frontmatter cannot cover ad-hoc print processes, so the group-level `sdk_cli_mapped_model` and `sdk_cli_reasoning_effort` rule is the authoritative cross-host safety net. Interactive Claude uses `(external, cli)` and remains user-selectable.
 - Compact uses group-level `messages_dispatch_model_config.compact_mapped_model=qwen3.8-max-preview` because Claude Code native `/compact` can keep the session main model. sub2api must rewrite compact requests before provider classification so GPT/Codex sessions can cross-route to the Alibaba Token Plan account.
 - Account-level OpenAI `compact_model_mapping` is intentionally empty in the current profile. It runs after OpenAI account selection and cannot safely jump to Alibaba/Qwen; leaving old Spark mappings there can silently revive legacy compact behavior.
 - Spark remains a historical fast short-summary baseline, but it is not the current workflow default: it is 128k, text-only, and has no reasoning-effort knob.
@@ -41,6 +43,8 @@ When this profile changes, update all of these in one pass:
 - `%USERPROFILE%\.claude\agents\bench-reviewer.md`.
 - `%USERPROFILE%\.claude\agents\bench-triage.md`.
 - sub2api group `messages_dispatch_model_config.compact_mapped_model`.
+- sub2api group `messages_dispatch_model_config.sdk_cli_mapped_model` and `sdk_cli_reasoning_effort`.
+- `scripts/sync-sub2api-sdk-cli-routing.ps1` for idempotent live DB sync and audit.
 - OpenAI account `credentials.compact_model_mapping` and `credentials.compact_model_fallbacks`, normally both `{}`.
 - `scripts/setup-sub2api-claude-code.ps1`.
 - `scripts/verify-claude-code-sub2api.ps1`.

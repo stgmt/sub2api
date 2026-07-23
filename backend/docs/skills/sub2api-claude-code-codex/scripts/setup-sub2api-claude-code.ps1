@@ -17,6 +17,7 @@ param(
   [string]$DefaultHaikuModel = "qwen3.8-max-preview",
   [string]$SubagentModel = "qwen3.8-max-preview",
   [string]$SubagentEffort = "high",
+  [string]$MessagesDispatchGroupName = "codex-gpt56-claude-code",
   [ValidateSet("auto", "low", "medium", "high", "xhigh", "max")]
   [string]$DefaultEffort = "xhigh",
   [int]$MaxContextTokens = 370000,
@@ -53,7 +54,8 @@ param(
   [switch]$SkipGeneralPurposeAgent,
   [switch]$SkipHeadroomMcp,
   [switch]$SkipRtk,
-  [switch]$SkipAutostart
+  [switch]$SkipAutostart,
+  [switch]$SkipSDKCLIRouting
 )
 
 $ErrorActionPreference = "Stop"
@@ -522,6 +524,21 @@ if (-not $SkipDockerUp) {
 
 if (-not $SkipAutostart) {
   Install-Sub2apiAutostartTask -ResolvedRepoRoot $resolvedRepoRoot -ResolvedProfileDir $profileDir
+}
+
+if (-not $SkipSDKCLIRouting) {
+  $sdkCLIRoutingSync = Join-Path $PSScriptRoot "sync-sub2api-sdk-cli-routing.ps1"
+  if (Test-Path -LiteralPath $sdkCLIRoutingSync) {
+    try {
+      & $sdkCLIRoutingSync `
+        -GroupName $MessagesDispatchGroupName `
+        -Model $SubagentModel `
+        -Effort $SubagentEffort `
+        -WslDistro $WslDistro
+    } catch {
+      Write-Warning "sdk-cli routing was not configured yet: $($_.Exception.Message). Re-run sync-sub2api-sdk-cli-routing.ps1 after the OpenAI group exists."
+    }
+  }
 }
 
 if (-not $SkipClaudeConfig) {
