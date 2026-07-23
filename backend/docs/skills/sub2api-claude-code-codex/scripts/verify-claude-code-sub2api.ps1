@@ -272,7 +272,22 @@ function Invoke-DockerCommand {
     if (Get-Command docker -ErrorAction SilentlyContinue) {
       & docker @Args
     } elseif (Get-Command wsl.exe -ErrorAction SilentlyContinue) {
-      & wsl.exe -- docker @Args
+      $attempts = 5
+      for ($attempt = 1; $attempt -le $attempts; $attempt++) {
+        $output = @(& wsl.exe -d $WslDistro -- docker @Args 2>&1)
+        $exitCode = $LASTEXITCODE
+        $normalized = (($output -join "`n") -replace "`0", "")
+        if ($exitCode -eq 0) {
+          $output
+          break
+        }
+        $isTransient = $normalized -match "Wsl/Service|0x8007274c|connection attempt failed|did not properly respond|failed to respond"
+        if (-not $isTransient -or $attempt -eq $attempts) {
+          $output
+          break
+        }
+        Start-Sleep -Seconds 2
+      }
     } else {
       throw "docker and wsl.exe not found"
     }
@@ -386,6 +401,9 @@ function Test-HeadroomGpuRuntime {
   }
 
   $envOutput = (Invoke-DockerCommand -Args @("inspect", "headroom-sub2api", "--format", "{{range .Config.Env}}{{println .}}{{end}}") 2>&1) -join "`n"
+  if ($LASTEXITCODE -ne 0) {
+    throw "Headroom container env inspection failed; GPU/CPU profile cannot be classified. Output: $envOutput"
+  }
   if ($envOutput -notmatch "(?m)^HEADROOM_KOMPRESS_BACKEND=pytorch$") {
     Write-Host "`nHeadroom accelerator: CPU profile (GPU verification skipped)"
     return
@@ -758,6 +776,7 @@ Test-HeadroomPersistentStorage
     Write-Host "`nHeadroom tools doctor:"
     wsl.exe -- docker exec headroom-sub2api headroom tools doctor
     Test-HeadroomImageBootstrap
+    Test-HeadroomGpuRuntime
     Test-HeadroomEmbeddingServer
     Test-HeadroomClaudeCodeStreamingPatch
     Test-HeadroomPersistentStorage

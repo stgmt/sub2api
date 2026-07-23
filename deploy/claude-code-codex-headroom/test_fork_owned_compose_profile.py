@@ -113,6 +113,17 @@ def test_autostart_retries_transient_wsl_service_failures() -> None:
     assert "WSL service transient on attempt $attempt; retrying" in start
 
 
+def test_verifier_retries_wsl_and_cannot_false_green_gpu_as_cpu() -> None:
+    scripts = (ROOT / "../../backend/docs/skills/sub2api-claude-code-codex/scripts").resolve()
+    verifier = (scripts / "verify-claude-code-sub2api.ps1").read_text(encoding="utf-8")
+
+    assert "wsl.exe -d $WslDistro -- docker" in verifier
+    assert '0x8007274c' in verifier
+    assert 'if ($LASTEXITCODE -ne 0)' in verifier
+    assert "GPU/CPU profile cannot be classified" in verifier
+    assert verifier.count("Test-HeadroomGpuRuntime") == 3
+
+
 def test_gpu_research_and_manual_watchdog_are_repo_owned() -> None:
     skill = (ROOT / "../../backend/docs/skills/sub2api-claude-code-codex").resolve()
     reference = (skill / "references/headroom-gpu-kompress.md").read_text(encoding="utf-8")

@@ -48,6 +48,8 @@ Related public evidence:
   recovery and includes the GPU overlay whenever WSL exposes NVIDIA.
 - `verify-claude-code-sub2api.ps1` requires Docker DeviceRequests, Torch CUDA,
   the expected device name, and a PyTorch Kompress preload before claiming GPU.
+  Its WSL Docker calls use the selected distro with bounded transient retries;
+  a failed inspect cannot be reported as a skipped CPU profile.
 - `benchmark-headroom-kompress.py` uses a deterministic payload and reports
   throughput, compression ratio, sentinel retention, output hash, and CUDA
   memory. Always compare identical payloads and quality checks.
