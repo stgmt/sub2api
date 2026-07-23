@@ -61,6 +61,7 @@ Read only the file needed for the current task:
 - `references/group-and-compact-routing.md`: sub2api group JSON, Claude model mapping, compact mapping, fallback SQL, and account credential patches.
 - `references/subagent-terra-medium-profile.md`: historical Terra-medium delegated-agent profile plus the current Qwen-high override, exact files/env knobs to set, missing-override behavior, and future GPT-5.7 migration checklist.
 - `references/workflow-qwen-high-rationale.md`: why workflow agents, subagents, compact, small-fast, and picker aliases are pinned to Qwen high; read before changing those defaults or reverting Spark/Terra/Haiku behavior.
+- `references/harness-publication.md`: complete skill/deploy/source publication boundary, deliberate local-state exclusions, and the release checklist.
 - `references/verification.md`: health probes, Claude Code probes, `/v1/messages` checks, usage_logs queries, compact verification, and expected evidence.
 - `references/troubleshooting.md`: 429/503/no-available-accounts, stale cooldowns, empty streams, context overflow, Luna availability, localhost relay, and usage-display bugs.
 - `references/headroom-gpu-kompress.md`: GPU backend research, fork ownership, implementation, reproducible CPU/CUDA benchmark, autostart failure, live proof, and remaining architecture work.
@@ -129,6 +130,7 @@ Read only the file needed for the current task:
 - `scripts/sync-sub2api-sdk-cli-routing.ps1`: idempotently set or audit the group-level `sdk_cli_mapped_model` and `sdk_cli_reasoning_effort` fields without replacing compact, exact mappings, or fallback JSON.
 - `scripts/test-claude-subagent-profile-contract.ps1` and `.sh`: regression coverage for stale-profile repair, hook/body preservation, main-model preservation, and idempotent check-only verification.
 - `scripts/test-claude-wrapper-model-contract.ps1`: regression-test stale-value detection, repair, insertion of missing picker aliases, and the final check-only contract on a temporary wrapper.
+- `scripts/test-qwen-sdk-cli-harness-contract.ps1`: verify that the complete Qwen delegated-worker harness is present, Git-tracked, and wired across setup, verification, backend routing, frontend config preservation, and deploy assets.
 - `scripts/test-headroom-rate-limit-burst.mjs`: send a parallel invalid-key burst through the real Anthropic handler without model billing and fail on any local 429.
 - `scripts/install-claude-rtk.ps1`: install pinned native Windows and WSL RTK, configure accuracy exclusions and `RTK.md`, and install the MSYS-safe global Claude Code Bash rewrite hook.
 - `scripts/install-claude-rtk.sh`: idempotently install pinned RTK on a native Linux Claude Code host, preserve existing settings and non-RTK hooks, configure the same accuracy profile, and verify rewrite/exclusion behavior before returning success.

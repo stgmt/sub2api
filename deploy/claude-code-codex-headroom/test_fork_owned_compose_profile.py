@@ -189,10 +189,10 @@ def test_cross_session_failure_registry_and_evals_are_repo_owned() -> None:
     ]
 
     assert "references/session-failure-registry.md" in skill
-    for incident in range(1, 26):
+    for incident in range(1, 30):
         assert f"`F{incident:02d}`" in registry
 
-    assert [item["id"] for item in evals] == list(range(1, 28))
+    assert [item["id"] for item in evals] == list(range(1, 29))
     new_prompts = "\n".join(item["prompt"] for item in evals if item["id"] >= 16)
     for symptom in (
         "/compact",

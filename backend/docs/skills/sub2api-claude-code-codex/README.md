@@ -9,8 +9,14 @@ Primary entrypoint:
 Included support material:
 
 - `references/` - setup notes, routing policy, compact behavior, verification, troubleshooting, and the cross-session failure registry
-- `scripts/` - Windows/PowerShell helpers for setup, verification, and compact recovery hooks
+- `scripts/` - Windows and Linux setup, verification, host-profile, autostart, RTK, compact-recovery, routing, and contract-test helpers
 - `evals/` - lightweight eval prompts for the skill behavior
+
+The complete reproducible harness also includes the repository's
+`deploy/claude-code-codex-headroom`, backend mixed-provider routing, and
+frontend messages-dispatch round-trip. Run
+`scripts/test-qwen-sdk-cli-harness-contract.ps1` before publishing so those
+surfaces cannot be omitted while only the skill entrypoint is updated.
 
 Install into a Codex profile by copying this directory to:
 

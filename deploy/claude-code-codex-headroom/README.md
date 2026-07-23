@@ -121,6 +121,18 @@ powershell -ExecutionPolicy Bypass -File backend\docs\skills\sub2api-claude-code
 
 The setup script generates a local `.env`, starts the compose project as `sub2api-codex`, configures Claude Code to use `http://127.0.0.1:8787`, and installs a single Windows scheduled-task autostart named `Sub2API Codex Proxy Stack Autostart`.
 
+The delegated-worker profile is also server-owned. After the OpenAI group is
+created, setup writes `sdk_cli_mapped_model=qwen3.8-max-preview` and
+`sdk_cli_reasoning_effort=high` into its messages-dispatch config. This covers
+both real Agent SDK children and standalone `claude -p` / `--print` processes
+on every host or VM using the shared group, while interactive `(external, cli)`
+requests retain the user's selected model and effort. Verify the complete
+published harness before deployment:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File backend\docs\skills\sub2api-claude-code-codex\scripts\test-qwen-sdk-cli-harness-contract.ps1
+```
+
 It also installs pinned RTK on Windows and WSL, adds one MSYS-safe global Claude Code `PreToolUse(Bash)` rewrite hook, configures exact-output exclusions, and bind-mounts the host RTK history into Headroom. Run the focused installer directly only when repairing that layer:
 
 ```powershell
