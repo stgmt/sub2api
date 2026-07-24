@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -172,4 +173,66 @@ func TestDiagnoseModelAvailabilityForPlatform_WrongPlatformFiltersOut(t *testing
 
 	require.False(t, diag.HasAccountsInPool, "OpenAI route must not see Anthropic accounts in pool")
 	require.False(t, diag.HasModelSupport)
+}
+
+func TestDiagnoseModelAvailabilityForPlatform_PersistedRateLimitCircuitSurvivesSchedulerFiltering(t *testing.T) {
+	resetAt := time.Now().Add(4 * time.Hour)
+	repo := &mockAccountRepoForPlatform{
+		accounts: []Account{
+			{
+				ID:               1,
+				Platform:         PlatformAnthropic,
+				Status:           StatusActive,
+				Schedulable:      false,
+				RateLimitResetAt: &resetAt,
+				Credentials: map[string]any{
+					"model_mapping": map[string]any{"qwen3.8-max-preview": "qwen3.8-max-preview"},
+				},
+			},
+		},
+		accountsByID: map[int64]*Account{},
+	}
+	svc := &GatewayService{accountRepo: repo, cfg: testConfig()}
+
+	diag := svc.DiagnoseModelAvailabilityForPlatform(context.Background(), nil, "qwen3.8-max-preview", PlatformAnthropic)
+
+	require.True(t, diag.HasAccountsInPool)
+	require.True(t, diag.HasModelSupport)
+	require.True(t, diag.AllModelSupportingAccountsRateLimited)
+	require.NotNil(t, diag.RateLimitResetAt)
+	require.WithinDuration(t, resetAt, *diag.RateLimitResetAt, time.Second)
+}
+
+func TestDiagnoseModelAvailabilityForPlatform_HealthyMatchingAccountPreventsRateLimitClassification(t *testing.T) {
+	resetAt := time.Now().Add(4 * time.Hour)
+	repo := &mockAccountRepoForPlatform{
+		accounts: []Account{
+			{
+				ID:               1,
+				Platform:         PlatformAnthropic,
+				Status:           StatusActive,
+				Schedulable:      false,
+				RateLimitResetAt: &resetAt,
+				Credentials: map[string]any{
+					"model_mapping": map[string]any{"qwen3.8-max-preview": "qwen3.8-max-preview"},
+				},
+			},
+			{
+				ID:          2,
+				Platform:    PlatformAnthropic,
+				Status:      StatusActive,
+				Schedulable: true,
+				Credentials: map[string]any{
+					"model_mapping": map[string]any{"qwen3.8-max-preview": "qwen3.8-max-preview"},
+				},
+			},
+		},
+		accountsByID: map[int64]*Account{},
+	}
+	svc := &GatewayService{accountRepo: repo, cfg: testConfig()}
+
+	diag := svc.DiagnoseModelAvailabilityForPlatform(context.Background(), nil, "qwen3.8-max-preview", PlatformAnthropic)
+
+	require.True(t, diag.HasModelSupport)
+	require.False(t, diag.AllModelSupportingAccountsRateLimited)
 }

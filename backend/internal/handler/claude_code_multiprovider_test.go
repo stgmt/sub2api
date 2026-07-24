@@ -252,15 +252,17 @@ func TestShouldUseClaudeCodeAutomaticFallback_OnlyForTerminalQuotaOrOpenCircuit(
 	require.False(t, shouldUseClaudeCodeAutomaticFallback(gatewayMessagesFallbackUpstreamError, &service.UpstreamFailoverError{StatusCode: http.StatusServiceUnavailable}, now))
 }
 
-func TestCanFallbackFromNoAvailableAccount_RequiresUnwrittenResponse(t *testing.T) {
+func TestCanFallbackFromNoAvailableAccount_RequiresPersistedRateLimitCircuitAndUnwrittenResponse(t *testing.T) {
 	t.Parallel()
+	rateLimited := noAccountErrorClassification{Status: http.StatusTooManyRequests, ErrType: "rate_limit_error"}
 
 	unwrittenContext, _ := gin.CreateTestContext(httptest.NewRecorder())
-	require.True(t, canFallbackFromNoAvailableAccount(unwrittenContext))
+	require.True(t, canFallbackFromNoAvailableAccount(unwrittenContext, rateLimited))
+	require.False(t, canFallbackFromNoAvailableAccount(unwrittenContext, noAccountErrorClassification{Status: http.StatusServiceUnavailable, ErrType: "api_error"}))
 
 	writtenContext, _ := gin.CreateTestContext(httptest.NewRecorder())
 	writtenContext.String(http.StatusTooManyRequests, "already committed")
-	require.False(t, canFallbackFromNoAvailableAccount(writtenContext))
+	require.False(t, canFallbackFromNoAvailableAccount(writtenContext, rateLimited))
 }
 
 func TestAutomaticFallbackRewrite_ForcesSolHighWithoutLosingConversation(t *testing.T) {

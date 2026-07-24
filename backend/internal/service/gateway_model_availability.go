@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/config"
 )
 
 // ModelAvailabilityDiagnosis describes whether the requested model can be
@@ -12,7 +14,7 @@ import (
 // "no available accounts" error path to distinguish 404 model_not_found from
 // 503 service_unavailable.
 type ModelAvailabilityDiagnosis struct {
-	// HasAccountsInPool is true if the group has at least one schedulable
+	// HasAccountsInPool is true if the group has at least one configured
 	// account on the queried platform (or, for Anthropic/Gemini, on the
 	// platform plus mixed-scheduled Antigravity accounts).
 	HasAccountsInPool bool
@@ -47,10 +49,11 @@ type ModelAvailabilityDiagnoser interface {
 	) ModelAvailabilityDiagnosis
 }
 
-// DiagnoseModelAvailabilityForPlatform inspects schedulable accounts of the
-// given platform and returns whether the requested model is configured to be
-// served by any of them. It deliberately ignores schedulability, rate limits,
-// quotas, and runtime blocks — those are transient.
+// DiagnoseModelAvailabilityForPlatform inspects all configured accounts of
+// the given platform and returns whether the requested model is configured to
+// be served by any of them. It deliberately ignores schedulability so it can
+// distinguish a persisted rate-limit circuit from concurrency pressure or
+// another transient scheduler miss.
 //
 // Safe to call on the error path: returns {true,true} on any internal failure
 // or when the inputs preclude meaningful diagnosis (empty model, etc.), so
@@ -75,9 +78,7 @@ func (s *GatewayService) DiagnoseModelAvailabilityForPlatform(
 		return ModelAvailabilityDiagnosis{HasAccountsInPool: true, HasModelSupport: true}
 	}
 
-	// hasForcePlatform=false so Anthropic/Gemini also surface mixed-scheduled
-	// Antigravity accounts, matching what selection would consider.
-	accounts, _, err := s.listSchedulableAccounts(ctx, groupID, platform, false)
+	accounts, err := s.listAccountsForNoAccountDiagnosis(ctx, groupID, platform)
 	if err != nil {
 		// Conservative fallback: pretend everything is fine so the caller
 		// returns 503 (we don't want to flip to 404 just because a lookup
@@ -86,12 +87,61 @@ func (s *GatewayService) DiagnoseModelAvailabilityForPlatform(
 	}
 
 	diag := ModelAvailabilityDiagnosis{}
+	matchingModelAccounts := 0
+	rateLimitedMatchingAccounts := 0
+	now := time.Now()
 	for i := range accounts {
 		diag.HasAccountsInPool = true
 		if s.isModelSupportedByAccountWithContext(ctx, &accounts[i], requestedModel) {
 			diag.HasModelSupport = true
-			return diag
+			matchingModelAccounts++
+			if resetAt := accountRequestRateLimitResetAt(ctx, &accounts[i], requestedModel, now); resetAt != nil {
+				rateLimitedMatchingAccounts++
+				if diag.RateLimitResetAt == nil || resetAt.Before(*diag.RateLimitResetAt) {
+					resetAtCopy := *resetAt
+					diag.RateLimitResetAt = &resetAtCopy
+				}
+			}
 		}
 	}
+	if matchingModelAccounts > 0 && matchingModelAccounts == rateLimitedMatchingAccounts {
+		diag.AllModelSupportingAccountsRateLimited = true
+	}
 	return diag
+}
+
+func (s *GatewayService) listAccountsForNoAccountDiagnosis(ctx context.Context, groupID *int64, platform string) ([]Account, error) {
+	if s == nil || s.accountRepo == nil {
+		return nil, nil
+	}
+
+	groupFilter := AccountListGroupUngrouped
+	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
+		groupFilter = 0
+	} else if groupID != nil {
+		groupFilter = *groupID
+	}
+
+	listPlatform := func(candidatePlatform string) ([]Account, error) {
+		return s.accountRepo.ListAllWithFilters(ctx, candidatePlatform, "", "", "", groupFilter, "")
+	}
+
+	accounts, err := listPlatform(platform)
+	if err != nil {
+		return nil, err
+	}
+	if platform != PlatformAnthropic && platform != PlatformGemini {
+		return accounts, nil
+	}
+
+	mixedAccounts, err := listPlatform(PlatformAntigravity)
+	if err != nil {
+		return nil, err
+	}
+	for i := range mixedAccounts {
+		if mixedAccounts[i].IsMixedSchedulingEnabled() {
+			accounts = append(accounts, mixedAccounts[i])
+		}
+	}
+	return accounts, nil
 }

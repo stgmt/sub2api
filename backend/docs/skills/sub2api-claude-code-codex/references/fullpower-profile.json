@@ -146,7 +146,7 @@
     "sdk_cli_scope": "claude -p/--print plus Agent SDK requests; interactive external,cli remains user-selectable",
     "automatic_route_fallback_model": "gpt-5.6-sol",
     "automatic_route_fallback_effort": "high",
-    "automatic_route_fallback_policy": "Only terminal Alibaba Token Plan exhaustion before response bytes or no available Qwen account from the scheduler; a selected healthy Qwen, direct interactive selection, transient/provider/context/auth/model errors, and mid-stream failures never cross providers",
+    "automatic_route_fallback_policy": "Only terminal Alibaba Token Plan exhaustion before response bytes or its persisted quota circuit on every matching Qwen account; a generic scheduler miss, selected healthy Qwen, direct interactive selection, transient/provider/context/auth/model errors, and mid-stream failures never cross providers",
     "effort": "max",
     "max_context_tokens": 370000,
     "auto_compact_window": 340000,
@@ -182,7 +182,7 @@
       "Use qwen3.8-max-preview as ANTHROPIC_SMALL_FAST_MODEL and as the group compact_mapped_model for compact/small-fast routing. The current compact route rewrites GPT/Codex compact requests to Qwen before provider classification so the Alibaba Token Plan account handles them.",
       "Use qwen3.8-max-preview with effort: high for the user-level Claude Code general-purpose, Explore, workflow-subagent, bench-reviewer, and bench-triage overrides so delegated agents do not inherit parent Sol/max. This is a model/effort override, not a global Agent-blocking hook.",
       "Do not install PreToolUse/SubagentStart/SubagentStop state-file hooks to block Agent calls unless the user explicitly asks for a hard cap. Current fan-out control is advisory through workflowSizeGuideline=small and general-purpose.md guardrails. Do not claim a built-in depth cap prevents hundreds of spawned descendants; local sessions showed one parent line reaching hundreds of spawned agents.",
-      "Keep only messages_dispatch_model_config.model_fallbacks.qwen3.8-max-preview=[gpt-5.6-sol]. The handler restricts it to automatic compact/SDK-CLI routes after exact terminal Token Plan exhaustion or when the scheduler has no available Qwen account; a selected healthy or directly selected Qwen never falls back. Account compact_model_mapping and compact_model_fallbacks stay empty.",
+      "Keep only messages_dispatch_model_config.model_fallbacks.qwen3.8-max-preview=[gpt-5.6-sol]. The handler restricts it to automatic compact/SDK-CLI routes after exact terminal Token Plan exhaustion or while every matching Qwen account has its persisted quota circuit open; a generic scheduler miss and selected healthy or directly selected Qwen never fall back. Account compact_model_mapping and compact_model_fallbacks stay empty.",
       "Fresh 2026-07-10 Luna re-probe returned HTTP 200 but usage_logs showed a fallback and ops_error_logs recorded recovered upstream 429. Treat Luna as unavailable until the mapping chain ends at gpt-5.6-luna.",
       "Do not broaden the Qwen automatic-route fallback to transient, direct-interactive, or mid-stream failures after an account was selected. Keep those failures visible.",
       "Manual /compact may ignore ANTHROPIC_SMALL_FAST_MODEL in some Claude Code builds and use the session main model. Verify compact routing via usage_logs.requested_model/upstream_model."

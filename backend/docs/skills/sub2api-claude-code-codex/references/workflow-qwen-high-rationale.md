@@ -44,7 +44,7 @@ When this profile changes, update all of these in one pass:
 - `%USERPROFILE%\.claude\agents\bench-triage.md`.
 - sub2api group `messages_dispatch_model_config.compact_mapped_model`.
 - sub2api group `messages_dispatch_model_config.sdk_cli_mapped_model` and `sdk_cli_reasoning_effort`.
-- sub2api group `messages_dispatch_model_config.model_fallbacks.qwen3.8-max-preview=[gpt-5.6-sol]`; this candidate is restricted in code to terminal quota or scheduler-no-Qwen automatic routes.
+- sub2api group `messages_dispatch_model_config.model_fallbacks.qwen3.8-max-preview=[gpt-5.6-sol]`; this candidate is restricted in code to terminal quota or an already-open persisted quota circuit on automatic routes.
 - `scripts/sync-sub2api-sdk-cli-routing.ps1` for idempotent live DB sync and audit.
 - OpenAI account `credentials.compact_model_mapping` and `credentials.compact_model_fallbacks`, normally both `{}`.
 - `scripts/setup-sub2api-claude-code.ps1`.
@@ -90,7 +90,7 @@ commits: 03b26c8b fix: route Claude compact to Qwen high; bee08a19 docs: pin Cla
 
 - Do not reintroduce Spark/Luna as compact defaults without a new user decision.
 - Do not reintroduce `haiku` as the hidden small/fast picker default.
-- Do not broaden the Qwen-to-Sol candidate beyond terminal Token Plan exhaustion or scheduler-no-Qwen on automatic routes. It must never hide transient failures after account selection or direct-interactive provider/account bugs.
+- Do not broaden the Qwen-to-Sol candidate beyond terminal Token Plan exhaustion or its persisted quota circuit on automatic routes. It must never hide generic scheduler misses, transient failures after account selection, or direct-interactive provider/account bugs.
 - Do not set persistent `CLAUDE_CODE_EFFORT_LEVEL`; it overrides interactive `/effort`.
 - Do not call `370000` or `340000` an upstream model window. They are Claude Code client safety targets.
 - Do not install hard Agent-blocking hooks unless the user explicitly asks for them.
