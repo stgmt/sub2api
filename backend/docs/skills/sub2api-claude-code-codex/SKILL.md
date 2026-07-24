@@ -8,6 +8,8 @@ description: >-
 
 This skill is the short entrypoint for running Claude Code through a local Headroom + `sub2api` Anthropic-compatible proxy chain backed by the user's OpenAI/Codex/ChatGPT subscription. Keep this file lean; load the reference files only when the task needs those details.
 
+For fleet-wide switching between the native Claude Code subscription and the current GPT/Qwen profile, use the sibling `claude-provider-switcher` skill. This skill owns installation and repair; it must not duplicate the switch transaction, fleet reconciliation, or rollback contract.
+
 ## Current Profile
 
 Use this profile unless the user explicitly asks for a different model, port, or risk tradeoff:
@@ -56,6 +58,8 @@ Subagent, standalone `claude -p`, and compact override: qwen3.8-max-preview with
 ## Reference Map
 
 Read only the file needed for the current task:
+
+- `../claude-provider-switcher/SKILL.md`: provider-wide profile switching, fleet reconciliation, negative route proof, and rollback.
 
 - `references/profile-and-context.md`: source-of-truth profile, official GPT-5.6 context facts, compact profile, and context-window caveats.
 - `references/install-and-claude-config.md`: Docker/WSL install, OAuth import, Claude Code env/settings, dynamic MCP, and memory/rules configuration.

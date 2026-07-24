@@ -1,0 +1,35 @@
+{
+  "skill_name": "claude-provider-switcher",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Переключи вообще весь Claude Code на мою Anthropic подписку: main, compact, claude -p и всех сабагентов, без fallback в GPT/Qwen.",
+      "expected_output": "Uses the anthropic-only profile, validates and imports the existing Claude Code OAuth into sub2api without exposing credentials, atomically rebinds the stable key to an Anthropic-only group, force-maps stale GPT/Qwen IDs to Claude roles, keeps OpenAI and Alibaba out of the group, reconciles every reachable host/VM, marks offline nodes pending-reconcile, and proves main/compact/print/nested-agent traffic uses only the Anthropic account after the switch boundary.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Верни весь парк на прошлую схему GPT main плюс Qwen high для compact и сабагентов.",
+      "expected_output": "Restores the versioned hybrid-current group snapshot rather than guessing settings, atomically switches the stable key first, reconciles host and VMs, preserves unrelated Claude configuration, and proves OpenAI main plus healthy Alibaba compact/SDK/subagent routing with only the profile's explicit terminal-quota fallback.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "claude-route status: скажи, реально ли все сейчас на Anthropic, одна VM выключена.",
+      "expected_output": "Reads the stable-key group binding and persisted generation, checks usage rows after the switch boundary, reports reachable nodes as synced or drifted and the offline VM as pending-reconcile, and does not infer provider state from Claude UI labels or settings files alone.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "После переключения старая сессия явно просит qwen3.8-max-preview. Она не должна уйти в Alibaba.",
+      "expected_output": "Verifies anthropic-only pre-provider force mapping for explicit stale Qwen/GPT IDs, runs a resumed-session probe through Headroom, and proves the request uses the Anthropic account with zero forbidden-provider usage rather than relying on client config synchronization.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "Anthropic профиль не проходит первый live probe. Не оставляй мне полусломанное состояние.",
+      "expected_output": "Restores the previous stable-key group binding, invalidates the routing cache, proves one request on the previous provider, leaves node configuration unchanged because the commit point was not reached, and reports the exact failed layer without leaking credentials.",
+      "files": []
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Claude Provider Switcher"
+  short_description: "Switch and verify Claude provider profiles"
+  default_prompt: "Use $claude-provider-switcher to switch all Claude Code traffic to the requested provider profile and prove the live route."
+policy:
+  allow_implicit_invocation: true
+

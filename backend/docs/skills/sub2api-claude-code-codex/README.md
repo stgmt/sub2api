@@ -6,6 +6,10 @@ Primary entrypoint:
 
 - `SKILL.md`
 
+Companion skill:
+
+- `../claude-provider-switcher/SKILL.md` - fleet-wide provider profile switching, reconciliation, verification, and rollback
+
 Included support material:
 
 - `references/` - setup notes, routing policy, compact behavior, verification, troubleshooting, and the cross-session failure registry
