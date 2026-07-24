@@ -4,11 +4,12 @@ Portable Codex skill for fleet-wide switching between the native Claude Code sub
 
 The skill owns provider switching, reconciliation, rollback, and live route proof. Stack installation and proxy repair remain in the companion `sub2api-claude-code-codex` skill.
 
-Install by copying this directory to:
+Install the skill and command:
 
-```text
-~/.codex/skills/claude-provider-switcher
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/install-claude-route.ps1
 ```
 
-No credentials or machine-specific VM names are stored in this bundle.
+Then use `claude-route status`, `claude-route anthropic`, `claude-route hybrid`, `claude-route reconcile`, and `claude-route verify`.
 
+No credentials are stored in this bundle. Machine topology is adapter input and offline nodes remain `pending-reconcile`.

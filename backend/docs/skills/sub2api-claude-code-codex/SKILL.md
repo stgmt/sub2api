@@ -10,7 +10,7 @@ This skill is the short entrypoint for running Claude Code through a local Headr
 
 For fleet-wide switching between the native Claude Code subscription and the current GPT/Qwen profile, use the sibling `claude-provider-switcher` skill. This skill owns installation and repair; it must not duplicate the switch transaction, fleet reconciliation, or rollback contract.
 
-## Current Profile
+## Default Hybrid Install Profile
 
 Use this profile unless the user explicitly asks for a different model, port, or risk tradeoff:
 
@@ -34,6 +34,7 @@ Host state root: `${SUB2API_STATE_ROOT:-./data}` in the deploy profile. All stat
 Codex OAuth self-heal: sub2api reads `SUB2API_OPENAI_CODEX_AUTH_FILE=/app/data/codex-auth.json`; setup and the repeating self-heal task copy a validated host `%USERPROFILE%\.codex\auth.json` into `${SUB2API_STATE_ROOT}/sub2api/codex-auth.json` without printing secrets.
 Headroom persistence: `/root/.headroom` stores `ccr_store.db`, savings, and logs; `/root/.cache/headroom` and `/root/.cache/huggingface` store warmed local tool/model/embedding caches; `/root/.local/share/rtk` exposes the host RTK history to Headroom. These paths must be host bind mounts.
 Windows autostart/self-heal: use one scheduled task named `Sub2API Codex Proxy Stack Autostart`, not a Startup-folder `.cmd` and not a separate `headroom-proxy` task. The task must launch `ensure-sub2api-proxy-stack.ps1` through the zero-window `run-hidden.vbs`/`wscript.exe` wrapper with `RunLevel=Highest` at logon and every minute; direct interactive `powershell.exe` actions can flash a console and steal focus. Its healthy path probes same-host plus diagnostic Hyper-V bridge `/health`; the bridge is fail-closed only with `HEADROOM_HYPERV_REQUIRE_BRIDGE=1` or `-RequireHyperVBridge`. Its failure path calls the canonical stack start script to wake WSL, restore Docker compose, refresh dynamic bridge addresses, and self-heal stale WSL `ext4.vhdx` attach locks.
+Provider profiles: setup installs the sibling `claude-provider-switcher` skill and `claude-route` command. The same single autostart task reconciles its stored generation; do not add a second provider task. Always run `claude-route status` before describing the live profile because it may intentionally be `anthropic-only` instead of this install default.
 Main model: gpt-5.6-sol
 Small-fast/compact/delegated SDK model: qwen3.8-max-preview with effort high
 Automatic-route availability fallback: gpt-5.6-sol with effort high, only for compact/subagent/claude -p after a terminal Alibaba Token Plan quota response or while its persisted account quota circuit is open
@@ -129,6 +130,7 @@ Read only the file needed for the current task:
 ## Bundled Scripts
 
 - `scripts/setup-sub2api-claude-code.ps1`: create/update `deploy/claude-code-codex-headroom/.env`, auto-detect CUDA unless explicitly set to CPU, select the matching compose overlay/image target/backend, start the Headroom + sub2api compose project, install/update the single Windows scheduled-task autostart unless `-SkipAutostart` is passed, register the Docker-backed Headroom MCP, remove stale host `tokensave` MCP, sync a validated host Codex auth file to `${SUB2API_STATE_ROOT}/sub2api/codex-auth.json`, and configure Claude Code settings. Defaults to main `gpt-5.6-sol`, small-fast/subagent/compact `qwen3.8-max-preview` high, automatic-route availability fallback `gpt-5.6-sol` high, `SUB2API_OPENAI_CODEX_AUTH_FILE=/app/data/codex-auth.json`, `HEADROOM_SAVINGS_PROFILE=agent-90`, `HEADROOM_TARGET_RATIO=0.10`, `HEADROOM_RPM=6000`, `HEADROOM_TPM=100000000`, `CLAUDE_CODE_MAX_CONTEXT_TOKENS=370000`, and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=340000`.
+- `../claude-provider-switcher/scripts/install-claude-route.ps1`: installs or refreshes the separate provider skill plus the `claude-route` command; setup calls it unless `-SkipProviderSwitcher` is supplied.
 - `scripts/sync-claude-wrapper-models.ps1`: synchronize or audit higher-precedence model assignments in an existing Windows `claude.cmd` wrapper so stale launcher values cannot override Qwen small-fast, picker, and subagent settings.
 - `scripts/sync-claude-subagent-profile.ps1`: portable Windows host/guest repair for Qwen small-fast, picker aliases, global delegated-agent files, User env, settings, and an existing wrapper; supports `-CheckOnly`.
 - `scripts/sync-claude-subagent-profile.sh`: portable native Linux/WSL equivalent; preserves hooks and agent bodies, writes `environment.d`, and supports `--check`.

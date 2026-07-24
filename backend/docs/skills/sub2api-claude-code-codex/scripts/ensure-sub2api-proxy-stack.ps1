@@ -8,6 +8,7 @@ param(
   [int]$HealthTimeoutSeconds = 4,
   [int]$RecoveryWaitSeconds = 120,
   [int]$HealthyHeartbeatMinutes = 30,
+  [int]$ProviderReconcileMinutes = 15,
   [string]$HyperVVmName = "",
   [string]$HyperVVmSshUser = "",
   [string]$HyperVVmSshKey = "",
@@ -73,6 +74,61 @@ function Write-SelfHealEvent {
     (($row | ConvertTo-Json -Compress -Depth 8) + [Environment]::NewLine),
     [Text.UTF8Encoding]::new($false)
   )
+}
+
+function Invoke-ProviderRouteReconcile {
+  param([string]$ProfileRoot)
+
+  $routeStatePath = Join-Path $ProfileRoot "data\provider-route-state.json"
+  if (-not (Test-Path -LiteralPath $routeStatePath)) {
+    return [pscustomobject]@{ status = "disabled"; reason = "provider route state is not initialized" }
+  }
+
+  try {
+    $routeState = Get-Content -Raw -LiteralPath $routeStatePath | ConvertFrom-Json
+    $generation = [string]$routeState.generation
+    $settingsPath = Join-Path $HOME ".claude\settings.json"
+    $localGeneration = ""
+    if (Test-Path -LiteralPath $settingsPath) {
+      try { $localGeneration = [string](Get-Content -Raw -LiteralPath $settingsPath | ConvertFrom-Json).env.CLAUDE_PROVIDER_PROFILE_GENERATION } catch { }
+    }
+    $localDrift = $generation -ne $localGeneration
+    $pendingNodes = @($routeState.nodes.PSObject.Properties | Where-Object { [string]$_.Value.status -ne "synced" }).Count
+    if (-not $localDrift -and $pendingNodes -eq 0) {
+      return [pscustomobject]@{ status = "synced"; generation = $generation; attempted = $false }
+    }
+
+    $attemptStatePath = Join-Path $ProfileRoot "logs\provider-route-reconcile-state.json"
+    if (-not $localDrift -and (Test-Path -LiteralPath $attemptStatePath)) {
+      try {
+        $lastAttempt = [DateTimeOffset]::Parse([string](Get-Content -Raw -LiteralPath $attemptStatePath | ConvertFrom-Json).attempted_at)
+        if (([DateTimeOffset]::UtcNow - $lastAttempt.ToUniversalTime()).TotalMinutes -lt $ProviderReconcileMinutes) {
+          return [pscustomobject]@{ status = "throttled"; generation = $generation; pending_nodes = $pendingNodes; attempted = $false }
+        }
+      } catch { }
+    }
+
+    $candidates = @(
+      (Join-Path $HOME ".codex\skills\claude-provider-switcher\scripts\claude-route.ps1")
+    )
+    if ($RepoRoot.Trim()) {
+      $candidates += Join-Path $RepoRoot "backend\docs\skills\claude-provider-switcher\scripts\claude-route.ps1"
+    }
+    $controller = @($candidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1)
+    if ($controller.Count -eq 0) {
+      return [pscustomobject]@{ status = "pending-reconcile"; reason = "claude-route controller is not installed"; attempted = $false }
+    }
+
+    Write-Utf8NoBom -Path $attemptStatePath -Content (([ordered]@{ attempted_at = [DateTimeOffset]::UtcNow.ToString("o"); generation = $generation } | ConvertTo-Json -Compress) + [Environment]::NewLine)
+    $output = @(& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $controller[0] reconcile -RuntimeRoot $ProfileRoot 2>&1)
+    if ($LASTEXITCODE -ne 0) { throw ($output -join [Environment]::NewLine) }
+    $result = $output -join [Environment]::NewLine | ConvertFrom-Json
+    Write-SelfHealEvent -Event "provider_route_reconciled" -Data @{ generation = $generation; active_profile = $result.active_profile }
+    return [pscustomobject]@{ status = "reconciled"; generation = $generation; attempted = $true; nodes = $result.nodes }
+  } catch {
+    Write-SelfHealEvent -Event "provider_route_reconcile_failed" -Data @{ error = $_.Exception.Message }
+    return [pscustomobject]@{ status = "pending-reconcile"; attempted = $true; reason = $_.Exception.Message }
+  }
 }
 
 function Write-HyperVInventorySnapshot {
@@ -428,8 +484,9 @@ try {
       Write-SelfHealEvent -Event "healthy" -Data @{ routes = $before; codex_auth = $codexAuthSync }
       $lastEventAt = (Get-Date).ToUniversalTime().ToString("o")
     }
+    $providerRoute = Invoke-ProviderRouteReconcile -ProfileRoot $Root
     Save-State -Status "healthy" -LastEventAt $lastEventAt
-    [pscustomobject]@{ status = "healthy"; recovered = $false; routes = $before; codex_auth = $codexAuthSync } | ConvertTo-Json -Compress -Depth 8
+    [pscustomobject]@{ status = "healthy"; recovered = $false; routes = $before; codex_auth = $codexAuthSync; provider_route = $providerRoute } | ConvertTo-Json -Compress -Depth 8
     exit 0
   }
 
@@ -456,9 +513,10 @@ try {
   do {
     $after = Get-RequiredRouteState
     if ($after.ok) {
+      $providerRoute = Invoke-ProviderRouteReconcile -ProfileRoot $Root
       Save-State -Status "healthy" -LastEventAt (Get-Date).ToUniversalTime().ToString("o")
       Write-SelfHealEvent -Event "recovered" -Data @{ routes_before = $before; routes_after = $after }
-      [pscustomobject]@{ status = "healthy"; recovered = $true; routes = $after } | ConvertTo-Json -Compress -Depth 8
+      [pscustomobject]@{ status = "healthy"; recovered = $true; routes = $after; provider_route = $providerRoute } | ConvertTo-Json -Compress -Depth 8
       exit 0
     }
     Start-Sleep -Seconds 3

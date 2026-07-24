@@ -31,6 +31,8 @@ Preserve hooks, MCP servers, permissions, custom agent bodies, project rules, an
 
 Each adapter supports apply and check-only modes and returns `synced`, `pending-reconcile`, or `drifted` with the active generation.
 
+The existing elevated `Sub2API Codex Proxy Stack Autostart` task is the only Windows autostart owner. Its health-first ensure script compares the stored route generation with the host marker, retries pending guests no more often than the configured reconcile interval, and records provider-reconcile failures without restarting a healthy proxy stack. Do not create a second provider-switcher Scheduled Task.
+
 ## Offline Nodes
 
 The proxy route is authoritative. If a guest is offline after a successful proxy switch:
@@ -40,4 +42,3 @@ The proxy route is authoritative. If a guest is offline after a successful proxy
 3. stage no credentials;
 4. let its boot/login repair fetch and apply the active generation;
 5. require a later live probe before marking it `synced`.
-

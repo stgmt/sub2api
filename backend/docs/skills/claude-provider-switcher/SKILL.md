@@ -37,10 +37,18 @@ claude-route status
 claude-route anthropic
 claude-route hybrid
 claude-route reconcile
-claude-route status --node all
+claude-route verify
 ```
 
 If the controller is absent, do not emulate a partial switch by editing only `settings.json`. Implement or restore the repo-owned controller first.
+
+Install or refresh the command from this skill bundle:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/install-claude-route.ps1
+```
+
+`status` reads the stable key binding and generation. `verify` sends unique main, stale-model, compact, and SDK CLI probes through Headroom and correlates only their tagged `usage_logs` rows.
 
 ## Switching Workflow
 
@@ -50,7 +58,7 @@ If the controller is absent, do not emulate a partial switch by editing only `se
 4. Capture the current stable-key group binding and fleet generation as rollback state.
 5. Atomically rebind the stable client key to the target group and invalidate the relevant sub2api cache. Do not restart Headroom for a pure route switch.
 6. Run one main live probe through Headroom before touching node display config. On failure, restore the old binding and report the exact layer.
-7. Increment the profile generation and reconcile all reachable nodes in parallel with the OS-specific adapter from `references/fleet-reconcile.md`.
+7. Increment the profile generation and reconcile all reachable nodes with the OS-specific adapters from `references/fleet-reconcile.md`.
 8. Mark offline nodes `pending-reconcile`; their next login/boot self-heal must apply the stored generation.
 9. Restart only fresh Claude Code processes needed for proof. Do not kill unrelated user sessions.
 10. Run the matrix in `references/verification.md` and prove the selected account/provider from usage logs.
@@ -59,6 +67,7 @@ If the controller is absent, do not emulate a partial switch by editing only `se
 
 - Never print, commit, or copy Claude OAuth credentials to client nodes. Import `%USERPROFILE%/.claude/.credentials.json` into sub2api once; VMs receive only the stable local proxy token.
 - Prevent stale token re-import and `refresh_token_reused`; sub2api is the refresh owner after import.
+- Re-import local Claude credentials only for a new account, an explicit forced repair, or a changed refresh-token fingerprint whose source expiry is newer than the stored import marker.
 - Never enable cross-provider fallback in `anthropic-only`.
 - Never claim success from `/v1/models`, health checks, settings files, or the Claude UI alone.
 - Patch only owned model/env fields. Preserve hooks, MCP servers, permissions, agent bodies, and unrelated settings.
@@ -78,4 +87,4 @@ If the controller is absent, do not emulate a partial switch by editing only `se
 - Forbidden provider account IDs have zero new usage rows after the switch boundary.
 - Every reachable node reports `synced` at the active generation; offline nodes report `pending-reconcile` with a working boot/login repair path.
 - Switching to the other profile and back preserves unrelated Claude configuration and produces the same verified routing.
-
+- If the inactive provider is rate-limited, its probe fails, the stable key is restored, and the old generation remains active.

@@ -56,7 +56,8 @@ param(
   [switch]$SkipHeadroomMcp,
   [switch]$SkipRtk,
   [switch]$SkipAutostart,
-  [switch]$SkipSDKCLIRouting
+  [switch]$SkipSDKCLIRouting,
+  [switch]$SkipProviderSwitcher
 )
 
 $ErrorActionPreference = "Stop"
@@ -761,6 +762,16 @@ $contractEnd
   }
 }
 
+if (-not $SkipProviderSwitcher) {
+  $skillsRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+  $providerInstaller = Join-Path $skillsRoot "claude-provider-switcher\scripts\install-claude-route.ps1"
+  if (-not (Test-Path -LiteralPath $providerInstaller)) {
+    throw "Claude provider switcher installer not found: $providerInstaller"
+  }
+  & $providerInstaller -SkipStatus | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw "Claude provider switcher installation failed with exit code $LASTEXITCODE" }
+}
+
 Write-Host "repo root: $resolvedRepoRoot"
 Write-Host "compose profile: $profileDir"
 Write-Host "compose project: $ProjectName"
@@ -775,6 +786,7 @@ Write-Host "RTK: $RtkVersion host+WSL Claude Bash hook; shared dashboard state a
 Write-Host "Headroom embedding server: enabled (--embedding-server with patched watchdog/socket client)"
 Write-Host "Headroom persistent storage: /root/.headroom plus /root/.cache/headroom and /root/.cache/huggingface mounts"
 Write-Host "Windows autostart: Sub2API Codex Proxy Stack Autostart (single task, RunLevel=Highest, VHDX self-heal)"
+Write-Host "provider switcher: claude-route status|anthropic|hybrid|reconcile|verify"
 Write-Host "model: $Model"
 Write-Host "default effort: $DefaultEffort (use /effort inside Claude Code to change per session)"
 Write-Host "small-fast model: $SmallFastModel"

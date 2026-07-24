@@ -15,6 +15,8 @@ Capture a switch timestamp and request correlation IDs. Verify through Headroom,
 
 For every row, record requested model, mapped model, provider account ID/platform, reasoning effort, status, and duration from sub2api usage/error logs.
 
+Run `claude-route verify` for the reproducible first pass. It uses a unique User-Agent correlation ID so concurrent user sessions cannot pollute its four-row proof. Follow with a real `claude --print` and a named-agent probe when changing the profile implementation.
+
 ## Negative Proof
 
 - `anthropic-only`: after the switch timestamp, no new OpenAI/Codex or Alibaba account usage may appear for the stable key.
@@ -32,3 +34,4 @@ Rollback the stable key binding when the target group cannot pass the first Head
 
 After rollback, prove one request on the previous provider and retain the failed generation with error evidence for diagnosis.
 
+A target-provider 429/503 is a failed switch, not a reason to commit the target profile. The stable key must remain on the last verified group.

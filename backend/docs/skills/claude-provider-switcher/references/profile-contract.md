@@ -32,6 +32,10 @@ IDs are discovered at runtime from stable names. Never hardcode IDs copied from 
 
 Discover the actual supported Claude model IDs from the live account and request probes. Keep role mapping versioned so a future model-line update does not require changing every client node first.
 
+Version 1 currently pins Opus `claude-opus-4-8`, Sonnet `claude-sonnet-5`, Fable `claude-fable-5`, and Haiku `claude-haiku-4-5-20251001`. Update the versioned profile and its verification expectations together when the enabled line changes.
+
+The local `~/.claude/.credentials.json` is an import source, not the long-term refresh owner. Store a SHA-256 refresh-token fingerprint and source expiry in account `extra`; do not reapply an older unchanged source after sub2api has refreshed its own token.
+
 ## hybrid-current
 
 The profile is a versioned snapshot, not an informal restoration guess. Its initial contract is:
@@ -56,3 +60,4 @@ Before modifying the hybrid profile, save a new version. A switch back must rest
 
 Node reconciliation happens after step 6 and cannot silently alter the active proxy profile.
 
+The controller persists this state under the host-bound runtime `data/provider-route-state.json`, never in a container layer.

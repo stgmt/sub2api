@@ -177,6 +177,16 @@ Do not keep a second `headroom-proxy` task or a Startup-folder `.cmd` launcher. 
 
 The setup script installs this task by default. Use `-SkipAutostart` only for a one-off/local-only setup. The task target, `scripts/ensure-sub2api-proxy-stack.ps1`, first syncs the host Codex auth file when present, then runs a cheap health-first path and does not touch healthy containers. Same-host Headroom health is enough for the normal Windows/WSL profile; Hyper-V bridge health is logged as diagnostic unless `HEADROOM_HYPERV_REQUIRE_BRIDGE=1` is set in `hyperv-bridge.env` or `-RequireHyperVBridge` is passed. On required route failure it invokes `scripts/start-sub2api-proxy-stack.ps1`, which wakes WSL, runs `docker compose --env-file .env -p sub2api-codex up -d --remove-orphans`, refreshes Claude Code `ANTHROPIC_BASE_URL` and the Hyper-V bridge from current addresses, then verifies recovery. The repeating trigger is required because a successful logon task is not re-fired when WSL later powers off.
 
+Setup also installs the sibling `claude-provider-switcher` skill and `claude-route` command. Once `data/provider-route-state.json` exists, this same task reconciles the active generation on the Windows host and both known Hyper-V guests. Offline guests remain `pending-reconcile` and are retried on a bounded interval; do not create a second provider-switcher task.
+
+```text
+claude-route status
+claude-route anthropic
+claude-route hybrid
+claude-route reconcile
+claude-route verify
+```
+
 Existing installations whose task still points directly at `start-sub2api-proxy-stack.ps1` self-migrate on their next elevated run: the start script detects a missing `PT1M` trigger/retry policy and invokes the installer. This is intentional because a normal non-elevated shell cannot replace a `RunLevel=Highest` task.
 
 ### Hyper-V Claude Host Bridge
