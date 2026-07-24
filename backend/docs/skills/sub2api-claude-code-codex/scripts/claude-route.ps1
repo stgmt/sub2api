@@ -79,7 +79,7 @@ function Read-DotEnv([string]$Path) {
 }
 
 function Read-Profile([string]$Name) {
-  $fileName = if ($Name -eq "anthropic-only") { "anthropic-only.v3.json" } else { "hybrid-current.v1.json" }
+  $fileName = if ($Name -eq "anthropic-only") { "anthropic-only.v4.json" } else { "hybrid-current.v1.json" }
   $path = Join-Path $profileRoot $fileName
   if (-not (Test-Path -LiteralPath $path)) { throw "Profile not found: $path" }
   return [pscustomobject]@{ Path = $path; Data = (Get-Content -Raw -LiteralPath $path | ConvertFrom-Json) }
@@ -402,12 +402,16 @@ function Reconcile-WindowsGuest($ProfileRecord, [string]$Generation) {
   $session = $null
   $plain = $null
   $password = $null
+  $securePassword = $null
   try {
     Add-Type -AssemblyName System.Security
     $blob = [IO.File]::ReadAllBytes($WindowsGuestCredentialBlob)
     $plain = [Security.Cryptography.ProtectedData]::Unprotect($blob, $null, [Security.Cryptography.DataProtectionScope]::CurrentUser)
     $password = [Text.Encoding]::UTF8.GetString($plain)
-    $credential = [pscredential]::new("admin", (ConvertTo-SecureString $password -AsPlainText -Force))
+    $securePassword = [Security.SecureString]::new()
+    foreach ($character in $password.ToCharArray()) { $securePassword.AppendChar($character) }
+    $securePassword.MakeReadOnly()
+    $credential = [pscredential]::new("admin", $securePassword)
     $session = New-PSSession -VMName $WindowsGuestName -Credential $credential -ErrorAction Stop
     $remoteRoot = Invoke-Command -Session $session -ScriptBlock {
       $path = Join-Path $env:LOCALAPPDATA "sub2api-claude-route"
@@ -428,6 +432,7 @@ function Reconcile-WindowsGuest($ProfileRecord, [string]$Generation) {
     $result.detail = $_.Exception.Message
   } finally {
     if ($session) { Remove-PSSession $session -ErrorAction SilentlyContinue }
+    if ($securePassword) { $securePassword.Dispose() }
     if ($plain) { [Array]::Clear($plain, 0, $plain.Length) }
     $password = $null
   }

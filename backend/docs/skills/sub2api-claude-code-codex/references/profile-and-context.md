@@ -46,9 +46,10 @@ Official GPT-5.3-Codex-Spark context window: 128,000 tokens and text-only during
 Official Claude context windows: Fable 5, Opus 5, and Sonnet 5 are 1M; Haiku 4.5 is 200k.
 Official context docs checked on 2026-07-10: OpenAI https://developers.openai.com/api/docs/models and Anthropic https://platform.claude.com/docs/en/about-claude/models/overview
 Official Alibaba docs checked on 2026-07-22: Token Plan lists Qwen3.8-Max-Preview, GLM-5.2, and DeepSeek-V4-Pro (https://www.alibabacloud.com/en/campaign/ai-landing-page-token); Model Studio text-generation docs recommend qwen3.7-plus for balanced coding, qwen3.7-max for strongest reasoning, list qwen3.7-plus/qwen3.6-flash/deepseek-v4-pro at 1M context, and list glm-5.2 at 198k context (https://www.alibabacloud.com/help/en/model-studio/text-generation-model). Treat live Headroom/sub2api probes as authoritative for this local account because Token Plan availability can vary by region/account.
-Default Claude Code client compact/display target for this local proxy: CLAUDE_CODE_MAX_CONTEXT_TOKENS=370000
-Default Claude Code auto compact target for this local proxy: CLAUDE_CODE_AUTO_COMPACT_WINDOW=340000
-Important: these values are Claude Code local display/planning/auto-compact behavior. The upstream proxy/model is still authoritative; verify real failures in sub2api logs and `ops_error_logs`.
+Hybrid Claude Code client compact/display target: CLAUDE_CODE_MAX_CONTEXT_TOKENS=370000
+Hybrid Claude Code auto compact target: CLAUDE_CODE_AUTO_COMPACT_WINDOW=340000
+Anthropic-only v4 context and auto-compact window: CLAUDE_CODE_MAX_CONTEXT_TOKENS=1000000 and CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000. Because `ANTHROPIC_BASE_URL` points to Headroom, client-facing Opus/Sonnet IDs must also carry `[1m]`; otherwise Claude Code conservatively budgets 200k even though the upstream model supports 1M. Claude Code strips `[1m]` before sending the model ID to the gateway. Opus 5 additionally requires Claude Code 2.1.219 or later.
+Important: verify the local budget with a fresh JSON `modelUsage.contextWindow=1000000` probe and verify the raw upstream model separately in sub2api `usage_logs`/`ops_error_logs`.
 Output guard: CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
 Thinking guard: MAX_THINKING_TOKENS=8000
 Non-streaming fallback: CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK=1
@@ -112,6 +113,7 @@ Why both context variables matter:
 - `CLAUDE_CODE_AUTO_COMPACT_WINDOW` makes `/context` display the chosen denominator and decides when Claude Code compacts.
 - Official GPT-5.6 API docs list a 1,050,000 token context window and 128,000 max output for Sol/Terra/Luna. Official Claude docs list Fable 5, Opus 5, and Sonnet 5 at 1M with 128k max output, and Haiku 4.5 at 200k.
 - For the current 5.6 proxy profile, default Claude Code to `CLAUDE_CODE_MAX_CONTEXT_TOKENS=370000` and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=340000`. This fixes Claude Code's `/200k` fallback for custom/proxy models while forcing compaction before the local route's observed long-context danger zone. Do not call 370k or 340k the upstream model limit; they are client safety thresholds.
+- For `anthropic-only` v4, set both variables to `1000000` because Opus 5 and Sonnet 5 officially expose a 1M window. Claude Code's displayed free space remains lower because system prompts, tools, messages, and its compact reserve already consume part of that window.
 
 Why output and thinking guards matter:
 

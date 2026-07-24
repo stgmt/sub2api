@@ -32,7 +32,7 @@ function Resolve-HeadroomUrl {
 
 if (-not (Test-Path -LiteralPath $statePath)) { throw "Provider route state is not initialized: $statePath" }
 $state = Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json
-$profileFile = if ($state.active_profile -eq "anthropic-only") { "anthropic-only.v3.json" } else { "hybrid-current.v1.json" }
+$profileFile = if ($state.active_profile -eq "anthropic-only") { "anthropic-only.v4.json" } else { "hybrid-current.v1.json" }
 $profile = Get-Content -Raw -LiteralPath (Join-Path $skillRoot "profiles\$profileFile") | ConvertFrom-Json
 $keyNameSql = $StableKeyName.Replace("'", "''")
 $keyRows = @(Invoke-Sql "SELECT id || chr(9) || key FROM api_keys WHERE name='$keyNameSql' AND status='active' AND deleted_at IS NULL;")

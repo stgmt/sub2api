@@ -125,6 +125,10 @@ if (Test-Path -LiteralPath $WrapperPath) {
       $updatedWrapper = [regex]::Replace($updatedWrapper, $pattern, $replacement)
     }
   }
+  $nativeClaudePath = Join-Path (Split-Path -Parent $WrapperPath) "claude.exe"
+  if ((Test-Path -LiteralPath $nativeClaudePath) -and $updatedWrapper -match '(?i)claude-real\.exe') {
+    $updatedWrapper = [regex]::Replace($updatedWrapper, '(?i)claude-real\.exe', 'claude.exe')
+  }
   if ($updatedWrapper -ne $wrapper) {
     $drift.Add("wrapper:$WrapperPath")
     if (-not $CheckOnly) { Write-Utf8NoBom $WrapperPath $updatedWrapper }
