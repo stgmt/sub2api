@@ -79,7 +79,7 @@ function Read-DotEnv([string]$Path) {
 }
 
 function Read-Profile([string]$Name) {
-  $fileName = if ($Name -eq "anthropic-only") { "anthropic-only.v1.json" } else { "hybrid-current.v1.json" }
+  $fileName = if ($Name -eq "anthropic-only") { "anthropic-only.v2.json" } else { "hybrid-current.v1.json" }
   $path = Join-Path $profileRoot $fileName
   if (-not (Test-Path -LiteralPath $path)) { throw "Profile not found: $path" }
   return [pscustomobject]@{ Path = $path; Data = (Get-Content -Raw -LiteralPath $path | ConvertFrom-Json) }
@@ -208,15 +208,26 @@ function Get-ClaudeSourceCredentials {
 }
 
 function Ensure-AnthropicAccount($Profile, [int64]$GroupId) {
-  $source = Get-ClaudeSourceCredentials
   $account = Get-AccountByName $Profile.account_name
-  $notes = "Managed by sub2api-claude-code-codex from the local Claude Code subscription."
-  $extra = @{
-    route_switcher_source_fingerprint = $source.Fingerprint
-    route_switcher_source_expires_ms = $source.ExpiresMs
-    subscription_type = $source.SubscriptionType
-    rate_limit_tier = $source.RateLimitTier
+  $source = $null
+  if ($null -eq $account -or $ForceCredentialRefresh) {
+    $source = Get-ClaudeSourceCredentials
+  } else {
+    try {
+      $source = Get-ClaudeSourceCredentials
+    } catch {
+      Write-Verbose "Local Claude source credentials unavailable; preserving sub2api-owned OAuth credentials."
+    }
   }
+  $notes = "Managed by sub2api-claude-code-codex from the local Claude Code subscription."
+  $extra = if ($source) {
+    @{
+      route_switcher_source_fingerprint = $source.Fingerprint
+      route_switcher_source_expires_ms = $source.ExpiresMs
+      subscription_type = $source.SubscriptionType
+      rate_limit_tier = $source.RateLimitTier
+    }
+  } else { $null }
 
   if ($null -eq $account) {
     $body = @{
@@ -240,18 +251,21 @@ function Ensure-AnthropicAccount($Profile, [int64]$GroupId) {
     if ($null -eq $account) { throw "Managed Claude OAuth account was not created" }
   } else {
     $accountDetail = Invoke-AdminApi "Get" "/api/v1/admin/accounts/$($account.id)"
-    $existingFingerprint = [string]$accountDetail.extra.route_switcher_source_fingerprint
-    $existingExpiresMs = 0
-    if ($accountDetail.extra.route_switcher_source_expires_ms) { $existingExpiresMs = [int64]$accountDetail.extra.route_switcher_source_expires_ms }
-    $shouldRefresh = $ForceCredentialRefresh -or (-not $existingFingerprint) -or (($existingFingerprint -ne $source.Fingerprint) -and ($source.ExpiresMs -gt $existingExpiresMs))
-    if ($shouldRefresh) {
+    $shouldRefresh = $false
+    if ($source) {
+      $existingFingerprint = [string]$accountDetail.extra.route_switcher_source_fingerprint
+      $existingExpiresMs = 0
+      if ($accountDetail.extra.route_switcher_source_expires_ms) { $existingExpiresMs = [int64]$accountDetail.extra.route_switcher_source_expires_ms }
+      $shouldRefresh = $ForceCredentialRefresh -or (-not $existingFingerprint) -or (($existingFingerprint -ne $source.Fingerprint) -and ($source.ExpiresMs -gt $existingExpiresMs))
+    }
+    if ($source -and $shouldRefresh) {
       Invoke-AdminApi "Post" "/api/v1/admin/accounts/$($account.id)/apply-oauth-credentials" @{
         type = "oauth"
         credentials = $source.Credentials
         extra = $extra
       } | Out-Null
     }
-    Invoke-AdminApi "Put" "/api/v1/admin/accounts/$($account.id)" @{
+    $updateBody = @{
       name = $Profile.account_name
       notes = $notes
       type = "oauth"
@@ -262,10 +276,11 @@ function Ensure-AnthropicAccount($Profile, [int64]$GroupId) {
       rate_multiplier = 1.0
       load_factor = 100
       group_ids = @($GroupId)
-      expires_at = $source.ExpiresUnix
       auto_pause_on_expired = $false
       confirm_mixed_channel_risk = $true
-    } | Out-Null
+    }
+    if ($source) { $updateBody.expires_at = $source.ExpiresUnix }
+    Invoke-AdminApi "Put" "/api/v1/admin/accounts/$($account.id)" $updateBody | Out-Null
     Invoke-AdminApi "Post" "/api/v1/admin/accounts/$($account.id)/schedulable" @{ schedulable = $true } | Out-Null
   }
 

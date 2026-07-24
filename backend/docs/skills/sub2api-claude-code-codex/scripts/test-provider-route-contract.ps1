@@ -6,7 +6,8 @@ $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $skillRoot = Split-Path -Parent $scriptRoot
 $applier = Join-Path $scriptRoot "apply-claude-provider-profile.ps1"
 $controller = Join-Path $scriptRoot "claude-route.ps1"
-$anthropicProfile = Join-Path $skillRoot "profiles\anthropic-only.v1.json"
+$installer = Join-Path $scriptRoot "install-claude-route.ps1"
+$anthropicProfile = Join-Path $skillRoot "profiles\anthropic-only.v2.json"
 $hybridProfile = Join-Path $skillRoot "profiles\hybrid-current.v1.json"
 $temp = Join-Path ([IO.Path]::GetTempPath()) ("sub2api-provider-route-test-" + [guid]::NewGuid())
 
@@ -61,8 +62,12 @@ try {
   $hybrid = Get-Content -Raw $hybridProfile | ConvertFrom-Json
   Assert-True ($anthropic.group.platform -eq "openai") "Anthropic-only dispatcher group must remain OpenAI-shaped"
   Assert-True ($anthropic.group.allow_messages_dispatch -eq $true) "Anthropic-only group must dispatch /v1/messages"
-  Assert-True (@($anthropic.group.messages_dispatch_model_config.model_fallbacks.PSObject.Properties).Count -eq 0) "Anthropic-only fallbacks must be empty"
-  Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof contract must name provider"
+Assert-True (@($anthropic.group.messages_dispatch_model_config.model_fallbacks.PSObject.Properties).Count -eq 0) "Anthropic-only fallbacks must be empty"
+Assert-True ($anthropic.version -eq 2) "Anthropic-only Sonnet compact profile must be version 2"
+Assert-True ($anthropic.group.messages_dispatch_model_config.compact_mapped_model -eq "claude-sonnet-5") "Anthropic-only compact must route directly to Sonnet 5"
+Assert-True ($anthropic.client_env.ANTHROPIC_SMALL_FAST_MODEL -eq "claude-sonnet-5") "Anthropic-only small-fast must avoid effort-incompatible Haiku"
+Assert-True ($anthropic.group.messages_dispatch_model_config.exact_model_mappings.'gpt-5.3-codex-spark' -eq "claude-sonnet-5") "Stale Spark IDs must route to Sonnet 5 under Anthropic-only"
+Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof contract must name provider"
   Assert-True ($hybrid.expected_provider -eq "openai") "Hybrid proof contract must name provider"
 
   $controllerText = Get-Content -Raw $controller
@@ -71,6 +76,8 @@ try {
   }
   Assert-True ($controllerText.Contains('--profile-path')) "Linux reconcile must use the applier's canonical profile argument"
   Assert-True ($controllerText.Contains('probeNonce')) "Switch and rollback probes must bypass Headroom response-cache reuse"
+  Assert-True ($controllerText.Contains('preserving sub2api-owned OAuth credentials')) "Existing Anthropic account must not require stale local Claude credentials"
+  Assert-True ($controllerText.Contains('if ($source) { $updateBody.expires_at')) "Existing account expiry must be preserved when no local OAuth source is available"
   Assert-True ((Get-Content -Raw $applier).Contains('SetEnvironmentVariable')) "Windows applier must reconcile user-level env overrides"
   $skillsRoot = Split-Path -Parent $skillRoot
   $setupText = Get-Content -Raw (Join-Path $skillsRoot "sub2api-claude-code-codex\scripts\setup-sub2api-claude-code.ps1")
@@ -79,7 +86,21 @@ try {
   Assert-True (-not $setupText.Contains('claude-provider-switcher\scripts')) "Canonical setup must not depend on the removed standalone skill"
   Assert-True ($ensureText.Contains('.codex\skills\sub2api-claude-code-codex\scripts\claude-route.ps1')) "Watchdog must resolve the controller from the consolidated skill"
   Assert-True ($ensureText.Contains('Invoke-ProviderRouteReconcile')) "The single stack watchdog must own provider generation repair"
-  [pscustomobject]@{ status = "PASS"; assertions = 27; profiles = @("anthropic-only", "hybrid-current") } | ConvertTo-Json -Compress
+
+  $installFixture = Join-Path $temp "install-fixture"
+  $installedSkill = Join-Path $installFixture "sub2api-claude-code-codex"
+  $legacySkill = Join-Path $installFixture "claude-provider-switcher"
+  $legacyProfile = Join-Path $installedSkill "profiles\anthropic-only.v1.json"
+  New-Item -ItemType Directory -Path (Split-Path -Parent $legacyProfile), $legacySkill -Force | Out-Null
+  [IO.File]::WriteAllText($legacyProfile, '{}', [Text.UTF8Encoding]::new($false))
+  [IO.File]::WriteAllText((Join-Path $legacySkill 'SKILL.md'), "---`nname: claude-provider-switcher`n---`n", [Text.UTF8Encoding]::new($false))
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -InstallRoot $installedSkill -BinDir (Join-Path $installFixture 'bin') -LegacySkillRoot $legacySkill -SkipPathUpdate -SkipStatus | Out-Null
+  Assert-True ($LASTEXITCODE -eq 0) "Consolidated installer fixture must succeed"
+  Assert-True (Test-Path -LiteralPath (Join-Path $installedSkill 'profiles\anthropic-only.v2.json')) "Installer must copy Anthropic profile v2"
+  Assert-True (-not (Test-Path -LiteralPath $legacyProfile)) "Installer must remove stale Anthropic profile v1"
+  Assert-True (-not (Test-Path -LiteralPath $legacySkill)) "Installer must remove the managed standalone provider skill"
+
+  [pscustomobject]@{ status = "PASS"; assertions = 37; profiles = @("anthropic-only", "hybrid-current") } | ConvertTo-Json -Compress
 } finally {
   Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
 }

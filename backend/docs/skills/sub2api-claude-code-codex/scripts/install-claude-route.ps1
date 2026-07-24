@@ -2,6 +2,8 @@
 param(
   [string]$InstallRoot = "$HOME\.codex\skills\sub2api-claude-code-codex",
   [string]$BinDir = "$HOME\.local\bin",
+  [string]$LegacySkillRoot = "$HOME\.codex\skills\claude-provider-switcher",
+  [switch]$SkipPathUpdate,
   [switch]$SkipStatus
 )
 
@@ -15,6 +17,21 @@ if ($sourceFull -ne $installFull) {
   Copy-Item -Path (Join-Path $sourceFull '*') -Destination $installFull -Recurse -Force
 }
 
+$legacyProfile = Join-Path $installFull "profiles\anthropic-only.v1.json"
+if (Test-Path -LiteralPath $legacyProfile) {
+  Remove-Item -LiteralPath $legacyProfile -Force
+}
+
+$legacyFull = [IO.Path]::GetFullPath($LegacySkillRoot).TrimEnd('\')
+if ($legacyFull -ne $installFull -and (Test-Path -LiteralPath $legacyFull)) {
+  $legacyManifest = Join-Path $legacyFull "SKILL.md"
+  $isManagedLegacy = (Test-Path -LiteralPath $legacyManifest) -and
+    (Select-String -LiteralPath $legacyManifest -Pattern '^name:\s*claude-provider-switcher\s*$' -Quiet)
+  if ($isManagedLegacy) {
+    Remove-Item -LiteralPath $legacyFull -Recurse -Force
+  }
+}
+
 New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
 $wrapperPath = Join-Path $BinDir "claude-route.cmd"
 $controllerPath = Join-Path $installFull "scripts\claude-route.ps1"
@@ -25,10 +42,12 @@ exit /b %ERRORLEVEL%
 "@
 [IO.File]::WriteAllText($wrapperPath, $wrapper, [Text.UTF8Encoding]::new($false))
 
-$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-$parts = @($userPath -split ';' | Where-Object { $_ })
-if ($parts -notcontains $BinDir) {
-  [Environment]::SetEnvironmentVariable("Path", (($parts + $BinDir) -join ';'), "User")
+if (-not $SkipPathUpdate) {
+  $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+  $parts = @($userPath -split ';' | Where-Object { $_ })
+  if ($parts -notcontains $BinDir) {
+    [Environment]::SetEnvironmentVariable("Path", (($parts + $BinDir) -join ';'), "User")
+  }
 }
 
 $result = [ordered]@{

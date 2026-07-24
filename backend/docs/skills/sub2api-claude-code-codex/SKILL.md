@@ -62,7 +62,7 @@ The provider switch covers interactive main and picker aliases, `/compact` and a
 
 Profiles:
 
-- `anthropic-only`: native Claude Code subscription for every traffic class, with OpenAI and Alibaba fallback blocked.
+- `anthropic-only`: native Claude Code subscription for every traffic class, with OpenAI and Alibaba fallback blocked. Version 2 routes compact, small-fast, delegated work, the Haiku picker slot, and stale Spark/Luna/mini IDs to Sonnet 5 so inherited effort/adaptive-thinking fields cannot hit Haiku's unsupported-effort 400.
 - `hybrid-current`: versioned current mixed profile, including only its explicitly configured terminal-quota fallback.
 
 Canonical commands:

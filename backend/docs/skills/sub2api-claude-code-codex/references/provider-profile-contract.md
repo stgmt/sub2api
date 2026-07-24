@@ -25,14 +25,14 @@ IDs are discovered at runtime from stable names. Never hardcode IDs copied from 
 
 - Account membership: only the imported native Claude Code subscription OAuth account.
 - Main/picker Opus/Fable: highest enabled Opus-class model.
-- Sonnet/delegated/SDK CLI: enabled Sonnet-class model.
-- Haiku/compact/small-fast: enabled Haiku-class model.
+- Sonnet/delegated/SDK CLI/compact/small-fast/Haiku picker compatibility: enabled Sonnet-class model.
+- Haiku is not used by automatic routes because Claude Code can inherit `output_config.effort` plus adaptive thinking, which Haiku 4.5 rejects. Stale Spark/Luna/mini/Haiku IDs therefore force-map to Sonnet before provider classification.
 - Explicit stale `gpt-*`, `qwen*`, `glm*`, and `deepseek*` requests: force-map to the matching Claude role before provider classification.
 - Fallbacks: empty. OpenAI and Alibaba accounts must not be group members.
 
 Discover the actual supported Claude model IDs from the live account and request probes. Keep role mapping versioned so a future model-line update does not require changing every client node first.
 
-Version 1 currently pins Opus `claude-opus-4-8`, Sonnet `claude-sonnet-5`, Fable `claude-fable-5`, and Haiku `claude-haiku-4-5-20251001`. Update the versioned profile and its verification expectations together when the enabled line changes.
+Version 2 pins Opus `claude-opus-4-8`, Fable `claude-fable-5`, and Sonnet `claude-sonnet-5`; compact, small-fast, delegated, SDK CLI, Haiku compatibility, and stale low-tier GPT/Qwen IDs all resolve to Sonnet 5. This prevents compact from reaching effort-incompatible Haiku while GPT/Qwen/Spark providers are excluded. Update the versioned profile and its verification expectations together when the enabled line changes.
 
 The local `~/.claude/.credentials.json` is an import source, not the long-term refresh owner. Store a SHA-256 refresh-token fingerprint and source expiry in account `extra`; do not reapply an older unchanged source after sub2api has refreshed its own token.
 

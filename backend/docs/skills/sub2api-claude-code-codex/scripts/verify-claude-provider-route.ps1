@@ -32,7 +32,7 @@ function Resolve-HeadroomUrl {
 
 if (-not (Test-Path -LiteralPath $statePath)) { throw "Provider route state is not initialized: $statePath" }
 $state = Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json
-$profileFile = if ($state.active_profile -eq "anthropic-only") { "anthropic-only.v1.json" } else { "hybrid-current.v1.json" }
+$profileFile = if ($state.active_profile -eq "anthropic-only") { "anthropic-only.v2.json" } else { "hybrid-current.v1.json" }
 $profile = Get-Content -Raw -LiteralPath (Join-Path $skillRoot "profiles\$profileFile") | ConvertFrom-Json
 $keyNameSql = $StableKeyName.Replace("'", "''")
 $keyRows = @(Invoke-Sql "SELECT id || chr(9) || key FROM api_keys WHERE name='$keyNameSql' AND status='active' AND deleted_at IS NULL;")
@@ -47,7 +47,7 @@ $commonHeaders = @{ "x-api-key" = $key; Authorization = "Bearer $key"; "anthropi
 $probes = @(
   @{ name = "main"; model = [string]$profile.main_model; system = "You are Claude Code, Anthropic's official CLI for Claude." },
   @{ name = "stale-qwen"; model = "qwen3.8-max-preview"; system = "You are Claude Code, Anthropic's official CLI for Claude." },
-  @{ name = "compact"; model = [string]$profile.main_model; system = "Your task is to create a detailed summary of the conversation." },
+  @{ name = "compact"; model = [string]$profile.main_model; system = "Your task is to create a detailed summary of the conversation."; effort = "max"; adaptive = $true },
   @{ name = "sdk-cli"; model = [string]$profile.main_model; system = "You are Claude Code, Anthropic's official CLI for Claude."; user_agent = "claude-cli/2.1.202 (external, sdk-cli)" }
 )
 
@@ -62,7 +62,10 @@ foreach ($probe in $probes) {
     system = $probe.system
     metadata = @{ user_id = "user_$('c' * 64)_account__session_$([guid]::NewGuid())" }
     messages = @(@{ role = "user"; content = "Reply exactly ROUTE_VERIFY_$($probe.name)_$runId" })
-  } | ConvertTo-Json -Depth 20 -Compress
+  }
+  if ($probe.effort) { $body.output_config = @{ effort = [string]$probe.effort } }
+  if ($probe.adaptive) { $body.thinking = @{ type = "adaptive" } }
+  $body = $body | ConvertTo-Json -Depth 20 -Compress
   $response = Invoke-WebRequest -UseBasicParsing -Method Post -Uri "$baseUrl/v1/messages" -Headers $headers -ContentType "application/json" -Body $body -TimeoutSec 180
   $httpProof += [pscustomobject]@{ probe = $probe.name; status = [int]$response.StatusCode }
 }
@@ -93,7 +96,7 @@ if ($usageProof.Count -ne $probes.Count) { throw "Expected $($probes.Count) usag
 if ($state.active_profile -eq "anthropic-only") {
   $forbidden = @($usageProof | Where-Object { $_.platform -ne "anthropic" -or $_.type -ne "oauth" -or $_.account_name -ne $profile.expected_account_name })
   if ($forbidden.Count -gt 0) { throw "Anthropic-only verification observed a forbidden provider account" }
-  $expectedModels = @($profile.main_model, "claude-sonnet-5", "claude-haiku-4-5-20251001", "claude-sonnet-5")
+  $expectedModels = @($profile.main_model, "claude-sonnet-5", "claude-sonnet-5", "claude-sonnet-5")
   for ($i = 0; $i -lt $expectedModels.Count; $i++) {
     if ([string]$usageProof[$i].model -ne [string]$expectedModels[$i]) {
       throw "Probe '$($probes[$i].name)' expected model '$($expectedModels[$i])', got '$($usageProof[$i].model)'"
