@@ -89,6 +89,18 @@ Assert-Contains `
   'sdk_cli_reasoning_effort' `
   "SDK CLI effort persistence"
 Assert-Contains `
+  "backend/docs/skills/sub2api-claude-code-codex/scripts/sync-sub2api-sdk-cli-routing.ps1" `
+  'model_fallbacks' `
+  "terminal Qwen quota fallback persistence"
+Assert-Contains `
+  "backend/internal/service/alibaba_token_plan_rate_limit.go" `
+  'quota has been exhausted' `
+  "terminal Alibaba Token Plan quota classifier"
+Assert-Contains `
+  "backend/internal/handler/claude_code_multiprovider.go" `
+  'automatic_cross_provider_fallback' `
+  "automatic route cross-provider fallback"
+Assert-Contains `
   "backend/internal/handler/claude_code_multiprovider.go" `
   'external, sdk-cli' `
   "SDK CLI User-Agent classifier"

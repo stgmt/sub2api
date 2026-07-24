@@ -6,6 +6,7 @@ param(
   [string]$SmallFastModel = [Environment]::GetEnvironmentVariable("ANTHROPIC_SMALL_FAST_MODEL", "User"),
   [string]$DefaultHaikuModel = [Environment]::GetEnvironmentVariable("ANTHROPIC_DEFAULT_HAIKU_MODEL", "User"),
   [string]$SubagentModel = [Environment]::GetEnvironmentVariable("CLAUDE_CODE_SUBAGENT_MODEL", "User"),
+  [string]$AutomaticFallbackModel = "gpt-5.6-sol",
   [string]$MessagesDispatchGroupName = "codex-gpt56-claude-code",
   [string]$ExpectedUpstream = "gpt-5.6-sol",
   [string]$ProjectName = "sub2api-codex",
@@ -679,6 +680,7 @@ if (Test-Path -LiteralPath $sdkCLIRoutingSync) {
     -GroupName $MessagesDispatchGroupName `
     -Model $SubagentModel `
     -Effort "high" `
+    -FallbackModel $AutomaticFallbackModel `
     -WslDistro $WslDistro `
     -CheckOnly
 }

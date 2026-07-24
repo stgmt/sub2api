@@ -4,6 +4,7 @@ param(
   [string]$Model = "qwen3.8-max-preview",
   [ValidateSet("low", "medium", "high", "xhigh", "max")]
   [string]$Effort = "high",
+  [string]$FallbackModel = "gpt-5.6-sol",
   [string]$PostgresContainer = "sub2api-codex-postgres",
   [string]$RedisContainer = "sub2api-codex-redis",
   [string]$WslDistro = "Ubuntu-24.04",
@@ -64,6 +65,7 @@ function Invoke-PostgresSql([string]$Sql) {
 $groupSql = ConvertTo-SqlLiteral $GroupName
 $modelSql = ConvertTo-SqlLiteral $Model
 $effortSql = ConvertTo-SqlLiteral $Effort.ToLowerInvariant()
+$fallbackModelSql = ConvertTo-SqlLiteral $FallbackModel
 
 if (-not $CheckOnly) {
   $updateSql = @"
@@ -72,7 +74,7 @@ DECLARE
   affected integer;
 BEGIN
   UPDATE groups
-  SET messages_dispatch_model_config =
+  SET messages_dispatch_model_config = jsonb_set(
     jsonb_set(
       jsonb_set(
         COALESCE(messages_dispatch_model_config, '{}'::jsonb),
@@ -84,6 +86,11 @@ BEGIN
       to_jsonb('$effortSql'::text),
       true
     ),
+    '{model_fallbacks}',
+    COALESCE(messages_dispatch_model_config->'model_fallbacks', '{}'::jsonb) ||
+      jsonb_build_object('$modelSql', jsonb_build_array('$fallbackModelSql'::text)),
+    true
+  ),
     updated_at = now()
   WHERE name = '$groupSql' AND platform = 'openai';
   GET DIAGNOSTICS affected = ROW_COUNT;
@@ -100,12 +107,14 @@ END
 $checkSql = @"
 SELECT id || '|' || name || '|' ||
        COALESCE(messages_dispatch_model_config->>'sdk_cli_mapped_model', '') || '|' ||
-       COALESCE(messages_dispatch_model_config->>'sdk_cli_reasoning_effort', '')
+       COALESCE(messages_dispatch_model_config->>'sdk_cli_reasoning_effort', '') || '|' ||
+       COALESCE(messages_dispatch_model_config->'model_fallbacks'->'$modelSql'->>0, '')
 FROM groups
 WHERE name = '$groupSql'
   AND platform = 'openai'
   AND messages_dispatch_model_config->>'sdk_cli_mapped_model' = '$modelSql'
-  AND messages_dispatch_model_config->>'sdk_cli_reasoning_effort' = '$effortSql';
+  AND messages_dispatch_model_config->>'sdk_cli_reasoning_effort' = '$effortSql'
+  AND messages_dispatch_model_config->'model_fallbacks'->'$modelSql'->>0 = '$fallbackModelSql';
 "@
 $proof = @(Invoke-PostgresSql $checkSql | Where-Object { $_ -and $_.Trim() })
 if ($proof.Count -ne 1) {

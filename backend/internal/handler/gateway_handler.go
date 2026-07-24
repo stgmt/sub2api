@@ -37,6 +37,19 @@ const gatewayCompatibilityMetricsLogInterval = 1024
 
 var gatewayCompatibilityMetricsLogCounter atomic.Uint64
 
+type gatewayMessagesFallbackReason int
+
+const (
+	gatewayMessagesFallbackNoAvailableAccount gatewayMessagesFallbackReason = iota
+	gatewayMessagesFallbackUpstreamError
+)
+
+type gatewayMessagesFallbackDecider func(gatewayMessagesFallbackReason, *service.UpstreamFailoverError) bool
+
+func canFallbackFromNoAvailableAccount(c *gin.Context, cls noAccountErrorClassification) bool {
+	return c != nil && !c.Writer.Written() && cls.Status == http.StatusTooManyRequests
+}
+
 // GatewayHandler handles API gateway requests
 type GatewayHandler struct {
 	gatewayService            *service.GatewayService
@@ -116,6 +129,17 @@ func NewGatewayHandler(
 // Messages handles Claude API compatible messages endpoint
 // POST /v1/messages
 func (h *GatewayHandler) Messages(c *gin.Context) {
+	h.messages(c, nil)
+}
+
+// MessagesWithFallback returns true when a pre-response failure matches the
+// caller's policy. The alternate provider runs only after this method returns,
+// so request-scoped queue and concurrency defers have already been released.
+func (h *GatewayHandler) MessagesWithFallback(c *gin.Context, decider gatewayMessagesFallbackDecider) bool {
+	return h.messages(c, decider)
+}
+
+func (h *GatewayHandler) messages(c *gin.Context, fallbackDecider gatewayMessagesFallbackDecider) (fallbackRequested bool) {
 	// 从context获取apiKey和user（ApiKeyAuth中间件已设置）
 	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
 	if !ok {
@@ -577,6 +601,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			if err != nil {
 				if len(fs.FailedAccountIDs) == 0 {
 					cls := classifyNoAccountErrorFromGin(c, h.gatewayService, currentAPIKey, reqModel, reqModel, platform)
+					if fallbackDecider != nil && canFallbackFromNoAvailableAccount(c, cls) && fallbackDecider(gatewayMessagesFallbackNoAvailableAccount, nil) {
+						return true
+					}
 					if !cls.ModelNotFound {
 						markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 					}
@@ -856,6 +883,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					if c.Writer.Size() != writerSizeBeforeForward {
 						h.handleFailoverExhausted(c, failoverErr, account.Platform, true)
 						return
+					}
+					if fallbackDecider != nil && fallbackDecider(gatewayMessagesFallbackUpstreamError, failoverErr) {
+						return true
 					}
 					action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, failoverErr)
 					switch action {

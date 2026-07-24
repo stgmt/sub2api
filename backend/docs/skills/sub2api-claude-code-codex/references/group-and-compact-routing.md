@@ -45,7 +45,9 @@ request time and forces the right provider platform:
       "gpt-5.5": "gpt-5.5"
     },
     "compact_mapped_model": "qwen3.8-max-preview",
-    "model_fallbacks": {}
+    "model_fallbacks": {
+      "qwen3.8-max-preview": ["gpt-5.6-sol"]
+    }
   },
   "models_list_config": {
     "enabled": true,
@@ -85,7 +87,7 @@ Routing contract:
 - Alibaba Token Plan IDs (`qwen3.8-max-preview`, `qwen3.7-max`, `qwen3.7-plus`, `qwen3.6-flash`, `glm-5.2`, `deepseek-v4-pro`) route to a dedicated account with `platform='anthropic'`, `base_url='https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic'`, and Bearer auth.
 - Do not publish raw Claude/Fable names (`fable`, `opus`, `sonnet`, `haiku`, `claude-*`) in this local profile. Keep the hidden exact/family mappings above as compatibility inputs for stale Claude hosts and already-running sessions; they route to Qwen high without adding those aliases to `/v1/models`. Claude Code Opus/Fable/Sonnet/Haiku picker slots should still point to Qwen high (`qwen3.8-max-preview`).
 - Mixed-provider routing must apply an explicit Claude alias mapping before provider classification. Otherwise `claude-haiku-4-5-20251001` is sent to native Anthropic passthrough, bypasses the group mapping, and returns a fast `404 no available accounts` even though the Qwen account is healthy.
-- Keep normal message `model_fallbacks` empty unless the user explicitly asks for model fallback. Current compact routing is `messages_dispatch_model_config.compact_mapped_model=qwen3.8-max-preview`, which is applied before provider classification so GPT/Codex `/compact` requests cross-route to the Alibaba Token Plan Anthropic-compatible account.
+- The configured `qwen3.8-max-preview -> gpt-5.6-sol` entry is a candidate, not an unconditional provider fallback. sub2api consumes it only for automatic compact/SDK-CLI routes after the exact terminal Token Plan quota body or while the Alibaba account circuit is open. Healthy Qwen stays on Alibaba; direct interactive Qwen, transient 429/5xx, context/auth/model errors, and failures after stream bytes remain on the original route.
 - `sdk_cli_mapped_model=qwen3.8-max-preview` plus `sdk_cli_reasoning_effort=high` covers every Claude SDK process whose inbound User-Agent contains `claude-cli/... (external, sdk-cli...)`: real `Agent(...)` children, Agent SDK workers, and standalone `claude -p/--print`. This rule intentionally wins over an explicit GPT model in print mode. It must not match the interactive `(external, cli)` User-Agent, so the normal picker and `/model` remain usable.
 - Token Plan pricing may be absent from public pricing catalogs. The fork uses an explicit unknown-cost fallback for the listed Token Plan chat models so usage accounting succeeds without logging `pricing not found`.
 
@@ -111,7 +113,9 @@ optimization.
 
 Qwen high compact uses the normal Alibaba Token Plan Anthropic-compatible path
 and keeps `reasoning_effort=high`. It does not use Spark's no-effort special
-case.
+case. If the provider reports terminal Token Plan exhaustion, the proxy persists
+the reset time, prevents repeat probes until that time, and retries this
+automatic compact once on `gpt-5.6-sol` with `high` effort.
 
 Spark does not expose a configurable reasoning effort. Legacy Spark compact must
 remove `reasoning.effort` instead of clamping inherited Sol/Terra `max` to
@@ -131,11 +135,12 @@ powershell -ExecutionPolicy Bypass -File "$skill/sync-sub2api-sdk-cli-routing.ps
 
 $sql = @'
 update groups
-set messages_dispatch_model_config = jsonb_set(jsonb_set(jsonb_set(
+set messages_dispatch_model_config = jsonb_set(jsonb_set(jsonb_set(jsonb_set(
   coalesce(messages_dispatch_model_config, '{}'::jsonb),
   '{compact_mapped_model}', '"qwen3.8-max-preview"'::jsonb, true),
   '{sdk_cli_mapped_model}', '"qwen3.8-max-preview"'::jsonb, true),
   '{sdk_cli_reasoning_effort}', '"high"'::jsonb, true),
+  '{model_fallbacks,qwen3.8-max-preview}', '["gpt-5.6-sol"]'::jsonb, true),
   updated_at = now()
 where platform='openai' and allow_messages_dispatch=true;
 

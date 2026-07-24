@@ -970,6 +970,21 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 		}
 	}
 
+	// Alibaba Token Plan exposes its subscription reset in the JSON body rather
+	// than Anthropic rate-limit headers. Persist the plan-wide circuit before the
+	// generic Anthropic no-reset guard so concurrent agents stop probing it.
+	if account.Platform == PlatformAnthropic {
+		if resetAt, exhausted := AlibabaTokenPlanQuotaResetAt(responseBody, time.Now()); exhausted {
+			s.notifyAccountSchedulingBlocked(account, resetAt, "alibaba_token_plan_quota_exhausted")
+			if err := s.accountRepo.SetRateLimited(ctx, account.ID, resetAt); err != nil {
+				slog.Warn("alibaba_token_plan_rate_limit_set_failed", "account_id", account.ID, "reset_at", resetAt, "error", err)
+				return
+			}
+			slog.Info("alibaba_token_plan_quota_exhausted", "account_id", account.ID, "reset_at", resetAt, "reset_in", time.Until(resetAt).Truncate(time.Second))
+			return
+		}
+	}
+
 	// 2. Anthropic 平台：尝试解析 per-window 头（5h / 7d），选择实际触发的窗口
 	if result := calculateAnthropic429ResetTime(headers); result != nil {
 		s.notifyAccountSchedulingBlocked(account, result.resetAt, "429")

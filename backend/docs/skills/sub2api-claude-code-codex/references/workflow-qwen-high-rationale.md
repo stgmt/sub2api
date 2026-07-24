@@ -44,6 +44,7 @@ When this profile changes, update all of these in one pass:
 - `%USERPROFILE%\.claude\agents\bench-triage.md`.
 - sub2api group `messages_dispatch_model_config.compact_mapped_model`.
 - sub2api group `messages_dispatch_model_config.sdk_cli_mapped_model` and `sdk_cli_reasoning_effort`.
+- sub2api group `messages_dispatch_model_config.model_fallbacks.qwen3.8-max-preview=[gpt-5.6-sol]`; this candidate is restricted in code to terminal quota/open-circuit automatic routes.
 - `scripts/sync-sub2api-sdk-cli-routing.ps1` for idempotent live DB sync and audit.
 - OpenAI account `credentials.compact_model_mapping` and `credentials.compact_model_fallbacks`, normally both `{}`.
 - `scripts/setup-sub2api-claude-code.ps1`.
@@ -65,10 +66,13 @@ Do not trust UI labels alone. After a runtime change, prove it with:
 settings/env: all delegated/picker/small-fast slots show qwen3.8-max-preview
 agent frontmatter: model=qwen3.8-max-preview, effort=high
 group row: compact_mapped_model=qwen3.8-max-preview
+group row: model_fallbacks.qwen3.8-max-preview[0]=gpt-5.6-sol
 OpenAI account credentials: compact_model_mapping={}, compact_model_fallbacks={}
 compact probe: response model qwen3.8-max-preview
 usage_logs: compact requested_model=qwen3.8-max-preview, reasoning_effort=high, Alibaba account
 usage_logs: Agent/general-purpose requested_model=qwen3.8-max-preview, reasoning_effort=high, Alibaba account
+terminal-quota control: automatic request retries as gpt-5.6-sol/high, account rate_limit_reset_at matches provider reset, and a second automatic request creates no new Qwen upstream probe
+healthy/transient/direct controls: healthy Qwen stays Qwen; transient failures and direct interactive Qwen do not cross providers
 health: headroom-sub2api and sub2api-codex healthy
 ```
 
@@ -86,7 +90,7 @@ commits: 03b26c8b fix: route Claude compact to Qwen high; bee08a19 docs: pin Cla
 
 - Do not reintroduce Spark/Luna as compact defaults without a new user decision.
 - Do not reintroduce `haiku` as the hidden small/fast picker default.
-- Do not add normal `model_fallbacks` to hide provider/account bugs.
+- Do not broaden the Qwen-to-Sol candidate beyond terminal Token Plan exhaustion/open circuit on automatic routes. It must never hide transient or direct-interactive provider/account bugs.
 - Do not set persistent `CLAUDE_CODE_EFFORT_LEVEL`; it overrides interactive `/effort`.
 - Do not call `370000` or `340000` an upstream model window. They are Claude Code client safety targets.
 - Do not install hard Agent-blocking hooks unless the user explicitly asks for them.

@@ -123,8 +123,9 @@ Expected for the current advisory subagent profile:
 ```text
 general-purpose.md / Explore.md / workflow-subagent.md / bench-reviewer.md / bench-triage.md frontmatter model: qwen3.8-max-preview and effort: high
 worker/Claude command line includes -Model "qwen3.8-max-preview" or --model qwen3.8-max-preview when command lines expose it
-usage_logs rows show requested_model=qwen3.8-max-preview, upstream_model=qwen3.8-max-preview, reasoning_effort=high
-no hidden normal fallback proof for empty/unavailable Qwen turns: usage_logs should show requested_model=qwen3.8-max-preview and no unsolicited switch to Sol. Keep `messages_dispatch_model_config.model_fallbacks` empty unless the user explicitly asks for fallback behavior.
+usage_logs rows show requested_model=qwen3.8-max-preview, upstream_model=qwen3.8-max-preview, reasoning_effort=high while Qwen is healthy
+terminal quota proof: exact `Throttling.AllocationQuota` plus `token-plan ... quota has been exhausted` persists `accounts.rate_limit_reset_at`, the automatic route completes on gpt-5.6-sol/high, and a second automatic request does not create another Qwen upstream attempt
+negative controls: transient Qwen 429/5xx and direct interactive Qwen do not switch to Sol; no fallback is attempted after any response bytes
 no global Agent-blocking PreToolUse/SubagentStart/SubagentStop hook is installed unless the user explicitly requested a hard cap
 ```
 
@@ -142,6 +143,12 @@ upstream_model=qwen3.8-max-preview
 reasoning_effort=high
 model_mapping_chain includes qwen3.8-max-preview
 ```
+
+When the Token Plan is terminally exhausted, the final successful compact row
+is `gpt-5.6-sol` with `reasoning_effort=high`. Correlate it with
+`claude_code.automatic_cross_provider_fallback`,
+`alibaba_token_plan_quota_exhausted`, and the Alibaba account reset timestamp.
+This is expected only for automatic compact/SDK-CLI traffic.
 
 For large compact fallback specifically, also check logs:
 

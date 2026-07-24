@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
@@ -14,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
+	"go.uber.org/zap"
 )
 
 type claudeCodeMessagesRoute int
@@ -23,6 +25,8 @@ const (
 	claudeCodeMessagesRouteOpenAI
 	claudeCodeMessagesRouteAnthropic
 )
+
+const claudeCodeAutomaticFallbackHopKey = "sub2api_claude_code_automatic_fallback_hop"
 
 // MultiproviderMessages keeps one Claude-compatible endpoint usable for mixed
 // groups. GPT/Codex requests stay on the OpenAI bridge, while Anthropic/Qwen
@@ -44,12 +48,15 @@ func (h *Handlers) MultiproviderMessages(c *gin.Context) {
 
 	model := strings.TrimSpace(gjson.GetBytes(body, "model").String())
 	groupPlatform := ""
+	automaticRoute := false
+	automaticFallbackModel := ""
 	if apiKey, _ := middleware2.GetAPIKeyFromContext(c); apiKey != nil && apiKey.Group != nil {
 		groupPlatform = apiKey.Group.Platform
 		sdkCLIRequest := isClaudeCodeSDKCLIRequest(c)
+		compactRequest := isClaudeCodeCompactRequestForMultiprovider(c, body)
 		sdkCLIModel, sdkCLIEffort := apiKey.Group.ResolveMessagesDispatchSDKCLIProfile()
 		modelRewritten := false
-		if isClaudeCodeCompactRequestForMultiprovider(c, body) {
+		if compactRequest {
 			if compactMappedModel := apiKey.Group.ResolveMessagesDispatchCompactModel(); compactMappedModel != "" {
 				var rewriteErr error
 				body, model, rewriteErr = rewriteClaudeCodeCompactModelForMultiprovider(body, compactMappedModel)
@@ -64,6 +71,7 @@ func (h *Handlers) MultiproviderMessages(c *gin.Context) {
 					return
 				}
 				modelRewritten = true
+				automaticRoute = true
 			}
 		}
 		if !modelRewritten && sdkCLIRequest && sdkCLIModel != "" {
@@ -80,6 +88,7 @@ func (h *Handlers) MultiproviderMessages(c *gin.Context) {
 				return
 			}
 			modelRewritten = true
+			automaticRoute = true
 		}
 		if !modelRewritten && !isClaudeCodeCompactRequestForMultiprovider(c, body) {
 			var rewriteErr error
@@ -109,6 +118,9 @@ func (h *Handlers) MultiproviderMessages(c *gin.Context) {
 				return
 			}
 		}
+		if automaticRoute {
+			automaticFallbackModel = resolveClaudeCodeAutomaticFallbackModel(apiKey.Group, model, groupPlatform)
+		}
 		resetGinRequestBody(c, body)
 	}
 
@@ -117,10 +129,75 @@ func (h *Handlers) MultiproviderMessages(c *gin.Context) {
 		h.OpenAIGateway.Messages(c)
 	case claudeCodeMessagesRouteAnthropic:
 		forceGinPlatform(c, service.PlatformAnthropic)
-		h.Gateway.Messages(c)
+		if automaticFallbackModel == "" {
+			h.Gateway.Messages(c)
+			return
+		}
+		fallbackRequested := h.Gateway.MessagesWithFallback(c, func(reason gatewayMessagesFallbackReason, failoverErr *service.UpstreamFailoverError) bool {
+			if _, alreadyFellBack := c.Get(claudeCodeAutomaticFallbackHopKey); alreadyFellBack {
+				return false
+			}
+			return shouldUseClaudeCodeAutomaticFallback(reason, failoverErr, time.Now())
+		})
+		if fallbackRequested {
+			h.executeClaudeCodeAutomaticFallback(c, body, model, automaticFallbackModel)
+		}
 	default:
 		h.Gateway.Messages(c)
 	}
+}
+
+func shouldUseClaudeCodeAutomaticFallback(reason gatewayMessagesFallbackReason, failoverErr *service.UpstreamFailoverError, now time.Time) bool {
+	switch reason {
+	case gatewayMessagesFallbackNoAvailableAccount:
+		return true
+	case gatewayMessagesFallbackUpstreamError:
+		if failoverErr == nil || failoverErr.StatusCode != http.StatusTooManyRequests {
+			return false
+		}
+		_, exhausted := service.AlibabaTokenPlanQuotaResetAt(failoverErr.ResponseBody, now)
+		return exhausted
+	default:
+		return false
+	}
+}
+
+func resolveClaudeCodeAutomaticFallbackModel(group *service.Group, mappedModel, groupPlatform string) string {
+	if group == nil {
+		return ""
+	}
+	for _, candidate := range group.ResolveMessagesDispatchFallbackModels(mappedModel, mappedModel) {
+		candidate = strings.TrimSpace(candidate)
+		if classifyClaudeCodeMessagesRoute(candidate, groupPlatform) == claudeCodeMessagesRouteOpenAI {
+			return candidate
+		}
+	}
+	return ""
+}
+
+func (h *Handlers) executeClaudeCodeAutomaticFallback(c *gin.Context, body []byte, originalModel, fallbackModel string) {
+	nextBody, _, err := rewriteClaudeCodeSDKCLIProfileForMultiprovider(body, fallbackModel, "high")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"type":  "error",
+			"error": gin.H{"type": "invalid_request_error", "message": "Failed to rewrite automatic fallback profile: " + err.Error()},
+		})
+		return
+	}
+
+	c.Set(claudeCodeAutomaticFallbackHopKey, true)
+	c.Set("sub2api_claude_code_fallback_from", originalModel)
+	c.Set("sub2api_claude_code_fallback_to", fallbackModel)
+	c.Writer.Header().Del("Retry-After")
+	forceGinPlatform(c, service.PlatformOpenAI)
+	resetGinRequestBody(c, nextBody)
+	requestLogger(c, "handler.claude_code_multiprovider").Warn(
+		"claude_code.automatic_cross_provider_fallback",
+		zap.String("from_model", originalModel),
+		zap.String("to_model", fallbackModel),
+		zap.String("reasoning_effort", "high"),
+	)
+	h.OpenAIGateway.Messages(c)
 }
 
 // MultiproviderCountTokens mirrors MultiproviderMessages for Claude Code's

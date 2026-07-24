@@ -1,9 +1,11 @@
 package handler
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -215,6 +217,62 @@ func TestRewriteClaudeCodeSDKCLIEffortForMultiprovider_AddsOutputConfig(t *testi
 	rewritten, err := rewriteClaudeCodeSDKCLIEffortForMultiprovider([]byte(`{"model":"qwen3.8-max-preview"}`), " HIGH ")
 	require.NoError(t, err)
 	require.JSONEq(t, `{"model":"qwen3.8-max-preview","output_config":{"effort":"high"}}`, string(rewritten))
+}
+
+func TestResolveClaudeCodeAutomaticFallbackModel_RequiresConfiguredCrossProviderCandidate(t *testing.T) {
+	t.Parallel()
+
+	configured := &service.Group{
+		MessagesDispatchModelConfig: service.OpenAIMessagesDispatchModelConfig{
+			ModelFallbacks: map[string][]string{
+				"qwen3.8-max-preview": {"glm-5.2", "gpt-5.6-sol"},
+			},
+		},
+	}
+
+	require.Equal(t, "gpt-5.6-sol", resolveClaudeCodeAutomaticFallbackModel(configured, "qwen3.8-max-preview", service.PlatformOpenAI))
+	require.Empty(t, resolveClaudeCodeAutomaticFallbackModel(&service.Group{}, "qwen3.8-max-preview", service.PlatformOpenAI))
+}
+
+func TestShouldUseClaudeCodeAutomaticFallback_OnlyForTerminalQuotaOrOpenCircuit(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, time.July, 24, 10, 0, 0, 0, time.UTC)
+	terminal := &service.UpstreamFailoverError{
+		StatusCode:   http.StatusTooManyRequests,
+		ResponseBody: []byte(`{"code":"Throttling.AllocationQuota","message":"Your token-plan 1-week quota has been exhausted. The quota will reset at 07-28 14:20:00 UTC."}`),
+	}
+	transient := &service.UpstreamFailoverError{
+		StatusCode:   http.StatusTooManyRequests,
+		ResponseBody: []byte(`{"code":"Throttling.AllocationQuota","message":"Requests rate limit exceeded, retry in one minute."}`),
+	}
+
+	require.True(t, shouldUseClaudeCodeAutomaticFallback(gatewayMessagesFallbackNoAvailableAccount, nil, now))
+	require.True(t, shouldUseClaudeCodeAutomaticFallback(gatewayMessagesFallbackUpstreamError, terminal, now))
+	require.False(t, shouldUseClaudeCodeAutomaticFallback(gatewayMessagesFallbackUpstreamError, transient, now))
+	require.False(t, shouldUseClaudeCodeAutomaticFallback(gatewayMessagesFallbackUpstreamError, &service.UpstreamFailoverError{StatusCode: http.StatusServiceUnavailable}, now))
+}
+
+func TestCanFallbackFromNoAvailableAccount_RequiresUnwrittenRateLimit(t *testing.T) {
+	t.Parallel()
+
+	rateLimitedContext, _ := gin.CreateTestContext(httptest.NewRecorder())
+	require.True(t, canFallbackFromNoAvailableAccount(rateLimitedContext, noAccountErrorClassification{Status: http.StatusTooManyRequests}))
+	require.False(t, canFallbackFromNoAvailableAccount(rateLimitedContext, noAccountErrorClassification{Status: http.StatusServiceUnavailable}))
+
+	writtenContext, _ := gin.CreateTestContext(httptest.NewRecorder())
+	writtenContext.String(http.StatusTooManyRequests, "already committed")
+	require.False(t, canFallbackFromNoAvailableAccount(writtenContext, noAccountErrorClassification{Status: http.StatusTooManyRequests}))
+}
+
+func TestAutomaticFallbackRewrite_ForcesSolHighWithoutLosingConversation(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"model":"qwen3.8-max-preview","output_config":{"effort":"max"},"messages":[{"role":"user","content":"compact me"}],"tools":[{"name":"shell"}]}`)
+
+	rewritten, model, err := rewriteClaudeCodeSDKCLIProfileForMultiprovider(body, "gpt-5.6-sol", "high")
+
+	require.NoError(t, err)
+	require.Equal(t, "gpt-5.6-sol", model)
+	require.JSONEq(t, `{"model":"gpt-5.6-sol","output_config":{"effort":"high"},"messages":[{"role":"user","content":"compact me"}],"tools":[{"name":"shell"}]}`, string(rewritten))
 }
 
 func TestRewriteExplicitClaudeCodeModelForMultiprovider_RoutesConfiguredAliasBeforeClassification(t *testing.T) {
