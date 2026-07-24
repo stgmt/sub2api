@@ -109,10 +109,10 @@ function Invoke-ProviderRouteReconcile {
     }
 
     $candidates = @(
-      (Join-Path $HOME ".codex\skills\claude-provider-switcher\scripts\claude-route.ps1")
+      (Join-Path $HOME ".codex\skills\sub2api-claude-code-codex\scripts\claude-route.ps1")
     )
     if ($RepoRoot.Trim()) {
-      $candidates += Join-Path $RepoRoot "backend\docs\skills\claude-provider-switcher\scripts\claude-route.ps1"
+      $candidates += Join-Path $RepoRoot "backend\docs\skills\sub2api-claude-code-codex\scripts\claude-route.ps1"
     }
     $controller = @($candidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1)
     if ($controller.Count -eq 0) {

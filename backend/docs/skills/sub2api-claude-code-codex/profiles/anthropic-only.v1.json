@@ -24,7 +24,7 @@
   },
   "group": {
     "name": "claude-subscription-only",
-    "description": "Managed by claude-provider-switcher. Native Claude subscription only; no OpenAI or Alibaba fallback.",
+    "description": "Managed by sub2api-claude-code-codex. Native Claude subscription only; no OpenAI or Alibaba fallback.",
     "platform": "openai",
     "rate_multiplier": 1.0,
     "is_exclusive": false,

@@ -763,13 +763,12 @@ $contractEnd
 }
 
 if (-not $SkipProviderSwitcher) {
-  $skillsRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-  $providerInstaller = Join-Path $skillsRoot "claude-provider-switcher\scripts\install-claude-route.ps1"
+  $providerInstaller = Join-Path $PSScriptRoot "install-claude-route.ps1"
   if (-not (Test-Path -LiteralPath $providerInstaller)) {
-    throw "Claude provider switcher installer not found: $providerInstaller"
+    throw "Claude provider route installer not found: $providerInstaller"
   }
   & $providerInstaller -SkipStatus | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw "Claude provider switcher installation failed with exit code $LASTEXITCODE" }
+  if ($LASTEXITCODE -ne 0) { throw "Claude provider route installation failed with exit code $LASTEXITCODE" }
 }
 
 Write-Host "repo root: $resolvedRepoRoot"

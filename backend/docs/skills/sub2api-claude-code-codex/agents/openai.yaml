@@ -1,0 +1,6 @@
+interface:
+  display_name: "sub2api Claude Code Codex"
+  short_description: "Operate and switch the Claude proxy stack"
+  default_prompt: "Use $sub2api-claude-code-codex to operate the Claude Code proxy stack or switch every traffic class to the requested provider profile with live route proof."
+policy:
+  allow_implicit_invocation: true

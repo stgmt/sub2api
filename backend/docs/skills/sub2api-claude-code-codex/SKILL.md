@@ -1,14 +1,14 @@
 ---
 name: sub2api-claude-code-codex
 description: >-
-  Operate Claude Code through local Headroom + sub2api with OpenAI/Codex subscription and optional Alibaba Token Plan routing. Use for Docker/WSL or Ubuntu/Hyper-V setup, host RTK, CUDA Kompress, embedding-server/watchdog, Codex OAuth self-heal, GPT-5.6, Qwen/GLM/DeepSeek, compact and subagent routing, picker aliases, effort/context mapping, persistence/autostart, and request tracing. Also use for empty or broken SSE streams, mixed-memory tool-call errors, stale fake 429/503 cooldowns, no available accounts, refresh_token_reused, local Headroom rate limits, context-mode hangs, and runtime/source mismatches. Triggers include "Claude Code через Codex подписку", "Headroom sub2api", "qwen3.8-max-preview", "usage 0/0", "503 Service temporarily unavailable", and "No tool output found".
+  Operate Claude Code through local Headroom + sub2api with OpenAI/Codex, Alibaba Token Plan, or the native Claude Code subscription. Use for Docker/WSL or Ubuntu/Hyper-V setup, host RTK, CUDA Kompress, embedding-server/watchdog, OAuth self-heal, GPT-5.6, Qwen/GLM/DeepSeek, compact and subagent routing, picker aliases, effort/context mapping, persistence/autostart, request tracing, and fleet-wide provider switching. Also use to move main, compact, claude -p, SDK, picker aliases, and every subagent between anthropic-only and hybrid-current profiles; reconcile host/VM drift; or prove no forbidden fallback occurred. Triggers include "Claude Code через Codex подписку", "Headroom sub2api", "provider toggle", "anthropic-only", "hybrid-current", "claude-route", "переключи все модели", "usage 0/0", "503 Service temporarily unavailable", and "No tool output found".
 ---
 
 # sub2api Claude Code Codex
 
 This skill is the short entrypoint for running Claude Code through a local Headroom + `sub2api` Anthropic-compatible proxy chain backed by the user's OpenAI/Codex/ChatGPT subscription. Keep this file lean; load the reference files only when the task needs those details.
 
-For fleet-wide switching between the native Claude Code subscription and the current GPT/Qwen profile, use the sibling `claude-provider-switcher` skill. This skill owns installation and repair; it must not duplicate the switch transaction, fleet reconciliation, or rollback contract.
+This is the single owner for stack installation, repair, and fleet-wide provider switching. Do not install or recreate a separate provider-switcher skill.
 
 ## Default Hybrid Install Profile
 
@@ -34,7 +34,7 @@ Host state root: `${SUB2API_STATE_ROOT:-./data}` in the deploy profile. All stat
 Codex OAuth self-heal: sub2api reads `SUB2API_OPENAI_CODEX_AUTH_FILE=/app/data/codex-auth.json`; setup and the repeating self-heal task copy a validated host `%USERPROFILE%\.codex\auth.json` into `${SUB2API_STATE_ROOT}/sub2api/codex-auth.json` without printing secrets.
 Headroom persistence: `/root/.headroom` stores `ccr_store.db`, savings, and logs; `/root/.cache/headroom` and `/root/.cache/huggingface` store warmed local tool/model/embedding caches; `/root/.local/share/rtk` exposes the host RTK history to Headroom. These paths must be host bind mounts.
 Windows autostart/self-heal: use one scheduled task named `Sub2API Codex Proxy Stack Autostart`, not a Startup-folder `.cmd` and not a separate `headroom-proxy` task. The task must launch `ensure-sub2api-proxy-stack.ps1` through the zero-window `run-hidden.vbs`/`wscript.exe` wrapper with `RunLevel=Highest` at logon and every minute; direct interactive `powershell.exe` actions can flash a console and steal focus. Its healthy path probes same-host plus diagnostic Hyper-V bridge `/health`; the bridge is fail-closed only with `HEADROOM_HYPERV_REQUIRE_BRIDGE=1` or `-RequireHyperVBridge`. Its failure path calls the canonical stack start script to wake WSL, restore Docker compose, refresh dynamic bridge addresses, and self-heal stale WSL `ext4.vhdx` attach locks.
-Provider profiles: setup installs the sibling `claude-provider-switcher` skill and `claude-route` command. The same single autostart task reconciles its stored generation; do not add a second provider task. Always run `claude-route status` before describing the live profile because it may intentionally be `anthropic-only` instead of this install default.
+Provider profiles: setup installs the bundled `claude-route` command from this skill. The same single autostart task reconciles its stored generation; do not add a second provider task. Always run `claude-route status` before describing the live profile because it may intentionally be `anthropic-only` instead of this install default.
 Main model: gpt-5.6-sol
 Small-fast/compact/delegated SDK model: qwen3.8-max-preview with effort high
 Automatic-route availability fallback: gpt-5.6-sol with effort high, only for compact/subagent/claude -p after a terminal Alibaba Token Plan quota response or while its persisted account quota circuit is open
@@ -56,12 +56,48 @@ Claude Code picker aliases: Opus/Fable/Sonnet/Haiku are UI slots and should reso
 Subagent, standalone `claude -p`, and compact override: qwen3.8-max-preview with effort high. The group-level `sdk_cli_mapped_model` rule covers both `Agent(...)` and print-mode processes identified by `claude-cli/... (external, sdk-cli...)`; interactive `(external, cli)` requests keep their selected model. When Alibaba explicitly reports terminal Token Plan exhaustion, or its persisted account quota circuit remains open, these automatic routes retry once on gpt-5.6-sol/high; a selected healthy Qwen response never falls back. The legacy `gpt-5.6-terra-medium` alias remains supported but is no longer the default delegated-agent profile.
 ```
 
+## Provider Profile Switching
+
+The provider switch covers interactive main and picker aliases, `/compact` and autocompact, `claude -p` and Agent SDK traffic, ordinary/named/nested/workflow subagents, and stale explicit GPT/Qwen model IDs in resumed sessions. The authoritative switch is the stable sub2api client key's group binding. Host and VM synchronization makes new sessions and UI truthful, but an offline guest must not block the proxy-side switch.
+
+Profiles:
+
+- `anthropic-only`: native Claude Code subscription for every traffic class, with OpenAI and Alibaba fallback blocked.
+- `hybrid-current`: versioned current mixed profile, including only its explicitly configured terminal-quota fallback.
+
+Canonical commands:
+
+```text
+claude-route status
+claude-route anthropic
+claude-route hybrid
+claude-route reconcile
+claude-route verify
+```
+
+Switch workflow:
+
+1. Read `references/provider-profile-contract.md` and the requested JSON snapshot under `profiles/`.
+2. Discover the Windows host and Hyper-V guests; validate Headroom, sub2api, the target account, OAuth state, and model availability without printing credentials.
+3. Capture the stable-key binding and generation, atomically rebind the key, invalidate routing cache, and run a nonce-tagged Headroom probe before changing node display config.
+4. On pre-commit probe failure, restore the old binding and prove the previous route. Never leave a partial profile active.
+5. Increment generation and reconcile reachable nodes using `references/provider-fleet-reconcile.md`; mark offline nodes `pending-reconcile` for bounded boot/login self-heal.
+6. Run `references/provider-route-verification.md` and correlate tagged `usage_logs` rows for main, stale-model, compact, SDK CLI, and nested-agent traffic.
+
+Provider safety:
+
+- Never copy Claude OAuth credentials to client nodes or enable cross-provider fallback in `anthropic-only`.
+- Patch only owned model/env fields; preserve hooks, MCP servers, permissions, agent bodies, and unrelated settings.
+- Never infer the live profile from the Claude statusline, `/v1/models`, health checks, or settings alone.
+- A failed node reconcile is drift after proxy proof, not a reason to roll back a successful provider switch.
+
 ## Reference Map
 
 Read only the file needed for the current task:
 
-- `../claude-provider-switcher/SKILL.md`: provider-wide profile switching, fleet reconciliation, negative route proof, and rollback.
-
+- `references/provider-profile-contract.md`: atomic profile switch, stable-key binding, rollback, and generation invariants.
+- `references/provider-fleet-reconcile.md`: Windows, Ubuntu Hyper-V, and Windows Hyper-V synchronization.
+- `references/provider-route-verification.md`: live provider proof, negative-route checks, rollback, and switch done criteria.
 - `references/profile-and-context.md`: source-of-truth profile, official GPT-5.6 context facts, compact profile, and context-window caveats.
 - `references/install-and-claude-config.md`: Docker/WSL install, OAuth import, Claude Code env/settings, dynamic MCP, and memory/rules configuration.
 - `references/group-and-compact-routing.md`: sub2api group JSON, Claude model mapping, compact mapping, fallback SQL, and account credential patches.
@@ -130,7 +166,10 @@ Read only the file needed for the current task:
 ## Bundled Scripts
 
 - `scripts/setup-sub2api-claude-code.ps1`: create/update `deploy/claude-code-codex-headroom/.env`, auto-detect CUDA unless explicitly set to CPU, select the matching compose overlay/image target/backend, start the Headroom + sub2api compose project, install/update the single Windows scheduled-task autostart unless `-SkipAutostart` is passed, register the Docker-backed Headroom MCP, remove stale host `tokensave` MCP, sync a validated host Codex auth file to `${SUB2API_STATE_ROOT}/sub2api/codex-auth.json`, and configure Claude Code settings. Defaults to main `gpt-5.6-sol`, small-fast/subagent/compact `qwen3.8-max-preview` high, automatic-route availability fallback `gpt-5.6-sol` high, `SUB2API_OPENAI_CODEX_AUTH_FILE=/app/data/codex-auth.json`, `HEADROOM_SAVINGS_PROFILE=agent-90`, `HEADROOM_TARGET_RATIO=0.10`, `HEADROOM_RPM=6000`, `HEADROOM_TPM=100000000`, `CLAUDE_CODE_MAX_CONTEXT_TOKENS=370000`, and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=340000`.
-- `../claude-provider-switcher/scripts/install-claude-route.ps1`: installs or refreshes the separate provider skill plus the `claude-route` command; setup calls it unless `-SkipProviderSwitcher` is supplied.
+- `scripts/install-claude-route.ps1`: installs or refreshes this consolidated skill and the `claude-route` command; setup calls it unless `-SkipProviderSwitcher` is supplied for backward compatibility.
+- `scripts/claude-route.ps1`: atomically switch, inspect, reconcile, and verify provider profiles.
+- `scripts/apply-claude-provider-profile.ps1` and `.sh`: preserve unrelated Claude configuration while applying the active profile generation on Windows and Linux.
+- `scripts/test-provider-route-contract.ps1`: regression coverage for consolidated profile application, controller wiring, rollback prerequisites, and watchdog ownership.
 - `scripts/sync-claude-wrapper-models.ps1`: synchronize or audit higher-precedence model assignments in an existing Windows `claude.cmd` wrapper so stale launcher values cannot override Qwen small-fast, picker, and subagent settings.
 - `scripts/sync-claude-subagent-profile.ps1`: portable Windows host/guest repair for Qwen small-fast, picker aliases, global delegated-agent files, User env, settings, and an existing wrapper; supports `-CheckOnly`.
 - `scripts/sync-claude-subagent-profile.sh`: portable native Linux/WSL equivalent; preserves hooks and agent bodies, writes `environment.d`, and supports `--check`.

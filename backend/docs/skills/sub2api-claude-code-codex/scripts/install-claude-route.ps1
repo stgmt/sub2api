@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [string]$InstallRoot = "$HOME\.codex\skills\claude-provider-switcher",
+  [string]$InstallRoot = "$HOME\.codex\skills\sub2api-claude-code-codex",
   [string]$BinDir = "$HOME\.local\bin",
   [switch]$SkipStatus
 )

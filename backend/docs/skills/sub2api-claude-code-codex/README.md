@@ -1,19 +1,16 @@
 # sub2api Claude Code Codex Skill
 
-Portable Codex skill bundle for running Claude Code against a local Headroom + Anthropic-compatible `sub2api` proxy chain backed by an OpenAI/Codex/ChatGPT subscription.
+Portable Codex skill bundle for running Claude Code against a local Headroom + Anthropic-compatible `sub2api` proxy chain and switching the complete Claude Code fleet between the native Claude subscription and the current GPT/Qwen hybrid profile.
 
 Primary entrypoint:
 
 - `SKILL.md`
 
-Companion skill:
-
-- `../claude-provider-switcher/SKILL.md` - fleet-wide provider profile switching, reconciliation, verification, and rollback
-
 Included support material:
 
-- `references/` - setup notes, routing policy, compact behavior, verification, troubleshooting, and the cross-session failure registry
-- `scripts/` - Windows and Linux setup, verification, host-profile, autostart, RTK, compact-recovery, routing, and contract-test helpers
+- `profiles/` - versioned `anthropic-only` and `hybrid-current` provider snapshots
+- `references/` - setup notes, provider switching, fleet reconciliation, routing policy, compact behavior, verification, troubleshooting, and the cross-session failure registry
+- `scripts/` - Windows and Linux setup, provider controller, verification, host-profile, autostart, RTK, compact-recovery, routing, and contract-test helpers
 - `evals/` - lightweight eval prompts for the skill behavior
 
 The complete reproducible harness also includes the repository's
@@ -37,3 +34,5 @@ Claude Code -> http://127.0.0.1:8787 -> Headroom -> http://sub2api:8080 -> sub2a
 ```
 
 The direct sub2api port `http://127.0.0.1:18081` is kept for the admin UI, diagnostics, and non-Claude clients. Claude Code should use Headroom on `8787`.
+
+Install the bundled route controller with `scripts/install-claude-route.ps1`, then use `claude-route status|anthropic|hybrid|reconcile|verify`. No separate provider-switcher skill is required.

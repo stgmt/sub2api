@@ -210,7 +210,7 @@ function Get-ClaudeSourceCredentials {
 function Ensure-AnthropicAccount($Profile, [int64]$GroupId) {
   $source = Get-ClaudeSourceCredentials
   $account = Get-AccountByName $Profile.account_name
-  $notes = "Managed by claude-provider-switcher from the local Claude Code subscription."
+  $notes = "Managed by sub2api-claude-code-codex from the local Claude Code subscription."
   $extra = @{
     route_switcher_source_fingerprint = $source.Fingerprint
     route_switcher_source_expires_ms = $source.ExpiresMs
@@ -364,7 +364,7 @@ function Reconcile-LinuxGuest($ProfileRecord, [string]$Generation) {
   $sshArgs = @("-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=accept-new", "-i", $LinuxGuestKey)
   $probe = @(& ssh.exe @sshArgs $LinuxGuest "true" 2>&1)
   if ($LASTEXITCODE -ne 0) { $result.detail = ($probe -join " ").Trim(); return [pscustomobject]$result }
-  $remoteRoot = ".cache/claude-provider-switcher"
+  $remoteRoot = ".cache/sub2api-claude-route"
   & ssh.exe @sshArgs $LinuxGuest "mkdir -p $remoteRoot" | Out-Null
   if ($LASTEXITCODE -ne 0) { $result.detail = "failed to create remote staging directory"; return [pscustomobject]$result }
   & scp.exe @sshArgs $ProfileRecord.Path "${LinuxGuest}:${remoteRoot}/profile.json" | Out-Null
@@ -395,7 +395,7 @@ function Reconcile-WindowsGuest($ProfileRecord, [string]$Generation) {
     $credential = [pscredential]::new("admin", (ConvertTo-SecureString $password -AsPlainText -Force))
     $session = New-PSSession -VMName $WindowsGuestName -Credential $credential -ErrorAction Stop
     $remoteRoot = Invoke-Command -Session $session -ScriptBlock {
-      $path = Join-Path $env:LOCALAPPDATA "claude-provider-switcher"
+      $path = Join-Path $env:LOCALAPPDATA "sub2api-claude-route"
       New-Item -ItemType Directory -Path $path -Force | Out-Null
       return $path
     }

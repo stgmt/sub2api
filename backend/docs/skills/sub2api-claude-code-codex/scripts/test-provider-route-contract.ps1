@@ -8,7 +8,7 @@ $applier = Join-Path $scriptRoot "apply-claude-provider-profile.ps1"
 $controller = Join-Path $scriptRoot "claude-route.ps1"
 $anthropicProfile = Join-Path $skillRoot "profiles\anthropic-only.v1.json"
 $hybridProfile = Join-Path $skillRoot "profiles\hybrid-current.v1.json"
-$temp = Join-Path ([IO.Path]::GetTempPath()) ("claude-provider-switcher-test-" + [guid]::NewGuid())
+$temp = Join-Path ([IO.Path]::GetTempPath()) ("sub2api-provider-route-test-" + [guid]::NewGuid())
 
 function Assert-True([bool]$Condition, [string]$Message) {
   if (-not $Condition) { throw "ASSERTION FAILED: $Message" }
@@ -75,9 +75,11 @@ try {
   $skillsRoot = Split-Path -Parent $skillRoot
   $setupText = Get-Content -Raw (Join-Path $skillsRoot "sub2api-claude-code-codex\scripts\setup-sub2api-claude-code.ps1")
   $ensureText = Get-Content -Raw (Join-Path $skillsRoot "sub2api-claude-code-codex\scripts\ensure-sub2api-proxy-stack.ps1")
-  Assert-True ($setupText.Contains('install-claude-route.ps1')) "Canonical stack setup must install the provider switcher"
+  Assert-True ($setupText.Contains('Join-Path $PSScriptRoot "install-claude-route.ps1"')) "Canonical stack setup must install its bundled provider controller"
+  Assert-True (-not $setupText.Contains('claude-provider-switcher\scripts')) "Canonical setup must not depend on the removed standalone skill"
+  Assert-True ($ensureText.Contains('.codex\skills\sub2api-claude-code-codex\scripts\claude-route.ps1')) "Watchdog must resolve the controller from the consolidated skill"
   Assert-True ($ensureText.Contains('Invoke-ProviderRouteReconcile')) "The single stack watchdog must own provider generation repair"
-  [pscustomobject]@{ status = "PASS"; assertions = 25; profiles = @("anthropic-only", "hybrid-current") } | ConvertTo-Json -Compress
+  [pscustomobject]@{ status = "PASS"; assertions = 27; profiles = @("anthropic-only", "hybrid-current") } | ConvertTo-Json -Compress
 } finally {
   Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
 }
