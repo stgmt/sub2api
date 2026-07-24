@@ -46,8 +46,8 @@ const (
 
 type gatewayMessagesFallbackDecider func(gatewayMessagesFallbackReason, *service.UpstreamFailoverError) bool
 
-func canFallbackFromNoAvailableAccount(c *gin.Context, cls noAccountErrorClassification) bool {
-	return c != nil && !c.Writer.Written() && cls.Status == http.StatusTooManyRequests
+func canFallbackFromNoAvailableAccount(c *gin.Context) bool {
+	return c != nil && !c.Writer.Written()
 }
 
 // GatewayHandler handles API gateway requests
@@ -601,7 +601,7 @@ func (h *GatewayHandler) messages(c *gin.Context, fallbackDecider gatewayMessage
 			if err != nil {
 				if len(fs.FailedAccountIDs) == 0 {
 					cls := classifyNoAccountErrorFromGin(c, h.gatewayService, currentAPIKey, reqModel, reqModel, platform)
-					if fallbackDecider != nil && canFallbackFromNoAvailableAccount(c, cls) && fallbackDecider(gatewayMessagesFallbackNoAvailableAccount, nil) {
+					if fallbackDecider != nil && canFallbackFromNoAvailableAccount(c) && fallbackDecider(gatewayMessagesFallbackNoAvailableAccount, nil) {
 						return true
 					}
 					if !cls.ModelNotFound {
