@@ -32,7 +32,7 @@ IDs are discovered at runtime from stable names. Never hardcode IDs copied from 
 
 Discover the actual supported Claude model IDs from the live account and request probes. Keep role mapping versioned so a future model-line update does not require changing every client node first.
 
-Version 2 pins Opus `claude-opus-4-8`, Fable `claude-fable-5`, and Sonnet `claude-sonnet-5`; compact, small-fast, delegated, SDK CLI, Haiku compatibility, and stale low-tier GPT/Qwen IDs all resolve to Sonnet 5. This prevents compact from reaching effort-incompatible Haiku while GPT/Qwen/Spark providers are excluded. Update the versioned profile and its verification expectations together when the enabled line changes.
+Version 3 pins Opus `claude-opus-5`, Fable `claude-fable-5`, and Sonnet `claude-sonnet-5`. Legacy Opus 4.8 inputs upgrade to Opus 5. Compact resolves to Sonnet 5 with `compact_reasoning_effort=low`, while small-fast, delegated, SDK CLI, Haiku compatibility, and stale low-tier GPT/Qwen IDs resolve to Sonnet 5/high. The compact-specific effort must override an inherited session `max`; otherwise a summary can spend frontier-model latency without improving the routing contract. Update the versioned profile and its verification expectations together when the enabled line changes.
 
 The local `~/.claude/.credentials.json` is an import source, not the long-term refresh owner. Store a SHA-256 refresh-token fingerprint and source expiry in account `extra`; do not reapply an older unchanged source after sub2api has refreshed its own token.
 

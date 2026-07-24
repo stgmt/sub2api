@@ -79,7 +79,7 @@ function Read-DotEnv([string]$Path) {
 }
 
 function Read-Profile([string]$Name) {
-  $fileName = if ($Name -eq "anthropic-only") { "anthropic-only.v2.json" } else { "hybrid-current.v1.json" }
+  $fileName = if ($Name -eq "anthropic-only") { "anthropic-only.v3.json" } else { "hybrid-current.v1.json" }
   $path = Join-Path $profileRoot $fileName
   if (-not (Test-Path -LiteralPath $path)) { throw "Profile not found: $path" }
   return [pscustomobject]@{ Path = $path; Data = (Get-Content -Raw -LiteralPath $path | ConvertFrom-Json) }

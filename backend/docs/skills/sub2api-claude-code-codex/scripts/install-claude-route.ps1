@@ -17,9 +17,11 @@ if ($sourceFull -ne $installFull) {
   Copy-Item -Path (Join-Path $sourceFull '*') -Destination $installFull -Recurse -Force
 }
 
-$legacyProfile = Join-Path $installFull "profiles\anthropic-only.v1.json"
-if (Test-Path -LiteralPath $legacyProfile) {
-  Remove-Item -LiteralPath $legacyProfile -Force
+foreach ($legacyProfileName in @("anthropic-only.v1.json", "anthropic-only.v2.json")) {
+  $legacyProfile = Join-Path $installFull "profiles\$legacyProfileName"
+  if (Test-Path -LiteralPath $legacyProfile) {
+    Remove-Item -LiteralPath $legacyProfile -Force
+  }
 }
 
 $legacyFull = [IO.Path]::GetFullPath($LegacySkillRoot).TrimEnd('\')

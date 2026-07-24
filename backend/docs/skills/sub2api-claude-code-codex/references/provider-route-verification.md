@@ -7,7 +7,7 @@ Capture a switch timestamp and request correlation IDs. Verify through Headroom,
 1. tiny interactive main request;
 2. picker/default model resolution;
 3. selected `/effort` preservation where the target model supports it;
-4. manual compact or compact-marker probe carrying `thinking.type=adaptive` and `output_config.effort=max`; under `anthropic-only` it must reach Sonnet 5 and return 200, never Haiku's unsupported-effort 400;
+4. manual compact or compact-marker probe carrying `thinking.type=adaptive` and deliberately conflicting `output_config.effort=max`; under `anthropic-only` v3 it must reach Sonnet 5, return 200, and log `reasoning_effort=low`, never Haiku's unsupported-effort 400 or inherited `max`;
 5. `claude -p` request;
 6. ordinary named subagent;
 7. nested subagent;

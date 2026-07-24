@@ -41,7 +41,7 @@ Automatic-route availability fallback: gpt-5.6-sol with effort high, only for co
 Published model families: GPT/Codex plus Alibaba Token Plan only; do not expose real Claude/Fable passthrough aliases in `/v1/models` for this profile
 Picker category defaults: Opus/Fable/Sonnet/Haiku are pinned to Qwen high (`qwen3.8-max-preview`)
 Provider families: GPT/Codex models route to the OpenAI/Codex OAuth account; qwen*/glm*/deepseek-v4-pro route to the Alibaba Token Plan Anthropic-compatible account.
-Official model windows: GPT-5.6 Sol/Terra/Luna = 1.05M; GPT-5.3-Codex-Spark = 128k and text-only; Claude Fable 5/Opus 4.8/Sonnet 5 = 1M; Claude Haiku 4.5 = 200k
+Official model windows: GPT-5.6 Sol/Terra/Luna = 1.05M; GPT-5.3-Codex-Spark = 128k and text-only; Claude Fable 5/Opus 5/Sonnet 5 = 1M; Claude Haiku 4.5 = 200k
 Client context target: CLAUDE_CODE_MAX_CONTEXT_TOKENS=370000, CLAUDE_CODE_AUTO_COMPACT_WINDOW=340000 (Claude Code client compact/display target; lower than the official 1.05M GPT-5.6 window to avoid late upstream overflow and max-output failures)
 Compact model: qwen3.8-max-preview through group messages_dispatch_model_config.compact_mapped_model; compact requests must cross-route from GPT/Codex to the Alibaba Anthropic-compatible account before provider classification
 Reasoning: main interactive GPT-5.6 uses the effort selected by Claude Code; all user-level subagent overrides and every `claude -p` / `--print` SDK request use qwen3.8-max-preview with effort high
@@ -62,7 +62,7 @@ The provider switch covers interactive main and picker aliases, `/compact` and a
 
 Profiles:
 
-- `anthropic-only`: native Claude Code subscription for every traffic class, with OpenAI and Alibaba fallback blocked. Version 2 routes compact, small-fast, delegated work, the Haiku picker slot, and stale Spark/Luna/mini IDs to Sonnet 5 so inherited effort/adaptive-thinking fields cannot hit Haiku's unsupported-effort 400.
+- `anthropic-only`: native Claude Code subscription for every traffic class, with OpenAI and Alibaba fallback blocked. Version 3 upgrades the main/Opus slot and legacy Opus 4.8 aliases to Opus 5. Compact is independently pinned to Sonnet 5 with `compact_reasoning_effort=low`; small-fast, delegated work, the Haiku picker slot, and stale Spark/Luna/mini IDs remain on Sonnet 5/high.
 - `hybrid-current`: versioned current mixed profile, including only its explicitly configured terminal-quota fallback.
 
 Canonical commands:
@@ -210,6 +210,7 @@ For install/config/debug tasks, do not call it done until these are true or expl
 - A tiny direct `/v1/messages` request through Headroom succeeds for an Alibaba Token Plan model such as `qwen3.8-max-preview`; `usage_logs` shows `account_id` for the Alibaba account, platform `anthropic`, and no `pricing not found` error. Direct interactive Qwen must surface a terminal quota instead of silently switching providers. A tiny `/v1/messages/count_tokens` request for the same model returns `{"input_tokens":...}` locally and does not log `platform=openai` / `account_id=1`.
 - A fresh `claude -p` request, including one with explicit `--model gpt-5.6-sol`, reaches Qwen/high while the Token Plan is healthy. During proven terminal plan exhaustion, the first request persists the Alibaba account reset and retries once as `gpt-5.6-sol`/high; a second automatic request reaches Sol without another Qwen upstream probe. A control request with `(external, cli)` and explicit Qwen must not use the fallback.
 - `/v1/models` through Headroom should publish GPT/Codex plus Alibaba Token Plan IDs only: no raw `opus`, `sonnet`, `haiku`, `fable`, or `claude-*` aliases. Claude Code Opus/Fable/Sonnet/Haiku picker slots are controlled by `ANTHROPIC_DEFAULT_*` env and should point to Qwen high.
+- Under `anthropic-only` v3, a tagged main probe must log `claude-opus-5` on the native Anthropic OAuth account. A compact-marker probe deliberately sent with `output_config.effort=max` must log `claude-sonnet-5` with `reasoning_effort=low`; this mutation proves the compact-specific effort override is active.
 - `~/.claude/settings.json` and User env agree on main/small models and Claude Code client context target.
 - Every discovered Windows, native Linux, and WSL Claude user passes the portable subagent-profile check. For a Hyper-V Windows guest without remote execution, require both the host `hyperv-qwen-*.staged` marker and the guest `C:\ProgramData\sub2api\sync-claude-subagent-profile.log` after its next logon before calling guest application proven; then restart Claude and verify one real `Agent(...)` row on Qwen high.
 - Any GitHub issue or fork change the user asked for is pushed and linked.

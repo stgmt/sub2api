@@ -32,7 +32,7 @@ function Resolve-HeadroomUrl {
 
 if (-not (Test-Path -LiteralPath $statePath)) { throw "Provider route state is not initialized: $statePath" }
 $state = Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json
-$profileFile = if ($state.active_profile -eq "anthropic-only") { "anthropic-only.v2.json" } else { "hybrid-current.v1.json" }
+$profileFile = if ($state.active_profile -eq "anthropic-only") { "anthropic-only.v3.json" } else { "hybrid-current.v1.json" }
 $profile = Get-Content -Raw -LiteralPath (Join-Path $skillRoot "profiles\$profileFile") | ConvertFrom-Json
 $keyNameSql = $StableKeyName.Replace("'", "''")
 $keyRows = @(Invoke-Sql "SELECT id || chr(9) || key FROM api_keys WHERE name='$keyNameSql' AND status='active' AND deleted_at IS NULL;")
@@ -101,6 +101,12 @@ if ($state.active_profile -eq "anthropic-only") {
     if ([string]$usageProof[$i].model -ne [string]$expectedModels[$i]) {
       throw "Probe '$($probes[$i].name)' expected model '$($expectedModels[$i])', got '$($usageProof[$i].model)'"
     }
+  }
+  if ([string]$usageProof[2].reasoning_effort -ne "low") {
+    throw "Compact probe expected reasoning effort 'low', got '$($usageProof[2].reasoning_effort)'"
+  }
+  if ([string]$usageProof[3].reasoning_effort -ne "high") {
+    throw "SDK CLI probe expected reasoning effort 'high', got '$($usageProof[3].reasoning_effort)'"
   }
 }
 

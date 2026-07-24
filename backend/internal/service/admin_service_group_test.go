@@ -605,12 +605,13 @@ func TestAdminService_CreateGroup_NormalizesMessagesDispatchModelConfig(t *testi
 		Platform:       PlatformOpenAI,
 		RateMultiplier: 1.0,
 		MessagesDispatchModelConfig: OpenAIMessagesDispatchModelConfig{
-			OpusMappedModel:       " gpt-5.4-high ",
-			SonnetMappedModel:     " gpt-5.3-codex ",
-			HaikuMappedModel:      " gpt-5.3-codex-spark ",
-			CompactMappedModel:    " qwen3.8-max-preview ",
-			SDKCLIMappedModel:     " qwen3.8-max-preview ",
-			SDKCLIReasoningEffort: " HIGH ",
+			OpusMappedModel:        " gpt-5.4-high ",
+			SonnetMappedModel:      " gpt-5.3-codex ",
+			HaikuMappedModel:       " gpt-5.3-codex-spark ",
+			CompactMappedModel:     " claude-sonnet-5 ",
+			CompactReasoningEffort: " LOW ",
+			SDKCLIMappedModel:      " qwen3.8-max-preview ",
+			SDKCLIReasoningEffort:  " HIGH ",
 			ExactModelMappings: map[string]string{
 				" claude-sonnet-4-5-20250929 ": " gpt-5.2-high ",
 			},
@@ -620,12 +621,13 @@ func TestAdminService_CreateGroup_NormalizesMessagesDispatchModelConfig(t *testi
 	require.NotNil(t, group)
 	require.NotNil(t, repo.created)
 	require.Equal(t, OpenAIMessagesDispatchModelConfig{
-		OpusMappedModel:       "gpt-5.4",
-		SonnetMappedModel:     "gpt-5.3-codex",
-		HaikuMappedModel:      "gpt-5.3-codex-spark",
-		CompactMappedModel:    "qwen3.8-max-preview",
-		SDKCLIMappedModel:     "qwen3.8-max-preview",
-		SDKCLIReasoningEffort: "high",
+		OpusMappedModel:        "gpt-5.4",
+		SonnetMappedModel:      "gpt-5.3-codex",
+		HaikuMappedModel:       "gpt-5.3-codex-spark",
+		CompactMappedModel:     "claude-sonnet-5",
+		CompactReasoningEffort: "low",
+		SDKCLIMappedModel:      "qwen3.8-max-preview",
+		SDKCLIReasoningEffort:  "high",
 		ExactModelMappings: map[string]string{
 			"claude-sonnet-4-5-20250929": "gpt-5.2",
 		},
@@ -644,10 +646,11 @@ func TestAdminService_UpdateGroup_NormalizesMessagesDispatchModelConfig(t *testi
 
 	group, err := svc.UpdateGroup(context.Background(), 1, &UpdateGroupInput{
 		MessagesDispatchModelConfig: &OpenAIMessagesDispatchModelConfig{
-			SonnetMappedModel:     " gpt-5.4-medium ",
-			CompactMappedModel:    " qwen3.8-max-preview ",
-			SDKCLIMappedModel:     " qwen3.8-max-preview ",
-			SDKCLIReasoningEffort: " HIGH ",
+			SonnetMappedModel:      " gpt-5.4-medium ",
+			CompactMappedModel:     " claude-sonnet-5 ",
+			CompactReasoningEffort: " LOW ",
+			SDKCLIMappedModel:      " qwen3.8-max-preview ",
+			SDKCLIReasoningEffort:  " HIGH ",
 			ExactModelMappings: map[string]string{
 				" claude-haiku-4-5-20251001 ": " gpt-5.3-codex-spark ",
 			},
@@ -657,10 +660,11 @@ func TestAdminService_UpdateGroup_NormalizesMessagesDispatchModelConfig(t *testi
 	require.NotNil(t, group)
 	require.NotNil(t, repo.updated)
 	require.Equal(t, OpenAIMessagesDispatchModelConfig{
-		SonnetMappedModel:     "gpt-5.4",
-		CompactMappedModel:    "qwen3.8-max-preview",
-		SDKCLIMappedModel:     "qwen3.8-max-preview",
-		SDKCLIReasoningEffort: "high",
+		SonnetMappedModel:      "gpt-5.4",
+		CompactMappedModel:     "claude-sonnet-5",
+		CompactReasoningEffort: "low",
+		SDKCLIMappedModel:      "qwen3.8-max-preview",
+		SDKCLIReasoningEffort:  "high",
 		ExactModelMappings: map[string]string{
 			"claude-haiku-4-5-20251001": "gpt-5.3-codex-spark",
 		},

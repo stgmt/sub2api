@@ -200,6 +200,17 @@ func TestRewriteClaudeCodeCompactModelForMultiprovider_NoopsWhenAlreadyMapped(t 
 	require.Equal(t, "qwen3.8-max-preview", model)
 }
 
+func TestRewriteClaudeCodeCompactProfileForMultiprovider_ForcesSonnetLow(t *testing.T) {
+	t.Parallel()
+
+	body := []byte(`{"model":"claude-opus-5","output_config":{"effort":"max"},"messages":[{"role":"user","content":"compact"}]}`)
+	rewritten, model, err := rewriteClaudeCodeSDKCLIProfileForMultiprovider(body, "claude-sonnet-5", "low")
+	require.NoError(t, err)
+	require.JSONEq(t, `{"model":"claude-sonnet-5","output_config":{"effort":"low"},"messages":[{"role":"user","content":"compact"}]}`, string(rewritten))
+	require.Equal(t, "claude-sonnet-5", model)
+	require.Equal(t, claudeCodeMessagesRouteAnthropic, classifyClaudeCodeMessagesRoute(model, service.PlatformOpenAI))
+}
+
 func TestRewriteClaudeCodeSDKCLIProfileForMultiprovider_ForcesQwenHigh(t *testing.T) {
 	t.Parallel()
 

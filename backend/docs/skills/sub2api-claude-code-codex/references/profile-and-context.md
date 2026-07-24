@@ -43,7 +43,7 @@ Compact recovery hook: optional Claude Code PreCompact/PostCompact/UserPromptSub
 Reasoning: main GPT-5.6 max should reach upstream/usage as max; delegated Qwen subagents and compact use high by frontmatter/env/group compact mapping
 Official GPT-5.6 context window: 1,050,000 tokens with 128,000 max output for Sol/Terra/Luna.
 Official GPT-5.3-Codex-Spark context window: 128,000 tokens and text-only during the research preview; official OpenAI launch notes also describe separate rate limits and possible temporary queuing under high demand.
-Official Claude context windows: Fable 5, Opus 4.8, and Sonnet 5 are 1M; Haiku 4.5 is 200k.
+Official Claude context windows: Fable 5, Opus 5, and Sonnet 5 are 1M; Haiku 4.5 is 200k.
 Official context docs checked on 2026-07-10: OpenAI https://developers.openai.com/api/docs/models and Anthropic https://platform.claude.com/docs/en/about-claude/models/overview
 Official Alibaba docs checked on 2026-07-22: Token Plan lists Qwen3.8-Max-Preview, GLM-5.2, and DeepSeek-V4-Pro (https://www.alibabacloud.com/en/campaign/ai-landing-page-token); Model Studio text-generation docs recommend qwen3.7-plus for balanced coding, qwen3.7-max for strongest reasoning, list qwen3.7-plus/qwen3.6-flash/deepseek-v4-pro at 1M context, and list glm-5.2 at 198k context (https://www.alibabacloud.com/help/en/model-studio/text-generation-model). Treat live Headroom/sub2api probes as authoritative for this local account because Token Plan availability can vary by region/account.
 Default Claude Code client compact/display target for this local proxy: CLAUDE_CODE_MAX_CONTEXT_TOKENS=370000
@@ -110,7 +110,7 @@ Why both context variables matter:
 - A custom alias such as `gpt-5.5[400k]` may still show `/200k` in Claude Code because third-party/custom models fall back to a built-in 200k client default. Prefer clean model IDs such as `gpt-5.6-sol` and set context window variables explicitly.
 - `CLAUDE_CODE_MAX_CONTEXT_TOKENS` makes Claude Code report the chosen `contextWindow` in JSON output.
 - `CLAUDE_CODE_AUTO_COMPACT_WINDOW` makes `/context` display the chosen denominator and decides when Claude Code compacts.
-- Official GPT-5.6 API docs list a 1,050,000 token context window and 128,000 max output for Sol/Terra/Luna. Official Claude docs list Fable 5, Opus 4.8, and Sonnet 5 at 1M, and Haiku 4.5 at 200k.
+- Official GPT-5.6 API docs list a 1,050,000 token context window and 128,000 max output for Sol/Terra/Luna. Official Claude docs list Fable 5, Opus 5, and Sonnet 5 at 1M with 128k max output, and Haiku 4.5 at 200k.
 - For the current 5.6 proxy profile, default Claude Code to `CLAUDE_CODE_MAX_CONTEXT_TOKENS=370000` and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=340000`. This fixes Claude Code's `/200k` fallback for custom/proxy models while forcing compaction before the local route's observed long-context danger zone. Do not call 370k or 340k the upstream model limit; they are client safety thresholds.
 
 Why output and thinking guards matter:

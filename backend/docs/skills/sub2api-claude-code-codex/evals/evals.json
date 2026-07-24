@@ -178,7 +178,7 @@
     {
       "id": 30,
       "prompt": "Переключи вообще весь Claude Code на мою Anthropic подписку: main, compact, claude -p и всех сабагентов, без fallback в GPT/Qwen.",
-      "expected_output": "Uses anthropic-only profile version 2, validates and imports the existing Claude Code OAuth into sub2api without exposing credentials, atomically rebinds the stable key to an Anthropic-only group, force-maps compact/small-fast/Haiku and stale Spark/Luna/mini/Qwen IDs to Sonnet 5 while main stays Opus, keeps OpenAI and Alibaba out of the group, reconciles every reachable host/VM, marks offline nodes pending-reconcile, and proves main/compact/print/nested-agent traffic uses only the Anthropic account after the switch boundary. The compact proof includes adaptive thinking plus effort=max and must return 200 on Sonnet instead of Haiku's unsupported-effort 400.",
+      "expected_output": "Uses anthropic-only profile version 3, validates and imports the existing Claude Code OAuth into sub2api without exposing credentials, atomically rebinds the stable key to an Anthropic-only group, maps main/Opus and legacy Opus 4.8 to claude-opus-5, force-maps compact/small-fast/Haiku and stale Spark/Luna/mini/Qwen IDs to Sonnet 5, keeps OpenAI and Alibaba out of the group, reconciles every reachable host/VM, marks offline nodes pending-reconcile, and proves main/compact/print/nested-agent traffic uses only the Anthropic account after the switch boundary. The compact proof deliberately submits adaptive thinking plus effort=max and must log claude-sonnet-5 with reasoning_effort=low.",
       "files": []
     },
     {
@@ -208,7 +208,13 @@
     {
       "id": 35,
       "prompt": "/compact в anthropic-only падает с 400 This model does not support the effort parameter. GPT, Qwen и Spark сейчас в лимитах; сделай безопасный fallback на Sonnet 5.",
-      "expected_output": "Correlates the failing compact row and proves it reached claude-haiku-4-5-20251001 on the native Claude OAuth account with inherited output_config.effort/adaptive thinking. Updates anthropic-only to version 2 so compact, small-fast, Haiku compatibility, and stale Spark/Luna/mini IDs resolve directly to claude-sonnet-5 without involving GPT/Qwen accounts, preserves Opus main, reapplies the profile generation, and verifies an effort=max adaptive compact-marker probe returns 200 with usage_logs model claude-sonnet-5 and no new Haiku/GPT/Qwen rows.",
+      "expected_output": "Correlates the failing compact row and proves it reached claude-haiku-4-5-20251001 on the native Claude OAuth account with inherited output_config.effort/adaptive thinking. Applies anthropic-only version 3 so compact, small-fast, Haiku compatibility, and stale Spark/Luna/mini IDs resolve directly to claude-sonnet-5 without involving GPT/Qwen accounts, upgrades main/Opus to claude-opus-5, reapplies the profile generation, and verifies an effort=max adaptive compact-marker probe returns 200 with usage_logs model claude-sonnet-5 and reasoning_effort=low with no new Haiku/GPT/Qwen rows.",
+      "files": []
+    },
+    {
+      "id": 36,
+      "prompt": "Вышел Opus 5: замени Opus 4.8 во всем anthropic-only профиле, а compact сделай на Sonnet 5 low, потому что он слишком долгий.",
+      "expected_output": "Verifies the current official API IDs and the live native subscription, upgrades anthropic-only to version 3 with main/Opus/legacy Opus 4.8 aliases mapped to claude-opus-5, adds model metadata for its 1M input and 128k output limits, adds compact_reasoning_effort=low beside compact_mapped_model=claude-sonnet-5, gives compact effort precedence over SDK CLI and inherited session effort, covers normalization plus an incoming max-to-low rewrite mutation, rebuilds/recreates sub2api, reapplies the live profile, and proves tagged usage rows show main claude-opus-5, compact claude-sonnet-5/low, SDK CLI claude-sonnet-5/high, and only the Anthropic OAuth account before syncing the installed skill and pushing main.",
       "files": []
     }
   ]

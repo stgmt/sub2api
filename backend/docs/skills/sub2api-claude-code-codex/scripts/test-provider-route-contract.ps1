@@ -7,7 +7,7 @@ $skillRoot = Split-Path -Parent $scriptRoot
 $applier = Join-Path $scriptRoot "apply-claude-provider-profile.ps1"
 $controller = Join-Path $scriptRoot "claude-route.ps1"
 $installer = Join-Path $scriptRoot "install-claude-route.ps1"
-$anthropicProfile = Join-Path $skillRoot "profiles\anthropic-only.v2.json"
+$anthropicProfile = Join-Path $skillRoot "profiles\anthropic-only.v3.json"
 $hybridProfile = Join-Path $skillRoot "profiles\hybrid-current.v1.json"
 $temp = Join-Path ([IO.Path]::GetTempPath()) ("sub2api-provider-route-test-" + [guid]::NewGuid())
 
@@ -38,7 +38,7 @@ try {
   $afterAnthropic = Get-Content -Raw $settingsPath | ConvertFrom-Json
   Assert-True ($afterAnthropic.env.UNRELATED -eq "keep") "Unrelated env must survive"
   Assert-True ($afterAnthropic.hooks.SessionStart[0].hooks[0].command -eq "preserve-me") "Hooks must survive"
-  Assert-True ($afterAnthropic.env.ANTHROPIC_MODEL -eq "claude-opus-4-8") "Anthropic main model must apply"
+  Assert-True ($afterAnthropic.env.ANTHROPIC_MODEL -eq "claude-opus-5") "Anthropic main model must apply"
   Assert-True ($afterAnthropic.env.CLAUDE_PROVIDER_PROFILE_GENERATION -eq "7") "Generation marker must apply"
   $agentAfter = Get-Content -Raw $agentPath
   Assert-True ($agentAfter -match '(?m)^model: claude-sonnet-5$') "Agent model must switch to Sonnet"
@@ -46,7 +46,7 @@ try {
   Assert-True ($agentAfter.Contains("Agent instructions stay byte-for-byte.")) "Agent body must survive"
   $wrapperAfter = Get-Content -Raw $wrapperPath
   Assert-True ($wrapperAfter.Contains('ANTHROPIC_AUTH_TOKEN=do-not-touch')) "Auth token must survive"
-  Assert-True ($wrapperAfter.Contains('ANTHROPIC_MODEL=claude-opus-4-8')) "Wrapper model must switch"
+  Assert-True ($wrapperAfter.Contains('ANTHROPIC_MODEL=claude-opus-5')) "Wrapper model must switch"
 
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $applier -ProfilePath $anthropicProfile -SettingsPath $settingsPath -AgentsPath $agentsPath -WrapperPath $wrapperPath -Generation 7 -EnvironmentTarget None -CheckOnly | Out-Null
   Assert-True ($LASTEXITCODE -eq 0) "Check-only must be clean immediately after apply"
@@ -63,8 +63,12 @@ try {
   Assert-True ($anthropic.group.platform -eq "openai") "Anthropic-only dispatcher group must remain OpenAI-shaped"
   Assert-True ($anthropic.group.allow_messages_dispatch -eq $true) "Anthropic-only group must dispatch /v1/messages"
 Assert-True (@($anthropic.group.messages_dispatch_model_config.model_fallbacks.PSObject.Properties).Count -eq 0) "Anthropic-only fallbacks must be empty"
-Assert-True ($anthropic.version -eq 2) "Anthropic-only Sonnet compact profile must be version 2"
+Assert-True ($anthropic.version -eq 3) "Anthropic-only Opus 5 profile must be version 3"
+Assert-True ($anthropic.main_model -eq "claude-opus-5") "Anthropic-only main must use Opus 5"
+Assert-True ($anthropic.group.messages_dispatch_model_config.opus_mapped_model -eq "claude-opus-5") "Opus picker must route to Opus 5"
 Assert-True ($anthropic.group.messages_dispatch_model_config.compact_mapped_model -eq "claude-sonnet-5") "Anthropic-only compact must route directly to Sonnet 5"
+Assert-True ($anthropic.group.messages_dispatch_model_config.compact_reasoning_effort -eq "low") "Anthropic-only compact must force low effort"
+Assert-True ($anthropic.group.messages_dispatch_model_config.exact_model_mappings.'claude-opus-4-8' -eq "claude-opus-5") "Legacy Opus 4.8 requests must upgrade to Opus 5"
 Assert-True ($anthropic.client_env.ANTHROPIC_SMALL_FAST_MODEL -eq "claude-sonnet-5") "Anthropic-only small-fast must avoid effort-incompatible Haiku"
 Assert-True ($anthropic.group.messages_dispatch_model_config.exact_model_mappings.'gpt-5.3-codex-spark' -eq "claude-sonnet-5") "Stale Spark IDs must route to Sonnet 5 under Anthropic-only"
 Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof contract must name provider"
@@ -90,17 +94,20 @@ Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof cont
   $installFixture = Join-Path $temp "install-fixture"
   $installedSkill = Join-Path $installFixture "sub2api-claude-code-codex"
   $legacySkill = Join-Path $installFixture "claude-provider-switcher"
-  $legacyProfile = Join-Path $installedSkill "profiles\anthropic-only.v1.json"
-  New-Item -ItemType Directory -Path (Split-Path -Parent $legacyProfile), $legacySkill -Force | Out-Null
-  [IO.File]::WriteAllText($legacyProfile, '{}', [Text.UTF8Encoding]::new($false))
+  $legacyProfileV1 = Join-Path $installedSkill "profiles\anthropic-only.v1.json"
+  $legacyProfileV2 = Join-Path $installedSkill "profiles\anthropic-only.v2.json"
+  New-Item -ItemType Directory -Path (Split-Path -Parent $legacyProfileV1), $legacySkill -Force | Out-Null
+  [IO.File]::WriteAllText($legacyProfileV1, '{}', [Text.UTF8Encoding]::new($false))
+  [IO.File]::WriteAllText($legacyProfileV2, '{}', [Text.UTF8Encoding]::new($false))
   [IO.File]::WriteAllText((Join-Path $legacySkill 'SKILL.md'), "---`nname: claude-provider-switcher`n---`n", [Text.UTF8Encoding]::new($false))
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -InstallRoot $installedSkill -BinDir (Join-Path $installFixture 'bin') -LegacySkillRoot $legacySkill -SkipPathUpdate -SkipStatus | Out-Null
   Assert-True ($LASTEXITCODE -eq 0) "Consolidated installer fixture must succeed"
-  Assert-True (Test-Path -LiteralPath (Join-Path $installedSkill 'profiles\anthropic-only.v2.json')) "Installer must copy Anthropic profile v2"
-  Assert-True (-not (Test-Path -LiteralPath $legacyProfile)) "Installer must remove stale Anthropic profile v1"
+  Assert-True (Test-Path -LiteralPath (Join-Path $installedSkill 'profiles\anthropic-only.v3.json')) "Installer must copy Anthropic profile v3"
+  Assert-True (-not (Test-Path -LiteralPath $legacyProfileV1)) "Installer must remove stale Anthropic profile v1"
+  Assert-True (-not (Test-Path -LiteralPath $legacyProfileV2)) "Installer must remove stale Anthropic profile v2"
   Assert-True (-not (Test-Path -LiteralPath $legacySkill)) "Installer must remove the managed standalone provider skill"
 
-  [pscustomobject]@{ status = "PASS"; assertions = 37; profiles = @("anthropic-only", "hybrid-current") } | ConvertTo-Json -Compress
+  [pscustomobject]@{ status = "PASS"; assertions = 42; profiles = @("anthropic-only", "hybrid-current") } | ConvertTo-Json -Compress
 } finally {
   Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
 }

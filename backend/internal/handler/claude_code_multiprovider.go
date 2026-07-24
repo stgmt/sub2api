@@ -54,25 +54,24 @@ func (h *Handlers) MultiproviderMessages(c *gin.Context) {
 		groupPlatform = apiKey.Group.Platform
 		sdkCLIRequest := isClaudeCodeSDKCLIRequest(c)
 		compactRequest := isClaudeCodeCompactRequestForMultiprovider(c, body)
+		compactModel, compactEffort := apiKey.Group.ResolveMessagesDispatchCompactProfile()
 		sdkCLIModel, sdkCLIEffort := apiKey.Group.ResolveMessagesDispatchSDKCLIProfile()
 		modelRewritten := false
-		if compactRequest {
-			if compactMappedModel := apiKey.Group.ResolveMessagesDispatchCompactModel(); compactMappedModel != "" {
-				var rewriteErr error
-				body, model, rewriteErr = rewriteClaudeCodeCompactModelForMultiprovider(body, compactMappedModel)
-				if rewriteErr != nil {
-					c.JSON(http.StatusBadRequest, gin.H{
-						"type": "error",
-						"error": gin.H{
-							"type":    "invalid_request_error",
-							"message": "Failed to rewrite compact request model: " + rewriteErr.Error(),
-						},
-					})
-					return
-				}
-				modelRewritten = true
-				automaticRoute = true
+		if compactRequest && compactModel != "" {
+			var rewriteErr error
+			body, model, rewriteErr = rewriteClaudeCodeSDKCLIProfileForMultiprovider(body, compactModel, compactEffort)
+			if rewriteErr != nil {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"type": "error",
+					"error": gin.H{
+						"type":    "invalid_request_error",
+						"message": "Failed to rewrite compact request profile: " + rewriteErr.Error(),
+					},
+				})
+				return
 			}
+			modelRewritten = true
+			automaticRoute = true
 		}
 		if !modelRewritten && sdkCLIRequest && sdkCLIModel != "" {
 			var rewriteErr error
@@ -104,7 +103,7 @@ func (h *Handlers) MultiproviderMessages(c *gin.Context) {
 				return
 			}
 		}
-		if sdkCLIRequest && sdkCLIEffort != "" {
+		if !compactRequest && sdkCLIRequest && sdkCLIEffort != "" {
 			var rewriteErr error
 			body, rewriteErr = rewriteClaudeCodeSDKCLIEffortForMultiprovider(body, sdkCLIEffort)
 			if rewriteErr != nil {

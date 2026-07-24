@@ -34,12 +34,13 @@ func normalizeOpenAIMessagesDispatchReasoningEffort(effort string) string {
 
 func normalizeOpenAIMessagesDispatchModelConfig(cfg OpenAIMessagesDispatchModelConfig) OpenAIMessagesDispatchModelConfig {
 	out := OpenAIMessagesDispatchModelConfig{
-		OpusMappedModel:       normalizeOpenAIMessagesDispatchMappedModel(cfg.OpusMappedModel),
-		SonnetMappedModel:     normalizeOpenAIMessagesDispatchMappedModel(cfg.SonnetMappedModel),
-		HaikuMappedModel:      normalizeOpenAIMessagesDispatchMappedModel(cfg.HaikuMappedModel),
-		CompactMappedModel:    normalizeOpenAIMessagesDispatchFallbackModel(cfg.CompactMappedModel),
-		SDKCLIMappedModel:     normalizeOpenAIMessagesDispatchFallbackModel(cfg.SDKCLIMappedModel),
-		SDKCLIReasoningEffort: normalizeOpenAIMessagesDispatchReasoningEffort(cfg.SDKCLIReasoningEffort),
+		OpusMappedModel:        normalizeOpenAIMessagesDispatchMappedModel(cfg.OpusMappedModel),
+		SonnetMappedModel:      normalizeOpenAIMessagesDispatchMappedModel(cfg.SonnetMappedModel),
+		HaikuMappedModel:       normalizeOpenAIMessagesDispatchMappedModel(cfg.HaikuMappedModel),
+		CompactMappedModel:     normalizeOpenAIMessagesDispatchFallbackModel(cfg.CompactMappedModel),
+		CompactReasoningEffort: normalizeOpenAIMessagesDispatchReasoningEffort(cfg.CompactReasoningEffort),
+		SDKCLIMappedModel:      normalizeOpenAIMessagesDispatchFallbackModel(cfg.SDKCLIMappedModel),
+		SDKCLIReasoningEffort:  normalizeOpenAIMessagesDispatchReasoningEffort(cfg.SDKCLIReasoningEffort),
 	}
 
 	if len(cfg.ExactModelMappings) > 0 {
@@ -198,12 +199,12 @@ func (g *Group) ResolveMessagesDispatchFallbackModels(requestedModel, mappedMode
 	return compactModelFallbackCandidates(candidates, mappedModel)
 }
 
-func (g *Group) ResolveMessagesDispatchCompactModel() string {
+func (g *Group) ResolveMessagesDispatchCompactProfile() (model, reasoningEffort string) {
 	if g == nil {
-		return ""
+		return "", ""
 	}
 	cfg := normalizeOpenAIMessagesDispatchModelConfig(g.MessagesDispatchModelConfig)
-	return strings.TrimSpace(cfg.CompactMappedModel)
+	return strings.TrimSpace(cfg.CompactMappedModel), strings.TrimSpace(cfg.CompactReasoningEffort)
 }
 
 func (g *Group) ResolveMessagesDispatchSDKCLIProfile() (model, reasoningEffort string) {
