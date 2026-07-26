@@ -66,6 +66,16 @@ $groupSql = ConvertTo-SqlLiteral $GroupName
 $modelSql = ConvertTo-SqlLiteral $Model
 $effortSql = ConvertTo-SqlLiteral $Effort.ToLowerInvariant()
 $fallbackModelSql = ConvertTo-SqlLiteral $FallbackModel
+$fallbackUpdateSql = if ($fallbackModelSql) {
+  "COALESCE(messages_dispatch_model_config->'model_fallbacks', '{}'::jsonb) || jsonb_build_object('$modelSql', jsonb_build_array('$fallbackModelSql'::text))"
+} else {
+  "COALESCE(messages_dispatch_model_config->'model_fallbacks', '{}'::jsonb) - '$modelSql'"
+}
+$fallbackCheckSql = if ($fallbackModelSql) {
+  "AND messages_dispatch_model_config->'model_fallbacks'->'$modelSql'->>0 = '$fallbackModelSql'"
+} else {
+  "AND NOT (COALESCE(messages_dispatch_model_config->'model_fallbacks', '{}'::jsonb) ? '$modelSql')"
+}
 
 if (-not $CheckOnly) {
   $updateSql = @"
@@ -87,8 +97,7 @@ BEGIN
       true
     ),
     '{model_fallbacks}',
-    COALESCE(messages_dispatch_model_config->'model_fallbacks', '{}'::jsonb) ||
-      jsonb_build_object('$modelSql', jsonb_build_array('$fallbackModelSql'::text)),
+    $fallbackUpdateSql,
     true
   ),
     updated_at = now()
@@ -114,7 +123,7 @@ WHERE name = '$groupSql'
   AND platform = 'openai'
   AND messages_dispatch_model_config->>'sdk_cli_mapped_model' = '$modelSql'
   AND messages_dispatch_model_config->>'sdk_cli_reasoning_effort' = '$effortSql'
-  AND messages_dispatch_model_config->'model_fallbacks'->'$modelSql'->>0 = '$fallbackModelSql';
+  $fallbackCheckSql;
 "@
 $proof = @(Invoke-PostgresSql $checkSql | Where-Object { $_ -and $_.Trim() })
 if ($proof.Count -ne 1) {

@@ -130,6 +130,30 @@ def test_verifier_retries_wsl_and_cannot_false_green_gpu_as_cpu() -> None:
     assert '$ErrorActionPreference = $oldErrorActionPreference' in verifier
 
 
+def test_verifier_uses_active_profile_for_all_wrapper_picker_aliases() -> None:
+    scripts = (ROOT / "../../backend/docs/skills/sub2api-claude-code-codex/scripts").resolve()
+    verifier = (scripts / "verify-claude-code-sub2api.ps1").read_text(encoding="utf-8")
+
+    for slot in ("Opus", "Fable", "Sonnet"):
+        assert f'ANTHROPIC_DEFAULT_{slot.upper()}_MODEL' in verifier
+        assert f'-Default{slot}Model $Default{slot}Model' in verifier
+        assert f'-Default{slot}Model "qwen3.8-max-preview"' not in verifier
+
+    assert 'if ($isNativeClaudeProfile) { "claude-subscription-only" }' in verifier
+    assert '$sdkCliModel = $SubagentModel -replace' in verifier
+    assert '$usesNativeRtk = $hookCommand.Trim() -eq "rtk hook claude"' in verifier
+    assert '-DefaultOpusModel $DefaultOpusModel' in verifier
+
+    sdk_sync = (scripts / "sync-sub2api-sdk-cli-routing.ps1").read_text(encoding="utf-8")
+    assert "$fallbackUpdateSql = if ($fallbackModelSql)" in sdk_sync
+    assert "- '$modelSql'" in sdk_sync
+    assert "AND NOT (COALESCE(messages_dispatch_model_config->'model_fallbacks'" in sdk_sync
+
+    subagent_sync = (scripts / "sync-claude-subagent-profile.ps1").read_text(encoding="utf-8")
+    assert "$modelValues = [ordered]@{" in subagent_sync
+    assert "ANTHROPIC_DEFAULT_OPUS_MODEL = $DefaultOpusModel" in subagent_sync
+
+
 def test_gpu_research_and_manual_watchdog_are_repo_owned() -> None:
     skill = (ROOT / "../../backend/docs/skills/sub2api-claude-code-codex").resolve()
     reference = (skill / "references/headroom-gpu-kompress.md").read_text(encoding="utf-8")

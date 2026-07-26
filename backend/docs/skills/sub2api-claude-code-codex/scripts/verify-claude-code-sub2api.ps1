@@ -4,11 +4,14 @@ param(
   [string]$ApiKey = [Environment]::GetEnvironmentVariable("ANTHROPIC_AUTH_TOKEN", "User"),
   [string]$Model = [Environment]::GetEnvironmentVariable("ANTHROPIC_MODEL", "User"),
   [string]$SmallFastModel = [Environment]::GetEnvironmentVariable("ANTHROPIC_SMALL_FAST_MODEL", "User"),
+  [string]$DefaultOpusModel = [Environment]::GetEnvironmentVariable("ANTHROPIC_DEFAULT_OPUS_MODEL", "User"),
+  [string]$DefaultFableModel = [Environment]::GetEnvironmentVariable("ANTHROPIC_DEFAULT_FABLE_MODEL", "User"),
+  [string]$DefaultSonnetModel = [Environment]::GetEnvironmentVariable("ANTHROPIC_DEFAULT_SONNET_MODEL", "User"),
   [string]$DefaultHaikuModel = [Environment]::GetEnvironmentVariable("ANTHROPIC_DEFAULT_HAIKU_MODEL", "User"),
   [string]$SubagentModel = [Environment]::GetEnvironmentVariable("CLAUDE_CODE_SUBAGENT_MODEL", "User"),
-  [string]$AutomaticFallbackModel = "gpt-5.6-sol",
-  [string]$MessagesDispatchGroupName = "codex-gpt56-claude-code",
-  [string]$ExpectedUpstream = "gpt-5.6-sol",
+  [string]$AutomaticFallbackModel = "",
+  [string]$MessagesDispatchGroupName = "",
+  [string]$ExpectedUpstream = "",
   [string]$ProjectName = "sub2api-codex",
   [string]$RtkVersion = "0.42.4",
   [string]$WslDistro = "Ubuntu-24.04",
@@ -63,11 +66,13 @@ function Test-ClaudeRtkHook {
     throw "Expected exactly one Bash RTK PreToolUse hook, found $($rtkHooks.Count) in $settingsPath"
   }
   $hookCommand = [string]$rtkHooks[0].hooks[0].command
-  if ($hookCommand -notmatch "wsl\.exe -d $([regex]::Escape($WslDistro)).*rtk hook claude") {
-    throw "Claude RTK hook must use the WSL bridge on Windows. Found: $hookCommand"
+  $usesWslBridge = $hookCommand -match "wsl\.exe -d $([regex]::Escape($WslDistro)).*rtk hook claude"
+  $usesNativeRtk = $hookCommand.Trim() -eq "rtk hook claude"
+  if (-not $usesWslBridge -and -not $usesNativeRtk) {
+    throw "Claude RTK hook must use native RTK or the configured WSL bridge. Found: $hookCommand"
   }
-  if ($hookCommand -notmatch 'MSYS2_ARG_CONV_EXCL=' -or $hookCommand -notmatch '\*') {
-    throw "Claude RTK hook must disable Git Bash path conversion before invoking WSL. Found: $hookCommand"
+  if ($usesWslBridge -and ($hookCommand -notmatch 'MSYS2_ARG_CONV_EXCL=' -or $hookCommand -notmatch '\*')) {
+    throw "Claude RTK WSL hook must disable Git Bash path conversion. Found: $hookCommand"
   }
 
   $payload = '{"session_id":"sub2api-rtk-verify","cwd":"C:\\","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status"}}'
@@ -80,6 +85,7 @@ function Test-ClaudeRtkHook {
   if ($hookJson.hookSpecificOutput.updatedInput.command -ne "rtk git status") {
     throw "RTK hook did not rewrite git status: $($hookRaw | Out-String)"
   }
+  Write-Host "Claude RTK hook route: $(if ($usesWslBridge) { 'WSL bridge' } else { 'native Windows' })"
 
   foreach ($path in @((Join-Path $env:USERPROFILE ".claude\RTK.md"), (Join-Path $env:USERPROFILE ".claude\CLAUDE.md"))) {
     if (-not (Test-Path -LiteralPath $path)) { throw "Missing RTK instruction file: $path" }
@@ -674,16 +680,28 @@ $BaseUrl = Normalize-Url $BaseUrl "http://127.0.0.1:8787"
 $Sub2apiBaseUrl = Normalize-Url $Sub2apiBaseUrl "http://127.0.0.1:18081"
 if (-not $Model) { $Model = "gpt-5.6-sol" }
 if (-not $SmallFastModel) { $SmallFastModel = "qwen3.8-max-preview" }
+if (-not $DefaultOpusModel) { $DefaultOpusModel = "qwen3.8-max-preview" }
+if (-not $DefaultFableModel) { $DefaultFableModel = "qwen3.8-max-preview" }
+if (-not $DefaultSonnetModel) { $DefaultSonnetModel = "qwen3.8-max-preview" }
 if (-not $DefaultHaikuModel) { $DefaultHaikuModel = "qwen3.8-max-preview" }
 if (-not $SubagentModel) { $SubagentModel = "qwen3.8-max-preview" }
+$isNativeClaudeProfile = $Model -match '^claude-'
+if (-not $MessagesDispatchGroupName) {
+  $MessagesDispatchGroupName = if ($isNativeClaudeProfile) { "claude-subscription-only" } else { "codex-gpt56-claude-code" }
+}
+if (-not $AutomaticFallbackModel -and -not $isNativeClaudeProfile) { $AutomaticFallbackModel = "gpt-5.6-sol" }
+if (-not $ExpectedUpstream) { $ExpectedUpstream = $Model -replace '\[[^\]]+\]$', '' }
+$sdkCliModel = $SubagentModel -replace '\[[^\]]+\]$', ''
 
 Write-Host "Claude/Headroom base URL: $BaseUrl"
 Write-Host "sub2api admin/diagnostic URL: $Sub2apiBaseUrl"
 Write-Host "Model: $Model"
 Write-Host "Small-fast model: $SmallFastModel"
 Write-Host "Default Haiku model: $DefaultHaikuModel"
-Write-Host "Expected Opus/Fable/Sonnet/Haiku picker alias: qwen3.8-max-preview"
+Write-Host "Expected picker aliases: Opus=$DefaultOpusModel; Fable=$DefaultFableModel; Sonnet=$DefaultSonnetModel; Haiku=$DefaultHaikuModel"
 Write-Host "Subagent model: $SubagentModel"
+Write-Host "Messages dispatch group: $MessagesDispatchGroupName"
+Write-Host "Automatic fallback: $(if ($AutomaticFallbackModel) { $AutomaticFallbackModel } else { '<none>' })"
 Write-Host "Has API token: $([bool]$ApiKey)"
 
 $wrapperModelSync = Join-Path $PSScriptRoot "sync-claude-wrapper-models.ps1"
@@ -691,9 +709,9 @@ if (Test-Path -LiteralPath $wrapperModelSync) {
   & $wrapperModelSync `
     -Model $Model `
     -SmallFastModel $SmallFastModel `
-    -DefaultOpusModel "qwen3.8-max-preview" `
-    -DefaultFableModel "qwen3.8-max-preview" `
-    -DefaultSonnetModel "qwen3.8-max-preview" `
+    -DefaultOpusModel $DefaultOpusModel `
+    -DefaultFableModel $DefaultFableModel `
+    -DefaultSonnetModel $DefaultSonnetModel `
     -DefaultHaikuModel $DefaultHaikuModel `
     -SubagentModel $SubagentModel `
     -CheckOnly
@@ -703,7 +721,7 @@ $sdkCLIRoutingSync = Join-Path $PSScriptRoot "sync-sub2api-sdk-cli-routing.ps1"
 if (Test-Path -LiteralPath $sdkCLIRoutingSync) {
   & $sdkCLIRoutingSync `
     -GroupName $MessagesDispatchGroupName `
-    -Model $SubagentModel `
+    -Model $sdkCliModel `
     -Effort "high" `
     -FallbackModel $AutomaticFallbackModel `
     -WslDistro $WslDistro `
@@ -712,7 +730,15 @@ if (Test-Path -LiteralPath $sdkCLIRoutingSync) {
 
 $subagentProfileSync = Join-Path $PSScriptRoot "sync-claude-subagent-profile.ps1"
 if (Test-Path -LiteralPath $subagentProfileSync) {
-  & $subagentProfileSync -Model $SubagentModel -Effort "high" -CheckOnly
+  & $subagentProfileSync `
+    -Model $SubagentModel `
+    -SmallFastModel $SmallFastModel `
+    -DefaultOpusModel $DefaultOpusModel `
+    -DefaultFableModel $DefaultFableModel `
+    -DefaultSonnetModel $DefaultSonnetModel `
+    -DefaultHaikuModel $DefaultHaikuModel `
+    -Effort "high" `
+    -CheckOnly
 }
 
 Test-Sub2apiAutostartTask

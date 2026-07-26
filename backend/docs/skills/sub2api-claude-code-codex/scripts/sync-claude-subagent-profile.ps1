@@ -1,6 +1,11 @@
 [CmdletBinding()]
 param(
   [string]$Model = "qwen3.8-max-preview",
+  [string]$SmallFastModel = "",
+  [string]$DefaultOpusModel = "",
+  [string]$DefaultFableModel = "",
+  [string]$DefaultSonnetModel = "",
+  [string]$DefaultHaikuModel = "",
   [ValidateSet("low", "medium", "high", "max")]
   [string]$Effort = "high",
   [string]$ClaudeHome = (Join-Path $HOME ".claude"),
@@ -11,14 +16,19 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$modelKeys = @(
-  "ANTHROPIC_SMALL_FAST_MODEL",
-  "ANTHROPIC_DEFAULT_OPUS_MODEL",
-  "ANTHROPIC_DEFAULT_FABLE_MODEL",
-  "ANTHROPIC_DEFAULT_SONNET_MODEL",
-  "ANTHROPIC_DEFAULT_HAIKU_MODEL",
-  "CLAUDE_CODE_SUBAGENT_MODEL"
-)
+if (-not $SmallFastModel) { $SmallFastModel = $Model }
+if (-not $DefaultOpusModel) { $DefaultOpusModel = $Model }
+if (-not $DefaultFableModel) { $DefaultFableModel = $Model }
+if (-not $DefaultSonnetModel) { $DefaultSonnetModel = $Model }
+if (-not $DefaultHaikuModel) { $DefaultHaikuModel = $Model }
+$modelValues = [ordered]@{
+  ANTHROPIC_SMALL_FAST_MODEL = $SmallFastModel
+  ANTHROPIC_DEFAULT_OPUS_MODEL = $DefaultOpusModel
+  ANTHROPIC_DEFAULT_FABLE_MODEL = $DefaultFableModel
+  ANTHROPIC_DEFAULT_SONNET_MODEL = $DefaultSonnetModel
+  ANTHROPIC_DEFAULT_HAIKU_MODEL = $DefaultHaikuModel
+  CLAUDE_CODE_SUBAGENT_MODEL = $Model
+}
 $agentNames = @("general-purpose", "Explore", "workflow-subagent", "bench-reviewer", "bench-triage")
 $mismatches = [System.Collections.Generic.List[string]]::new()
 
@@ -44,7 +54,7 @@ function Get-AgentText {
   return @"
 ---
 name: $Name
-description: Global delegated Claude Code worker pinned by the sub2api Qwen profile.
+description: Global delegated Claude Code worker pinned by the active sub2api provider profile.
 model: $Model
 effort: $Effort
 ---
@@ -84,7 +94,7 @@ function Set-AgentProfile {
       $text = $text -replace "(?m)^model:\s*.+$", "`$0`neffort: $Effort"
     }
   } else {
-    $text = "---`nname: $Name`ndescription: Global delegated Claude Code worker pinned by the sub2api Qwen profile.`nmodel: $Model`neffort: $Effort`n---`n`n" + $text
+    $text = "---`nname: $Name`ndescription: Global delegated Claude Code worker pinned by the active sub2api provider profile.`nmodel: $Model`neffort: $Effort`n---`n`n" + $text
   }
 
   if (-not $CheckOnly) {
@@ -103,21 +113,22 @@ if ($null -eq $settings.PSObject.Properties["env"]) {
   Set-JsonProperty -Object $settings -Name "env" -Value ([pscustomobject]@{})
 }
 
-foreach ($key in $modelKeys) {
+foreach ($key in $modelValues.Keys) {
+  $expectedModel = [string]$modelValues[$key]
   $current = $settings.env.PSObject.Properties[$key]
-  if ($null -eq $current -or [string]$current.Value -ne $Model) {
+  if ($null -eq $current -or [string]$current.Value -ne $expectedModel) {
     $mismatches.Add("settings:$key")
     if (-not $CheckOnly) {
-      Set-JsonProperty -Object $settings.env -Name $key -Value $Model
+      Set-JsonProperty -Object $settings.env -Name $key -Value $expectedModel
     }
   }
 
   if (-not $SkipUserEnvironment) {
     $userValue = [Environment]::GetEnvironmentVariable($key, "User")
-    if ($userValue -ne $Model) {
+    if ($userValue -ne $expectedModel) {
       $mismatches.Add("user-env:$key")
       if (-not $CheckOnly) {
-        [Environment]::SetEnvironmentVariable($key, $Model, "User")
+        [Environment]::SetEnvironmentVariable($key, $expectedModel, "User")
       }
     }
   }
@@ -134,9 +145,10 @@ foreach ($agentName in $agentNames) {
 
 if (Test-Path -LiteralPath $WrapperPath) {
   $wrapper = Get-Content -LiteralPath $WrapperPath -Raw
-  foreach ($key in $modelKeys) {
+  foreach ($key in $modelValues.Keys) {
+    $expectedModel = [string]$modelValues[$key]
     $pattern = '(?im)^\s*set\s+"?' + [regex]::Escape($key) + '=[^\r\n"]*"?\s*$'
-    $expected = 'set "' + $key + '=' + $Model + '"'
+    $expected = 'set "' + $key + '=' + $expectedModel + '"'
     if ($wrapper -match $pattern) {
       if ($Matches[0].Trim() -ne $expected) {
         $mismatches.Add("wrapper:$key")
@@ -161,6 +173,7 @@ $result = [ordered]@{
   platform = "windows"
   claude_home = $ClaudeHome
   model = $Model
+  model_aliases = $modelValues
   effort = $Effort
   agents = $agentNames
   mismatches = @($mismatches)
