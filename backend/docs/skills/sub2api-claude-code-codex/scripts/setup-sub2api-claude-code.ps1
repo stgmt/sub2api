@@ -28,7 +28,7 @@ param(
   [string]$HeadroomVersion = "0.31.0",
   [string]$HeadroomPythonVersion = "3.12",
   [string]$HeadroomGitRepo = "https://github.com/stgmt/headroom.git",
-  [string]$HeadroomGitRef = "63312f11a4086b4578e16a3f3cd5243d9e74ad05",
+  [string]$HeadroomGitRef = "ae5f8fcdf6d433b41f2ade47fdce109798f6834c",
   [string]$HeadroomRustToolchain = "1.88.0",
   [ValidateSet("auto", "cpu", "cuda")]
   [string]$HeadroomAccelerator = "auto",
@@ -44,6 +44,14 @@ param(
   [int]$HeadroomTokensPerMinute = 100000000,
   [ValidateRange(1, 10)]
   [int]$HeadroomRetryMaxAttempts = 10,
+  [ValidateSet("0", "1")]
+  [string]$HeadroomUpstream429HoldEnabled = "1",
+  [ValidateRange(60, 86400)]
+  [int]$HeadroomUpstream429MaxWaitSeconds = 21600,
+  [ValidateRange(1, 300)]
+  [int]$HeadroomUpstream429HeartbeatSeconds = 15,
+  [ValidateRange(1, 3600)]
+  [int]$HeadroomUpstream429DefaultRetrySeconds = 30,
   [string]$RtkVersion = "v0.42.4",
   [string]$RtkStateRoot = "",
   [string]$WslDistro = "Ubuntu-24.04",
@@ -253,6 +261,10 @@ function Write-DotEnv([System.Collections.IDictionary]$Map, [string]$Path) {
     "HEADROOM_RPM",
     "HEADROOM_TPM",
     "HEADROOM_RETRY_MAX_ATTEMPTS",
+    "HEADROOM_UPSTREAM_429_HOLD_ENABLED",
+    "HEADROOM_UPSTREAM_429_MAX_WAIT_SECONDS",
+    "HEADROOM_UPSTREAM_429_HEARTBEAT_SECONDS",
+    "HEADROOM_UPSTREAM_429_DEFAULT_RETRY_SECONDS",
     "HEADROOM_FORCE_KOMPRESS",
     "HEADROOM_DISABLE_KOMPRESS",
     "HEADROOM_ACCURACY_GUARD",
@@ -404,6 +416,10 @@ Set-DotEnvValue $envMap "HEADROOM_TARGET_RATIO" $HeadroomTargetRatio
 Set-DotEnvValue $envMap "HEADROOM_RPM" ([string]$HeadroomRequestsPerMinute)
 Set-DotEnvValue $envMap "HEADROOM_TPM" ([string]$HeadroomTokensPerMinute)
 Set-DotEnvValue $envMap "HEADROOM_RETRY_MAX_ATTEMPTS" ([string]$HeadroomRetryMaxAttempts)
+Set-DotEnvValue $envMap "HEADROOM_UPSTREAM_429_HOLD_ENABLED" $HeadroomUpstream429HoldEnabled
+Set-DotEnvValue $envMap "HEADROOM_UPSTREAM_429_MAX_WAIT_SECONDS" ([string]$HeadroomUpstream429MaxWaitSeconds)
+Set-DotEnvValue $envMap "HEADROOM_UPSTREAM_429_HEARTBEAT_SECONDS" ([string]$HeadroomUpstream429HeartbeatSeconds)
+Set-DotEnvValue $envMap "HEADROOM_UPSTREAM_429_DEFAULT_RETRY_SECONDS" ([string]$HeadroomUpstream429DefaultRetrySeconds)
 Set-DotEnvValue $envMap "HEADROOM_FORCE_KOMPRESS" $resolvedHeadroomForceKompress
 Set-DotEnvValue $envMap "HEADROOM_DISABLE_KOMPRESS" $resolvedHeadroomDisableKompress
 Set-DotEnvValue $envMap "HEADROOM_ACCURACY_GUARD" "strict"

@@ -12,7 +12,7 @@ services:
         HEADROOM_VERSION: ${HEADROOM_VERSION:-0.31.0}
         HEADROOM_PYTHON_VERSION: ${HEADROOM_PYTHON_VERSION:-3.12}
         HEADROOM_GIT_REPO: ${HEADROOM_GIT_REPO:-https://github.com/stgmt/headroom.git}
-        HEADROOM_GIT_REF: ${HEADROOM_GIT_REF:-63312f11a4086b4578e16a3f3cd5243d9e74ad05}
+        HEADROOM_GIT_REF: ${HEADROOM_GIT_REF:-ae5f8fcdf6d433b41f2ade47fdce109798f6834c}
         HEADROOM_RUST_TOOLCHAIN: ${HEADROOM_RUST_TOOLCHAIN:-1.88.0}
         HEADROOM_TORCH_VERSION: ${HEADROOM_TORCH_VERSION:-2.11.0+cu128}
         HEADROOM_TORCH_INDEX_URL: ${HEADROOM_TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu128}
@@ -21,7 +21,7 @@ services:
     restart: unless-stopped
     labels:
       org.opencontainers.image.source: ${HEADROOM_GIT_REPO:-https://github.com/stgmt/headroom.git}
-      org.opencontainers.image.revision: ${HEADROOM_GIT_REF:-63312f11a4086b4578e16a3f3cd5243d9e74ad05}
+      org.opencontainers.image.revision: ${HEADROOM_GIT_REF:-ae5f8fcdf6d433b41f2ade47fdce109798f6834c}
       stgmt.sub2api.profile: claude-code-codex-headroom
     depends_on:
       sub2api:
@@ -64,6 +64,13 @@ services:
       HEADROOM_RPM: ${HEADROOM_RPM:-6000}
       HEADROOM_TPM: ${HEADROOM_TPM:-100000000}
       HEADROOM_RETRY_MAX_ATTEMPTS: ${HEADROOM_RETRY_MAX_ATTEMPTS:-10}
+      # Keep Claude Code agent turns alive across the native subscription's
+      # multi-minute/hour Retry-After window. Headroom emits Anthropic SSE ping
+      # events and serializes upstream probes instead of returning the 429.
+      HEADROOM_UPSTREAM_429_HOLD_ENABLED: ${HEADROOM_UPSTREAM_429_HOLD_ENABLED:-1}
+      HEADROOM_UPSTREAM_429_MAX_WAIT_SECONDS: ${HEADROOM_UPSTREAM_429_MAX_WAIT_SECONDS:-21600}
+      HEADROOM_UPSTREAM_429_HEARTBEAT_SECONDS: ${HEADROOM_UPSTREAM_429_HEARTBEAT_SECONDS:-15}
+      HEADROOM_UPSTREAM_429_DEFAULT_RETRY_SECONDS: ${HEADROOM_UPSTREAM_429_DEFAULT_RETRY_SECONDS:-30}
       HEADROOM_FORCE_KOMPRESS: ${HEADROOM_FORCE_KOMPRESS:-0}
       HEADROOM_DISABLE_KOMPRESS: ${HEADROOM_DISABLE_KOMPRESS:-1}
       HEADROOM_ACCURACY_GUARD: ${HEADROOM_ACCURACY_GUARD:-strict}

@@ -226,6 +226,31 @@ function Test-HeadroomRateLimitProfile([string]$Url) {
   Write-Host "Headroom rate limiter: rpm=$rpm tpm=$tpm"
 }
 
+function Test-HeadroomUpstream429HoldProfile {
+  if (-not (Test-DockerRuntimeAvailable)) {
+    Write-Warning "docker and wsl.exe not found; skipping Headroom upstream 429 hold check."
+    return
+  }
+
+  $envOutput = (Invoke-DockerCommand -Args @("inspect", "headroom-sub2api", "--format", "{{range .Config.Env}}{{println .}}{{end}}") 2>&1) -join "`n"
+  if ($LASTEXITCODE -ne 0) {
+    throw "Could not inspect headroom-sub2api environment for upstream 429 hold: $envOutput"
+  }
+  if ($envOutput -notmatch "(?m)^HEADROOM_UPSTREAM_429_HOLD_ENABLED=1$") {
+    throw "Unsafe Headroom subscription recovery: expected HEADROOM_UPSTREAM_429_HOLD_ENABLED=1."
+  }
+
+  $maxWaitMatch = [regex]::Match($envOutput, "(?m)^HEADROOM_UPSTREAM_429_MAX_WAIT_SECONDS=(\d+)$")
+  $heartbeatMatch = [regex]::Match($envOutput, "(?m)^HEADROOM_UPSTREAM_429_HEARTBEAT_SECONDS=(\d+)$")
+  if (-not $maxWaitMatch.Success -or [int]$maxWaitMatch.Groups[1].Value -lt 21600) {
+    throw "Unsafe Headroom subscription recovery: max wait must be at least 21600 seconds."
+  }
+  if (-not $heartbeatMatch.Success -or [int]$heartbeatMatch.Groups[1].Value -gt 30) {
+    throw "Unsafe Headroom subscription recovery: heartbeat must be configured at 30 seconds or less."
+  }
+  Write-Host "Headroom upstream 429 hold: enabled, max_wait=$($maxWaitMatch.Groups[1].Value)s heartbeat=$($heartbeatMatch.Groups[1].Value)s"
+}
+
 function Test-HeadroomRequestHistory([string]$Url) {
   $stats = Invoke-RestMethod "$Url/stats" -TimeoutSec 30
   $history = $stats.request_history
@@ -695,6 +720,7 @@ Test-ClaudeRtkHook
 Show-Health "Headroom" $BaseUrl
 Show-Health "sub2api" $Sub2apiBaseUrl
 Test-HeadroomRateLimitProfile $BaseUrl
+Test-HeadroomUpstream429HoldProfile
 Test-HeadroomRequestHistory $BaseUrl
 Test-HeadroomEffortPreservationProfile
 
