@@ -52,6 +52,8 @@ param(
   [int]$HeadroomUpstream429HeartbeatSeconds = 15,
   [ValidateRange(1, 3600)]
   [int]$HeadroomUpstream429DefaultRetrySeconds = 30,
+  [ValidatePattern('^\d{3}(,\d{3})*$')]
+  [string]$HeadroomUpstreamRecoveryHoldStatuses = "429,502,503,504,529",
   [string]$RtkVersion = "v0.42.4",
   [string]$RtkStateRoot = "",
   [string]$WslDistro = "Ubuntu-24.04",
@@ -265,6 +267,7 @@ function Write-DotEnv([System.Collections.IDictionary]$Map, [string]$Path) {
     "HEADROOM_UPSTREAM_429_MAX_WAIT_SECONDS",
     "HEADROOM_UPSTREAM_429_HEARTBEAT_SECONDS",
     "HEADROOM_UPSTREAM_429_DEFAULT_RETRY_SECONDS",
+    "HEADROOM_UPSTREAM_RECOVERY_HOLD_STATUSES",
     "HEADROOM_FORCE_KOMPRESS",
     "HEADROOM_DISABLE_KOMPRESS",
     "HEADROOM_ACCURACY_GUARD",
@@ -420,6 +423,7 @@ Set-DotEnvValue $envMap "HEADROOM_UPSTREAM_429_HOLD_ENABLED" $HeadroomUpstream42
 Set-DotEnvValue $envMap "HEADROOM_UPSTREAM_429_MAX_WAIT_SECONDS" ([string]$HeadroomUpstream429MaxWaitSeconds)
 Set-DotEnvValue $envMap "HEADROOM_UPSTREAM_429_HEARTBEAT_SECONDS" ([string]$HeadroomUpstream429HeartbeatSeconds)
 Set-DotEnvValue $envMap "HEADROOM_UPSTREAM_429_DEFAULT_RETRY_SECONDS" ([string]$HeadroomUpstream429DefaultRetrySeconds)
+Set-DotEnvValue $envMap "HEADROOM_UPSTREAM_RECOVERY_HOLD_STATUSES" $HeadroomUpstreamRecoveryHoldStatuses
 Set-DotEnvValue $envMap "HEADROOM_FORCE_KOMPRESS" $resolvedHeadroomForceKompress
 Set-DotEnvValue $envMap "HEADROOM_DISABLE_KOMPRESS" $resolvedHeadroomDisableKompress
 Set-DotEnvValue $envMap "HEADROOM_ACCURACY_GUARD" "strict"

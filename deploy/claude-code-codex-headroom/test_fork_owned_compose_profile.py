@@ -222,9 +222,19 @@ def test_headroom_holds_long_upstream_rate_limit_windows() -> None:
     assert "HEADROOM_UPSTREAM_429_HEARTBEAT_SECONDS:-15" in compose
     assert "HEADROOM_UPSTREAM_429_HOLD_ENABLED=1" in env_example
     assert "HEADROOM_UPSTREAM_429_MAX_WAIT_SECONDS=21600" in env_example
+    assert "HEADROOM_UPSTREAM_RECOVERY_HOLD_STATUSES:-429,502,503,504,529" in compose
+    assert "HEADROOM_UPSTREAM_RECOVERY_HOLD_STATUSES=429,502,503,504,529" in env_example
     assert '[string]$HeadroomUpstream429HoldEnabled = "1"' in setup
     assert "[int]$HeadroomUpstream429MaxWaitSeconds = 21600" in setup
+    assert (
+        '[string]$HeadroomUpstreamRecoveryHoldStatuses = "429,502,503,504,529"'
+        in setup
+    )
     assert 'Set-DotEnvValue $envMap "HEADROOM_UPSTREAM_429_HOLD_ENABLED"' in setup
+    assert (
+        'Set-DotEnvValue $envMap "HEADROOM_UPSTREAM_RECOVERY_HOLD_STATUSES"'
+        in setup
+    )
     verifier = (
         ROOT
         / "../../backend/docs/skills/sub2api-claude-code-codex/scripts/verify-claude-code-sub2api.ps1"
@@ -232,6 +242,8 @@ def test_headroom_holds_long_upstream_rate_limit_windows() -> None:
     assert "function Test-HeadroomUpstream429HoldProfile" in verifier
     assert "HEADROOM_UPSTREAM_429_HOLD_ENABLED=1" in verifier
     assert "max wait must be at least 21600 seconds" in verifier
+    assert "runtime.upstream_recovery" in verifier
+    assert "transport_failures_total" in verifier
     assert "Test-HeadroomUpstream429HoldProfile" in verifier
 
 

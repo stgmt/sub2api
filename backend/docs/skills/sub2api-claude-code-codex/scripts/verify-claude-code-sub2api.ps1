@@ -232,7 +232,7 @@ function Test-HeadroomRateLimitProfile([string]$Url) {
   Write-Host "Headroom rate limiter: rpm=$rpm tpm=$tpm"
 }
 
-function Test-HeadroomUpstream429HoldProfile {
+function Test-HeadroomUpstream429HoldProfile([string]$Url) {
   if (-not (Test-DockerRuntimeAvailable)) {
     Write-Warning "docker and wsl.exe not found; skipping Headroom upstream 429 hold check."
     return
@@ -248,13 +248,34 @@ function Test-HeadroomUpstream429HoldProfile {
 
   $maxWaitMatch = [regex]::Match($envOutput, "(?m)^HEADROOM_UPSTREAM_429_MAX_WAIT_SECONDS=(\d+)$")
   $heartbeatMatch = [regex]::Match($envOutput, "(?m)^HEADROOM_UPSTREAM_429_HEARTBEAT_SECONDS=(\d+)$")
+  $holdStatusesMatch = [regex]::Match($envOutput, "(?m)^HEADROOM_UPSTREAM_RECOVERY_HOLD_STATUSES=([^\r\n]+)$")
   if (-not $maxWaitMatch.Success -or [int]$maxWaitMatch.Groups[1].Value -lt 21600) {
     throw "Unsafe Headroom subscription recovery: max wait must be at least 21600 seconds."
   }
   if (-not $heartbeatMatch.Success -or [int]$heartbeatMatch.Groups[1].Value -gt 30) {
     throw "Unsafe Headroom subscription recovery: heartbeat must be configured at 30 seconds or less."
   }
-  Write-Host "Headroom upstream 429 hold: enabled, max_wait=$($maxWaitMatch.Groups[1].Value)s heartbeat=$($heartbeatMatch.Groups[1].Value)s"
+  if (-not $holdStatusesMatch.Success) {
+    throw "Unsafe Headroom recovery: HEADROOM_UPSTREAM_RECOVERY_HOLD_STATUSES is missing."
+  }
+  $holdStatuses = @($holdStatusesMatch.Groups[1].Value.Split(',') | ForEach-Object { [int]$_.Trim() })
+  foreach ($requiredStatus in @(429, 502, 503, 504, 529)) {
+    if ($requiredStatus -notin $holdStatuses) {
+      throw "Unsafe Headroom recovery: status $requiredStatus is missing from HEADROOM_UPSTREAM_RECOVERY_HOLD_STATUSES."
+    }
+  }
+
+  $health = Invoke-RestMethod "$Url/health" -TimeoutSec 15
+  $recovery = $health.runtime.upstream_recovery
+  if (-not $recovery -or -not $recovery.enabled) {
+    throw "Headroom /health did not expose an enabled runtime.upstream_recovery state."
+  }
+  foreach ($field in @("active_holds", "cooling_routes", "holds_total", "recoveries_total", "timeouts_total", "transport_failures_total")) {
+    if ($null -eq $recovery.$field) {
+      throw "Headroom /health runtime.upstream_recovery is missing $field."
+    }
+  }
+  Write-Host "Headroom upstream recovery hold: enabled, max_wait=$($maxWaitMatch.Groups[1].Value)s heartbeat=$($heartbeatMatch.Groups[1].Value)s statuses=$($holdStatuses -join ',') active=$($recovery.active_holds) cooling_routes=$($recovery.cooling_routes) recovered=$($recovery.recoveries_total)"
 }
 
 function Test-HeadroomRequestHistory([string]$Url) {
@@ -746,7 +767,7 @@ Test-ClaudeRtkHook
 Show-Health "Headroom" $BaseUrl
 Show-Health "sub2api" $Sub2apiBaseUrl
 Test-HeadroomRateLimitProfile $BaseUrl
-Test-HeadroomUpstream429HoldProfile
+Test-HeadroomUpstream429HoldProfile $BaseUrl
 Test-HeadroomRequestHistory $BaseUrl
 Test-HeadroomEffortPreservationProfile
 
