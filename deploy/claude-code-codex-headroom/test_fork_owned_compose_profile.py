@@ -14,14 +14,14 @@ def test_headroom_image_builds_from_stgmt_fork_ref() -> None:
     compose = read("docker-compose.yml")
 
     assert "ARG HEADROOM_GIT_REPO=https://github.com/stgmt/headroom.git" in dockerfile
-    assert "ARG HEADROOM_GIT_REF=ae5f8fcdf6d433b41f2ade47fdce109798f6834c" in dockerfile
+    assert "ARG HEADROOM_GIT_REF=2e95863ed72847a1f2d89276ccbc2fe525c71c32" in dockerfile
     assert "ARG HEADROOM_RUST_TOOLCHAIN=1.88.0" in dockerfile
     assert "build-essential curl pkg-config" in dockerfile
     assert '--default-toolchain "${HEADROOM_RUST_TOOLCHAIN}"' in dockerfile
     assert "git+${HEADROOM_GIT_REPO}@${HEADROOM_GIT_REF}" in dockerfile
     assert "headroom-ai[proxy,code,relevance,html,spreadsheet,otel,reports,mcp]==" not in dockerfile
     assert "HEADROOM_GIT_REPO: ${HEADROOM_GIT_REPO:-https://github.com/stgmt/headroom.git}" in compose
-    assert "HEADROOM_GIT_REF: ${HEADROOM_GIT_REF:-ae5f8fcdf6d433b41f2ade47fdce109798f6834c}" in compose
+    assert "HEADROOM_GIT_REF: ${HEADROOM_GIT_REF:-2e95863ed72847a1f2d89276ccbc2fe525c71c32}" in compose
     assert "HEADROOM_RUST_TOOLCHAIN: ${HEADROOM_RUST_TOOLCHAIN:-1.88.0}" in compose
 
 
