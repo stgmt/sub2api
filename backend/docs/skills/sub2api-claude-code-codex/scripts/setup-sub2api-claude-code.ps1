@@ -42,6 +42,8 @@ param(
   [string]$HeadroomDisableKompress = "auto",
   [int]$HeadroomRequestsPerMinute = 6000,
   [int]$HeadroomTokensPerMinute = 100000000,
+  [ValidateRange(1, 10)]
+  [int]$HeadroomRetryMaxAttempts = 10,
   [string]$RtkVersion = "v0.42.4",
   [string]$RtkStateRoot = "",
   [string]$WslDistro = "Ubuntu-24.04",
@@ -250,6 +252,7 @@ function Write-DotEnv([System.Collections.IDictionary]$Map, [string]$Path) {
     "HEADROOM_TARGET_RATIO",
     "HEADROOM_RPM",
     "HEADROOM_TPM",
+    "HEADROOM_RETRY_MAX_ATTEMPTS",
     "HEADROOM_FORCE_KOMPRESS",
     "HEADROOM_DISABLE_KOMPRESS",
     "HEADROOM_ACCURACY_GUARD",
@@ -400,6 +403,7 @@ Set-DotEnvValue $envMap "HEADROOM_SAVINGS_PROFILE" $HeadroomSavingsProfile
 Set-DotEnvValue $envMap "HEADROOM_TARGET_RATIO" $HeadroomTargetRatio
 Set-DotEnvValue $envMap "HEADROOM_RPM" ([string]$HeadroomRequestsPerMinute)
 Set-DotEnvValue $envMap "HEADROOM_TPM" ([string]$HeadroomTokensPerMinute)
+Set-DotEnvValue $envMap "HEADROOM_RETRY_MAX_ATTEMPTS" ([string]$HeadroomRetryMaxAttempts)
 Set-DotEnvValue $envMap "HEADROOM_FORCE_KOMPRESS" $resolvedHeadroomForceKompress
 Set-DotEnvValue $envMap "HEADROOM_DISABLE_KOMPRESS" $resolvedHeadroomDisableKompress
 Set-DotEnvValue $envMap "HEADROOM_ACCURACY_GUARD" "strict"

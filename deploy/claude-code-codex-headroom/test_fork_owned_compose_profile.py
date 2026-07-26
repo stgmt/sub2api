@@ -176,6 +176,19 @@ def test_loopback_profile_cannot_fall_back_to_headroom_60_rpm() -> None:
     assert 'Test-HeadroomRequestHistory $BaseUrl' in verifier
 
 
+def test_headroom_retries_short_upstream_rate_limit_windows() -> None:
+    compose = read("docker-compose.yml")
+    env_example = read(".env.example")
+    setup = (
+        ROOT / "../../backend/docs/skills/sub2api-claude-code-codex/scripts/setup-sub2api-claude-code.ps1"
+    ).resolve().read_text(encoding="utf-8")
+
+    assert "HEADROOM_RETRY_MAX_ATTEMPTS: ${HEADROOM_RETRY_MAX_ATTEMPTS:-10}" in compose
+    assert "HEADROOM_RETRY_MAX_ATTEMPTS=10" in env_example
+    assert "[int]$HeadroomRetryMaxAttempts = 10" in setup
+    assert 'Set-DotEnvValue $envMap "HEADROOM_RETRY_MAX_ATTEMPTS"' in setup
+
+
 def test_cross_session_failure_registry_and_evals_are_repo_owned() -> None:
     skill_root = (
         ROOT / "../../backend/docs/skills/sub2api-claude-code-codex"
@@ -192,7 +205,9 @@ def test_cross_session_failure_registry_and_evals_are_repo_owned() -> None:
     for incident in range(1, 30):
         assert f"`F{incident:02d}`" in registry
 
-    assert [item["id"] for item in evals] == list(range(1, 29))
+    eval_ids = [item["id"] for item in evals]
+    assert eval_ids == list(range(1, max(eval_ids) + 1))
+    assert max(eval_ids) >= 38
     new_prompts = "\n".join(item["prompt"] for item in evals if item["id"] >= 16)
     for symptom in (
         "/compact",

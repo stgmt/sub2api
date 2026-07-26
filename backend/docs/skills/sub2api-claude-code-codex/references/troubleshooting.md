@@ -118,6 +118,7 @@ If Claude Code reports `API Error: 503 Service temporarily unavailable` or `API 
   ```powershell
   docker logs --since 30m sub2api-codex 2>&1 | Select-String -Pattern "account_select_failed|status_code.*503|status_code.*429|usage limit|rate_limit|no available accounts" -Context 2,2 | Select-Object -Last 80
   ```
+- For native Anthropic OAuth, find the upstream event before the no-account burst. `This request would exceed your account's rate limit` plus official Anthropic reset headers is a real subscription-window limit. Current fork behavior persists that reset, returns the exact model/reset message with `Retry-After`, and lets Headroom retry up to `HEADROOM_RETRY_MAX_ATTEMPTS=10` for short windows. Do not clear a future reset or enable cross-provider fallback inside `anthropic-only`; a long provider window remains unavailable until reset unless the operator explicitly switches profiles.
 - Check Postgres account state and recent errors:
   ```powershell
   wsl.exe -- docker exec sub2api-codex-postgres psql -U sub2api -d sub2api -F " | " -Atc "select id, status, schedulable, concurrency, rate_limited_at, rate_limit_reset_at, temp_unschedulable_until, session_window_status, coalesce((extra->'model_rate_limits')::text,''), last_used_at, updated_at from accounts where platform='openai' order by id;"

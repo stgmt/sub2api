@@ -165,10 +165,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 				if !cls.ModelNotFound {
 					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 				}
-				message := cls.Message
-				if !cls.ModelNotFound {
-					message = "No available accounts: " + err.Error()
-				}
+				message := noAccountResponseMessage(cls, err)
 				h.responsesErrorResponse(c, cls.Status, cls.ErrType, message)
 				return
 			}

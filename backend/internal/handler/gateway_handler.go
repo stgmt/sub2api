@@ -338,10 +338,7 @@ func (h *GatewayHandler) messages(c *gin.Context, fallbackDecider gatewayMessage
 						zap.Bool("model_not_found", cls.ModelNotFound),
 						zap.Error(err),
 					)
-					message := cls.Message
-					if !cls.ModelNotFound {
-						message = "No available accounts: " + err.Error()
-					}
+					message := noAccountResponseMessage(cls, err)
 					h.handleStreamingAwareError(c, cls.Status, cls.ErrType, message, streamStarted)
 					return
 				}
@@ -615,10 +612,7 @@ func (h *GatewayHandler) messages(c *gin.Context, fallbackDecider gatewayMessage
 						zap.Bool("model_not_found", cls.ModelNotFound),
 						zap.Error(err),
 					)
-					message := cls.Message
-					if !cls.ModelNotFound {
-						message = "No available accounts: " + err.Error()
-					}
+					message := noAccountResponseMessage(cls, err)
 					h.handleStreamingAwareError(c, cls.Status, cls.ErrType, message, streamStarted)
 					return
 				}

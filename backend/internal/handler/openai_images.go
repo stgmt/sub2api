@@ -163,10 +163,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 				if !cls.ModelNotFound {
 					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 				}
-				message := cls.Message
-				if !cls.ModelNotFound {
-					message = "No available compatible accounts"
-				}
+				message := noAccountResponseMessage(cls, err)
 				h.handleStreamingAwareError(c, cls.Status, cls.ErrType, message, streamStarted)
 				return
 			}
@@ -182,10 +179,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 			if !cls.ModelNotFound {
 				markOpsRoutingCapacityLimited(c)
 			}
-			message := cls.Message
-			if !cls.ModelNotFound {
-				message = "No available compatible accounts"
-			}
+			message := noAccountResponseMessage(cls, err)
 			h.handleStreamingAwareError(c, cls.Status, cls.ErrType, message, streamStarted)
 			return
 		}

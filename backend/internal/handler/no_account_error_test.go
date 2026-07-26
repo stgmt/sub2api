@@ -4,6 +4,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -129,7 +130,7 @@ func TestClassifyNoAccountError_HasModelSupport_KeepsRoutingMessageGenerationToC
 
 func TestClassifyNoAccountError_AllSupportingAccountsRateLimited_Returns429(t *testing.T) {
 	c := newTestGinContextWithRequest()
-	resetAt := time.Date(2026, 7, 8, 20, 54, 13, 0, time.UTC)
+	resetAt := time.Now().Add(10 * time.Minute).Truncate(time.Second)
 	fd := &fakeDiagnoser{resp: service.ModelAvailabilityDiagnosis{
 		HasAccountsInPool:                     true,
 		HasModelSupport:                       true,
@@ -145,6 +146,34 @@ func TestClassifyNoAccountError_AllSupportingAccountsRateLimited_Returns429(t *t
 	require.False(t, cls.ModelNotFound)
 	require.Contains(t, cls.Message, "gpt-5.5")
 	require.Contains(t, cls.Message, resetAt.Format(time.RFC3339))
+	require.Equal(t, &resetAt, cls.RateLimitResetAt)
+	retryAfter := c.Writer.Header().Get("Retry-After")
+	require.NotEmpty(t, retryAfter)
+}
+
+func TestNoAccountResponseMessage_PreservesDiagnosedRateLimit(t *testing.T) {
+	cls := noAccountErrorClassification{
+		Status:  http.StatusTooManyRequests,
+		ErrType: "rate_limit_error",
+		Message: "All configured accounts are rate-limited until 2026-07-26T10:00:00+03:00",
+	}
+
+	message := noAccountResponseMessage(cls, errors.New("no available accounts"))
+
+	require.Equal(t, cls.Message, message)
+	require.NotContains(t, message, "No available accounts:")
+}
+
+func TestNoAccountResponseMessage_KeepsGenericSelectionDetailForUndiagnosedCapacity(t *testing.T) {
+	cls := noAccountErrorClassification{
+		Status:  http.StatusServiceUnavailable,
+		ErrType: "api_error",
+		Message: "Service temporarily unavailable",
+	}
+
+	message := noAccountResponseMessage(cls, errors.New("no available accounts"))
+
+	require.Equal(t, "No available accounts: no available accounts", message)
 }
 
 func TestClassifyNoAccountError_AllSupportingAccountsAuthErrored_Returns401(t *testing.T) {

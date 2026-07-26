@@ -222,6 +222,12 @@
       "prompt": "На Opus 5 Claude Code всё ещё показывает маленький контекст 340k/370k. У модели 1M, исправь на хосте и виртуалках.",
       "expected_output": "Classifies the stale client window as F34, proves settings.json, User/process env, and the wrapper retained hybrid 370000/340000 values, upgrades Claude Code to 2.1.219 or later for Opus 5, versions anthropic-only to v4 with 1000000 context values and gateway-facing claude-opus-5[1m]/claude-sonnet-5[1m] IDs while keeping server IDs suffix-free, preserves Opus 5 main plus Sonnet 5/low compact routing, migrates installed v3 artifacts, reconciles every reachable Windows/Linux/Hyper-V Claude host, marks unreachable nodes pending instead of falsely claiming sync, proves raw ID returns a 200000 client budget while [1m] returns 1000000, verifies sub2api received the stripped raw Opus 5 model, reruns provider route proof, and commits/pushes the unified skill profile.",
       "files": []
+    },
+    {
+      "id": 38,
+      "prompt": "API Error: Request rejected (429) · No available accounts: no available accounts. Разберись и пофикси, но anthropic-only не должен тихо уйти в GPT/Qwen.",
+      "expected_output": "Classifies the incident as F37, correlates the generic no-account burst with the immediately preceding real Anthropic subscription-window 429 and the only allowed OAuth account's reset timestamp, proves the account later auto-restored without SQL clearing, preserves the diagnosed model/reset response instead of overwriting it, emits reset-derived Retry-After, configures ten bounded Headroom attempts for short windows, keeps cross-provider fallback forbidden, covers message/header and compose contracts, rebuilds/recreates the live stack, and finishes with claude-route verify PASS through Headroom. It explicitly states that a long real provider quota window cannot be bypassed without an explicit profile switch or another valid account.",
+      "files": []
     }
   ]
 }

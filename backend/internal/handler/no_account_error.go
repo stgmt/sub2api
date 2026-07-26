@@ -27,10 +27,18 @@ import (
 //     after a backoff can plausibly succeed (or, in the empty-pool case, the
 //     operator may be in the middle of adding accounts).
 type noAccountErrorClassification struct {
-	Status        int
-	ErrType       string
-	Message       string
-	ModelNotFound bool // true when this is a 404 model_not_found classification
+	Status           int
+	ErrType          string
+	Message          string
+	ModelNotFound    bool // true when this is a 404 model_not_found classification
+	RateLimitResetAt *time.Time
+}
+
+func noAccountResponseMessage(cls noAccountErrorClassification, selectionErr error) string {
+	if cls.ErrType != "api_error" || selectionErr == nil {
+		return cls.Message
+	}
+	return "No available accounts: " + selectionErr.Error()
 }
 
 // classifyNoAccountError decides between 404 model_not_found and 503
@@ -90,9 +98,10 @@ func classifyNoAccountError(
 	}
 	if result.HasModelSupport && result.AllModelSupportingAccountsRateLimited && result.RateLimitResetAt != nil {
 		return noAccountErrorClassification{
-			Status:  http.StatusTooManyRequests,
-			ErrType: "rate_limit_error",
-			Message: fmt.Sprintf("All configured accounts that support %q are rate-limited until %s", displayModel, result.RateLimitResetAt.Format(time.RFC3339)),
+			Status:           http.StatusTooManyRequests,
+			ErrType:          "rate_limit_error",
+			Message:          fmt.Sprintf("All configured accounts that support %q are rate-limited until %s", displayModel, result.RateLimitResetAt.Format(time.RFC3339)),
+			RateLimitResetAt: result.RateLimitResetAt,
 		}
 	}
 	if result.HasModelSupport && result.AllModelSupportingAccountsAuthErrored {
@@ -124,5 +133,13 @@ func classifyNoAccountErrorFromGin(
 	if c != nil && c.Request != nil {
 		ctx = c.Request.Context()
 	}
-	return classifyNoAccountError(ctx, diag, apiKey, routingModel, displayModel, platform)
+	cls := classifyNoAccountError(ctx, diag, apiKey, routingModel, displayModel, platform)
+	if c != nil && cls.RateLimitResetAt != nil {
+		untilReset := time.Until(*cls.RateLimitResetAt)
+		if untilReset > 0 {
+			seconds := int64((untilReset + time.Second - 1) / time.Second)
+			c.Header("Retry-After", fmt.Sprintf("%d", seconds))
+		}
+	}
+	return cls
 }
