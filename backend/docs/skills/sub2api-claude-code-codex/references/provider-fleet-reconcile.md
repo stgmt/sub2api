@@ -21,6 +21,8 @@ Reconcile only provider/model fields in:
 - model gateway cache and status display metadata;
 - boot/login self-heal generation marker.
 
+For profiles that declare `unset_client_env`, remove those keys from settings and User environment. On Windows, also write an explicit empty assignment in the launcher wrapper so an already-open parent process cannot re-inject a stale hard override into a new Claude process.
+
 Preserve hooks, MCP servers, permissions, custom agent bodies, project rules, and unrelated settings.
 
 ## Adapters

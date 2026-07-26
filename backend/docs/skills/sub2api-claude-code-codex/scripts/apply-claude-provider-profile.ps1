@@ -51,6 +51,16 @@ if (-not ($settings.PSObject.Properties.Name -contains "env") -or $null -eq $set
 }
 
 $drift = [Collections.Generic.List[string]]::new()
+$unsetClientEnv = @()
+if ($profile.PSObject.Properties.Name -contains "unset_client_env") {
+  $unsetClientEnv = @($profile.unset_client_env | ForEach-Object { [string]$_ })
+}
+foreach ($name in $unsetClientEnv) {
+  if ($settings.env.PSObject.Properties.Name -contains $name) {
+    $drift.Add("settings.env.$name")
+    if (-not $CheckOnly) { $settings.env.PSObject.Properties.Remove($name) }
+  }
+}
 foreach ($property in $profile.client_env.PSObject.Properties) {
   $current = if ($settings.env.PSObject.Properties.Name -contains $property.Name) { [string]$settings.env.($property.Name) } else { $null }
   if ($current -ne [string]$property.Value) {
@@ -67,6 +77,13 @@ if ([string]$settings.env.$markerName -ne [string]$Generation) {
 
 if ($EnvironmentTarget -ne "None") {
   $target = [Enum]::Parse([EnvironmentVariableTarget], $EnvironmentTarget)
+  foreach ($name in $unsetClientEnv) {
+    $current = [Environment]::GetEnvironmentVariable($name, $target)
+    if ($null -ne $current) {
+      $drift.Add("user_env.$name")
+      if (-not $CheckOnly) { [Environment]::SetEnvironmentVariable($name, $null, $target) }
+    }
+  }
   $desiredUserEnvironment = [ordered]@{}
   foreach ($property in $profile.client_env.PSObject.Properties) {
     $desiredUserEnvironment[$property.Name] = [string]$property.Value
@@ -117,6 +134,18 @@ foreach ($file in $agentFiles) {
 if (Test-Path -LiteralPath $WrapperPath) {
   $wrapper = Get-Content -Raw -LiteralPath $WrapperPath
   $updatedWrapper = $wrapper
+  foreach ($name in $unsetClientEnv) {
+    $escapedName = [regex]::Escape($name)
+    $pattern = '(?im)^set\s+"{0}=.*?"\s*$' -f $escapedName
+    $clearLine = "set `"$name=`""
+    if ($updatedWrapper -match $pattern) {
+      $updatedWrapper = [regex]::Replace($updatedWrapper, $pattern, $clearLine)
+    } elseif ($updatedWrapper -match '(?im)^setlocal\s*$') {
+      $updatedWrapper = [regex]::Replace($updatedWrapper, '(?im)^setlocal\s*$', "setlocal`r`n$clearLine", 1)
+    } else {
+      $updatedWrapper = "$clearLine`r`n$updatedWrapper"
+    }
+  }
   foreach ($property in $profile.client_env.PSObject.Properties) {
     $escapedName = [regex]::Escape($property.Name)
     $pattern = '(?im)^set\s+"{0}=.*?"\s*$' -f $escapedName

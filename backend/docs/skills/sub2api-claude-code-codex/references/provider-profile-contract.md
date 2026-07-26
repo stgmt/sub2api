@@ -49,6 +49,22 @@ The profile is a versioned snapshot, not an informal restoration guess. Its init
 
 Before modifying the hybrid profile, save a new version. A switch back must restore the recorded profile version exactly.
 
+## chatgpt-only
+
+Version 1 is a separate managed group, not a mutation of `hybrid-current`:
+
+- account membership: only `codex-chatgpt-subscription` (`openai`, `oauth`);
+- main/Opus: `gpt-5.6-sol`; Fable/Sonnet: `gpt-5.6-terra`; Haiku/small-fast: `gpt-5.6-luna`;
+- every global agent and Agent SDK child: `gpt-5.6-luna`, effort `xhigh`;
+- compact: `gpt-5.6-luna`, effort `high`;
+- model fallbacks and fallback groups: empty;
+- explicit model catalog: GPT/Codex only;
+- stale Claude, Qwen, GLM, and DeepSeek IDs: exact-map to the matching GPT role before provider classification;
+- client context target: `370000`; auto-compact threshold: `340000`;
+- remove persistent `CLAUDE_CODE_EFFORT_LEVEL`; preserve the user's interactive `effortLevel` and `/effort` selection.
+
+Before preparing this group, atomically synchronize a validated host `~/.codex/auth.json` into the actual host-bound WSL state path. Compare SHA-256 after copy and never print token data. The first Headroom Sol probe is allowed to trigger sub2api's auth-file recovery, but the switch commits only after the account is `active`, schedulable, and the usage row names account `codex-chatgpt-subscription`.
+
 ## Transaction Boundary
 
 1. Prepare and validate the inactive group.

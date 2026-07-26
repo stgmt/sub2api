@@ -32,9 +32,15 @@ if settings_path.exists():
 else:
     settings = {}
 env = settings.setdefault("env", {})
+unset_client_env = [str(key) for key in profile.get("unset_client_env", [])]
 desired = {k: str(v) for k, v in profile["client_env"].items()}
 desired["CLAUDE_PROVIDER_PROFILE_GENERATION"] = str(generation)
 drift = []
+for key in unset_client_env:
+    if key in env:
+        drift.append(f"settings.env.{key}")
+        if not check_only:
+            env.pop(key, None)
 for key, value in desired.items():
     if str(env.get(key, "")) != value:
         drift.append(f"settings.env.{key}")

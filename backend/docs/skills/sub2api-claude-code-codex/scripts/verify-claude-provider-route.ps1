@@ -32,7 +32,12 @@ function Resolve-HeadroomUrl {
 
 if (-not (Test-Path -LiteralPath $statePath)) { throw "Provider route state is not initialized: $statePath" }
 $state = Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json
-$profileFile = if ($state.active_profile -eq "anthropic-only") { "anthropic-only.v4.json" } else { "hybrid-current.v1.json" }
+$profileFile = switch ($state.active_profile) {
+  "anthropic-only" { "anthropic-only.v4.json" }
+  "chatgpt-only" { "chatgpt-only.v1.json" }
+  "hybrid-current" { "hybrid-current.v1.json" }
+  default { throw "Unknown active provider profile: $($state.active_profile)" }
+}
 $profile = Get-Content -Raw -LiteralPath (Join-Path $skillRoot "profiles\$profileFile") | ConvertFrom-Json
 $keyNameSql = $StableKeyName.Replace("'", "''")
 $keyRows = @(Invoke-Sql "SELECT id || chr(9) || key FROM api_keys WHERE name='$keyNameSql' AND status='active' AND deleted_at IS NULL;")
@@ -107,6 +112,21 @@ if ($state.active_profile -eq "anthropic-only") {
   }
   if ([string]$usageProof[3].reasoning_effort -ne "high") {
     throw "SDK CLI probe expected reasoning effort 'high', got '$($usageProof[3].reasoning_effort)'"
+  }
+} elseif ($state.active_profile -eq "chatgpt-only") {
+  $forbidden = @($usageProof | Where-Object { $_.platform -ne "openai" -or $_.type -ne "oauth" -or $_.account_name -ne $profile.expected_account_name })
+  if ($forbidden.Count -gt 0) { throw "ChatGPT-only verification observed a forbidden provider account" }
+  $expectedModels = @($profile.main_model, "gpt-5.6-luna", "gpt-5.6-luna", "gpt-5.6-luna")
+  for ($i = 0; $i -lt $expectedModels.Count; $i++) {
+    if ([string]$usageProof[$i].model -ne [string]$expectedModels[$i]) {
+      throw "Probe '$($probes[$i].name)' expected model '$($expectedModels[$i])', got '$($usageProof[$i].model)'"
+    }
+  }
+  if ([string]$usageProof[2].reasoning_effort -ne "high") {
+    throw "Compact probe expected reasoning effort 'high', got '$($usageProof[2].reasoning_effort)'"
+  }
+  if ([string]$usageProof[3].reasoning_effort -ne "xhigh") {
+    throw "SDK CLI probe expected reasoning effort 'xhigh', got '$($usageProof[3].reasoning_effort)'"
   }
 }
 

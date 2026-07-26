@@ -494,6 +494,12 @@ Set-DotEnvValue $envMap "REDIS_PASSWORD" (New-Secret 24) -OnlyIfMissing:(!$Force
 
 Write-DotEnv -Map $envMap -Path $envPath
 foreach ($stateSubdir in @("headroom", "headroom-cache", "headroom-huggingface", "sub2api", "postgres", "redis")) {
+  if ($StateRoot.StartsWith("/")) {
+    $statePath = $StateRoot.TrimEnd('/') + "/$stateSubdir"
+    & wsl.exe -d $WslDistro -- mkdir -p $statePath 2>$null
+    if ($LASTEXITCODE -ne 0) { throw "Could not create WSL state directory '$statePath'" }
+    continue
+  }
   $statePath = if ([System.IO.Path]::IsPathRooted($StateRoot)) {
     Join-Path $StateRoot $stateSubdir
   } else {
@@ -507,13 +513,30 @@ if ($hostCodexAuthPath -and (Test-Path -LiteralPath $hostCodexAuthPath)) {
   try {
     $auth = Get-Content -Raw -LiteralPath $hostCodexAuthPath | ConvertFrom-Json
     if ([string]$auth.tokens.access_token -and [string]$auth.tokens.refresh_token) {
-      $sub2apiStatePath = if ([System.IO.Path]::IsPathRooted($StateRoot)) {
-        Join-Path $StateRoot "sub2api"
+      if ($StateRoot.StartsWith("/")) {
+        $hostCodexAuthPortable = $hostCodexAuthPath -replace '\\', '/'
+        $hostCodexAuthWsl = @(& wsl.exe -d $WslDistro -- wslpath -a -u -- $hostCodexAuthPortable 2>$null)
+        if ($LASTEXITCODE -ne 0 -or $hostCodexAuthWsl.Count -ne 1) { throw "Could not translate Codex auth path into WSL" }
+        $target = $StateRoot.TrimEnd('/') + "/sub2api/codex-auth.json"
+        $targetDir = $StateRoot.TrimEnd('/') + "/sub2api"
+        $temporaryTarget = "$target.tmp.$([guid]::NewGuid().ToString('N'))"
+        & wsl.exe -d $WslDistro -- mkdir -p $targetDir 2>$null
+        if ($LASTEXITCODE -ne 0) { throw "Could not create WSL Codex auth directory" }
+        & wsl.exe -d $WslDistro -- cp $hostCodexAuthWsl[0].Trim() $temporaryTarget 2>$null
+        if ($LASTEXITCODE -ne 0) { throw "Could not stage Codex auth inside WSL" }
+        & wsl.exe -d $WslDistro -- chmod 600 $temporaryTarget 2>$null
+        if ($LASTEXITCODE -ne 0) { throw "Could not protect staged Codex auth inside WSL" }
+        & wsl.exe -d $WslDistro -- mv -f $temporaryTarget $target 2>$null
+        if ($LASTEXITCODE -ne 0) { throw "Could not atomically publish Codex auth inside WSL" }
       } else {
-        Join-Path $profileDir (Join-Path $StateRoot "sub2api")
+        $sub2apiStatePath = if ([System.IO.Path]::IsPathRooted($StateRoot)) {
+        Join-Path $StateRoot "sub2api"
+        } else {
+          Join-Path $profileDir (Join-Path $StateRoot "sub2api")
+        }
+        New-Item -ItemType Directory -Force -Path $sub2apiStatePath | Out-Null
+        Copy-Item -LiteralPath $hostCodexAuthPath -Destination (Join-Path $sub2apiStatePath "codex-auth.json") -Force
       }
-      New-Item -ItemType Directory -Force -Path $sub2apiStatePath | Out-Null
-      Copy-Item -LiteralPath $hostCodexAuthPath -Destination (Join-Path $sub2apiStatePath "codex-auth.json") -Force
     }
   } catch {
     Write-Warning "Codex auth file was not synced into sub2api state: $($_.Exception.Message)"

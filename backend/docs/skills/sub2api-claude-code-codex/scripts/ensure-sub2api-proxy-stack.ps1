@@ -252,7 +252,7 @@ function Resolve-StateRootPath {
   if ($EnvMap.ContainsKey("SUB2API_STATE_ROOT") -and $EnvMap["SUB2API_STATE_ROOT"].Trim()) {
     $stateRoot = $EnvMap["SUB2API_STATE_ROOT"].Trim()
   }
-  if ([IO.Path]::IsPathRooted($stateRoot)) {
+  if ($stateRoot.StartsWith("/") -or [IO.Path]::IsPathRooted($stateRoot)) {
     return $stateRoot
   }
   return Join-Path $ProfileRoot ($stateRoot -replace '^\.[\\/]', '')
@@ -288,11 +288,43 @@ function Sync-CodexAuthFile {
   }
 
   $stateRoot = Resolve-StateRootPath -ProfileRoot $ProfileRoot -EnvMap $EnvMap
+  $sourceHash = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant()
+  if ($stateRoot.StartsWith("/")) {
+    $sourcePortable = $source -replace '\\', '/'
+    $sourceWsl = @(& wsl.exe -d $Distro -- wslpath -a -u -- $sourcePortable 2>$null)
+    if ($LASTEXITCODE -ne 0 -or $sourceWsl.Count -ne 1 -or -not $sourceWsl[0].Trim()) {
+      throw "Could not translate Codex auth path into WSL: $source"
+    }
+    $target = $stateRoot.TrimEnd('/') + "/sub2api/codex-auth.json"
+    $targetHash = ""
+    $hashOutput = @(& wsl.exe -d $Distro -- sha256sum $target 2>$null)
+    if ($LASTEXITCODE -eq 0 -and $hashOutput.Count -gt 0) { $targetHash = (($hashOutput[0] -split '\s+')[0]).ToLowerInvariant() }
+    if ($sourceHash -eq $targetHash) {
+      return @{ status = "unchanged"; target = $target }
+    }
+    $targetDir = $stateRoot.TrimEnd('/') + "/sub2api"
+    $temporaryTarget = "$target.tmp.$([guid]::NewGuid().ToString('N'))"
+    & wsl.exe -d $Distro -- mkdir -p $targetDir 2>$null
+    if ($LASTEXITCODE -ne 0) { throw "Could not create WSL Codex auth directory: $targetDir" }
+    & wsl.exe -d $Distro -- cp $sourceWsl[0].Trim() $temporaryTarget 2>$null
+    if ($LASTEXITCODE -ne 0) { throw "Could not stage Codex auth inside WSL" }
+    & wsl.exe -d $Distro -- chmod 600 $temporaryTarget 2>$null
+    if ($LASTEXITCODE -ne 0) { throw "Could not protect staged Codex auth inside WSL" }
+    & wsl.exe -d $Distro -- mv -f $temporaryTarget $target 2>$null
+    if ($LASTEXITCODE -ne 0) { throw "Could not atomically publish Codex auth inside WSL" }
+    $copiedHashOutput = @(& wsl.exe -d $Distro -- sha256sum $target 2>$null)
+    $copiedHash = if ($LASTEXITCODE -eq 0 -and $copiedHashOutput.Count -gt 0) { (($copiedHashOutput[0] -split '\s+')[0]).ToLowerInvariant() } else { "" }
+    if ($sourceHash -ne $copiedHash) {
+      throw "WSL Codex auth hash verification failed: $target"
+    }
+    Write-SelfHealEvent -Event "codex_auth_synced" -Data @{ target = $target; source_mtime_utc = (Get-Item -LiteralPath $source).LastWriteTimeUtc.ToString("o") }
+    return @{ status = "synced"; target = $target }
+  }
+
   $targetDir = Join-Path $stateRoot "sub2api"
   $target = Join-Path $targetDir "codex-auth.json"
   New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
 
-  $sourceHash = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant()
   $targetHash = ""
   if (Test-Path -LiteralPath $target) {
     $targetHash = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant()

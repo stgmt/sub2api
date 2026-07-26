@@ -1,14 +1,16 @@
 [CmdletBinding()]
 param(
   [Parameter(Position = 0)]
-  [ValidateSet("status", "anthropic", "hybrid", "reconcile", "verify")]
+  [ValidateSet("status", "anthropic", "chatgpt", "hybrid", "reconcile", "verify")]
   [string]$Command = "status",
   [string]$RuntimeRoot = "C:\Users\stigm\Documents\Codex\2026-07-07\new-chat\work\sub2api-runtime",
   [string]$AdminBaseUrl = "http://127.0.0.1:18081",
   [string]$HeadroomBaseUrl = "http://127.0.0.1:8787",
   [string]$StableKeyName = "claude-code-codex-sub2api",
   [string]$ClaudeCredentialsPath = "$HOME\.claude\.credentials.json",
+  [string]$CodexAuthPath = "$HOME\.codex\auth.json",
   [string]$WslDistro = "Ubuntu-24.04",
+  [string]$LinuxGuestVmName = "devcontainer-ubuntu-2404",
   [string]$LinuxGuest = "migration@172.20.36.35",
   [string]$LinuxGuestKey = "C:\Migration\devcontainer-vm-key",
   [string]$WindowsGuestName = "win10-ltsc-docker",
@@ -79,7 +81,12 @@ function Read-DotEnv([string]$Path) {
 }
 
 function Read-Profile([string]$Name) {
-  $fileName = if ($Name -eq "anthropic-only") { "anthropic-only.v4.json" } else { "hybrid-current.v1.json" }
+  $fileName = switch ($Name) {
+    "anthropic-only" { "anthropic-only.v4.json" }
+    "chatgpt-only" { "chatgpt-only.v1.json" }
+    "hybrid-current" { "hybrid-current.v1.json" }
+    default { throw "Unknown provider profile: $Name" }
+  }
   $path = Join-Path $profileRoot $fileName
   if (-not (Test-Path -LiteralPath $path)) { throw "Profile not found: $path" }
   return [pscustomobject]@{ Path = $path; Data = (Get-Content -Raw -LiteralPath $path | ConvertFrom-Json) }
@@ -159,7 +166,7 @@ function Get-AccountByName([string]$Name) {
   return @(Get-Accounts | Where-Object { $_.name -eq $Name }) | Select-Object -First 1
 }
 
-function Ensure-AnthropicGroup($Profile) {
+function Ensure-ManagedGroup($Profile) {
   $group = Get-GroupByName $Profile.group_name
   $body = $Profile.group
   if ($null -eq $group) {
@@ -169,7 +176,7 @@ function Ensure-AnthropicGroup($Profile) {
     Invoke-AdminApi "Put" "/api/v1/admin/groups/$($group.id)" $body | Out-Null
   }
   $group = Get-GroupByName $Profile.group_name
-  if ($null -eq $group) { throw "Managed Anthropic group was not created" }
+  if ($null -eq $group) { throw "Managed provider group was not created" }
 
   $groupId = [int64]$group.id
   Invoke-PostgresSql "UPDATE groups SET fallback_group_id = NULL, fallback_group_id_on_invalid_request = NULL WHERE id = $groupId;" | Out-Null
@@ -183,6 +190,45 @@ function Get-Sha256([string]$Value) {
   } finally {
     $sha.Dispose()
   }
+}
+
+function Sync-CodexAuthFile {
+  if (-not (Test-Path -LiteralPath $CodexAuthPath)) { throw "Codex auth file not found: $CodexAuthPath" }
+  $auth = Get-Content -Raw -LiteralPath $CodexAuthPath | ConvertFrom-Json
+  if (-not [string]$auth.tokens.access_token -or -not [string]$auth.tokens.refresh_token) {
+    throw "Codex auth file lacks tokens.access_token or tokens.refresh_token"
+  }
+  $envMap = Read-DotEnv $envPath
+  $stateRoot = if ($envMap.ContainsKey("SUB2API_STATE_ROOT") -and $envMap["SUB2API_STATE_ROOT"].Trim()) { $envMap["SUB2API_STATE_ROOT"].Trim() } else { "./data" }
+  $sourceHash = (Get-FileHash -LiteralPath $CodexAuthPath -Algorithm SHA256).Hash.ToLowerInvariant()
+  if ($stateRoot.StartsWith("/")) {
+    $sourcePortable = $CodexAuthPath -replace '\\', '/'
+    $sourceWsl = @(& wsl.exe -d $WslDistro -- wslpath -a -u -- $sourcePortable 2>$null)
+    if ($LASTEXITCODE -ne 0 -or $sourceWsl.Count -ne 1 -or -not $sourceWsl[0].Trim()) { throw "Could not translate Codex auth path into WSL" }
+    $target = $stateRoot.TrimEnd('/') + "/sub2api/codex-auth.json"
+    $targetDir = $stateRoot.TrimEnd('/') + "/sub2api"
+    $temporaryTarget = "$target.tmp.$([guid]::NewGuid().ToString('N'))"
+    & wsl.exe -d $WslDistro -- mkdir -p $targetDir 2>$null
+    if ($LASTEXITCODE -ne 0) { throw "Could not create WSL Codex auth directory" }
+    & wsl.exe -d $WslDistro -- cp $sourceWsl[0].Trim() $temporaryTarget 2>$null
+    if ($LASTEXITCODE -ne 0) { throw "Could not stage Codex auth inside WSL" }
+    & wsl.exe -d $WslDistro -- chmod 600 $temporaryTarget 2>$null
+    if ($LASTEXITCODE -ne 0) { throw "Could not protect staged Codex auth inside WSL" }
+    & wsl.exe -d $WslDistro -- mv -f $temporaryTarget $target 2>$null
+    if ($LASTEXITCODE -ne 0) { throw "Could not atomically publish Codex auth inside WSL" }
+    $targetHashOutput = @(& wsl.exe -d $WslDistro -- sha256sum $target 2>$null)
+    $targetHash = if ($LASTEXITCODE -eq 0 -and $targetHashOutput.Count -gt 0) { (($targetHashOutput[0] -split '\s+')[0]).ToLowerInvariant() } else { "" }
+    if ($sourceHash -ne $targetHash) { throw "WSL Codex auth hash verification failed" }
+    return [pscustomobject]@{ status = "synced"; target = $target; sha256 = $sourceHash }
+  }
+  $resolvedRoot = if ([IO.Path]::IsPathRooted($stateRoot)) { $stateRoot } else { Join-Path $RuntimeRoot ($stateRoot -replace '^\.[\\/]', '') }
+  $targetDir = Join-Path $resolvedRoot "sub2api"
+  $target = Join-Path $targetDir "codex-auth.json"
+  New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
+  Copy-Item -LiteralPath $CodexAuthPath -Destination $target -Force
+  $targetHash = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant()
+  if ($sourceHash -ne $targetHash) { throw "Codex auth hash verification failed" }
+  return [pscustomobject]@{ status = "synced"; target = $target; sha256 = $sourceHash }
 }
 
 function Get-ClaudeSourceCredentials {
@@ -290,6 +336,18 @@ function Ensure-AnthropicAccount($Profile, [int64]$GroupId) {
   return $account
 }
 
+function Ensure-ChatGPTAccount($Profile, [int64]$GroupId) {
+  $authProof = Sync-CodexAuthFile
+  $account = Get-AccountByName $Profile.account_name
+  if ($null -eq $account) { throw "ChatGPT/Codex account '$($Profile.account_name)' does not exist" }
+  if ([string]$account.platform -ne "openai" -or [string]$account.type -ne "oauth") {
+    throw "ChatGPT/Codex account '$($Profile.account_name)' must be an OpenAI OAuth account"
+  }
+  $accountId = [int64]$account.id
+  Invoke-PostgresSql "INSERT INTO account_groups (account_id, group_id) VALUES ($accountId, $GroupId) ON CONFLICT (account_id, group_id) DO NOTHING; DELETE FROM account_groups WHERE group_id = $GroupId AND account_id <> $accountId;" | Out-Null
+  return [pscustomobject]@{ account = $account; auth = $authProof }
+}
+
 function Set-StableKeyGroup([int64]$KeyId, [int64]$GroupId) {
   Invoke-AdminApi "Put" "/api/v1/admin/api-keys/$KeyId" @{ group_id = $GroupId } | Out-Null
 }
@@ -373,20 +431,36 @@ function Test-HostProfile($ProfileRecord, [string]$Generation) {
 
 function Reconcile-LinuxGuest($ProfileRecord, [string]$Generation) {
   $ErrorActionPreference = "Continue"
-  $result = [ordered]@{ name = "devcontainer-ubuntu-2404"; status = "pending-reconcile"; generation = $Generation; checked_at = [DateTimeOffset]::UtcNow.ToString("o"); detail = "offline or unreachable" }
+  $result = [ordered]@{ name = $LinuxGuestVmName; status = "pending-reconcile"; generation = $Generation; checked_at = [DateTimeOffset]::UtcNow.ToString("o"); detail = "offline or unreachable" }
   if (-not (Get-Command ssh.exe -ErrorAction SilentlyContinue)) { $result.detail = "ssh.exe unavailable"; return [pscustomobject]$result }
   if (-not (Test-Path -LiteralPath $LinuxGuestKey)) { $result.detail = "SSH key unavailable"; return [pscustomobject]$result }
   $sshArgs = @("-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=accept-new", "-i", $LinuxGuestKey)
-  $probe = @(& ssh.exe @sshArgs $LinuxGuest "true" 2>&1)
-  if ($LASTEXITCODE -ne 0) { $result.detail = ($probe -join " ").Trim(); return [pscustomobject]$result }
+  $guestParts = $LinuxGuest -split '@', 2
+  $guestUser = if ($guestParts.Count -eq 2) { $guestParts[0] } else { "migration" }
+  $targets = [Collections.Generic.List[string]]::new()
+  $vmNameLiteral = $LinuxGuestVmName.Replace("'", "''")
+  $discoveredIps = @(& powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "(Get-VMNetworkAdapter -VMName '$vmNameLiteral' -ErrorAction SilentlyContinue).IPAddresses" 2>$null)
+  foreach ($ip in $discoveredIps) {
+    $candidateIp = [string]$ip
+    if ($candidateIp -match '^\d+\.\d+\.\d+\.\d+$' -and -not $candidateIp.StartsWith('169.254.')) { $targets.Add("${guestUser}@${candidateIp}") }
+  }
+  if ($LinuxGuest.Trim()) { $targets.Add($LinuxGuest) }
+  $activeTarget = $null
+  $lastProbe = "Hyper-V guest is not registered or has no reachable SSH address"
+  foreach ($target in @($targets | Select-Object -Unique)) {
+    $probe = @(& ssh.exe @sshArgs $target "true" 2>&1)
+    if ($LASTEXITCODE -eq 0) { $activeTarget = $target; break }
+    $lastProbe = ($probe -join " ").Trim()
+  }
+  if (-not $activeTarget) { $result.detail = $lastProbe; return [pscustomobject]$result }
   $remoteRoot = ".cache/sub2api-claude-route"
-  & ssh.exe @sshArgs $LinuxGuest "mkdir -p $remoteRoot" | Out-Null
+  & ssh.exe @sshArgs $activeTarget "mkdir -p $remoteRoot" | Out-Null
   if ($LASTEXITCODE -ne 0) { $result.detail = "failed to create remote staging directory"; return [pscustomobject]$result }
-  & scp.exe @sshArgs $ProfileRecord.Path "${LinuxGuest}:${remoteRoot}/profile.json" | Out-Null
+  & scp.exe @sshArgs $ProfileRecord.Path "${activeTarget}:${remoteRoot}/profile.json" | Out-Null
   if ($LASTEXITCODE -ne 0) { $result.detail = "failed to stage profile"; return [pscustomobject]$result }
-  & scp.exe @sshArgs $linuxProfileApplier "${LinuxGuest}:${remoteRoot}/apply-profile.sh" | Out-Null
+  & scp.exe @sshArgs $linuxProfileApplier "${activeTarget}:${remoteRoot}/apply-profile.sh" | Out-Null
   if ($LASTEXITCODE -ne 0) { $result.detail = "failed to stage Linux applier"; return [pscustomobject]$result }
-  $remote = @(& ssh.exe @sshArgs $LinuxGuest "chmod 700 $remoteRoot/apply-profile.sh && bash $remoteRoot/apply-profile.sh --profile-path $remoteRoot/profile.json --generation '$Generation'" 2>&1)
+  $remote = @(& ssh.exe @sshArgs $activeTarget "chmod 700 $remoteRoot/apply-profile.sh && bash $remoteRoot/apply-profile.sh --profile-path $remoteRoot/profile.json --generation '$Generation'" 2>&1)
   $remoteText = ($remote -join " ").Trim()
   if ($LASTEXITCODE -eq 0) {
     $result.status = "synced"
@@ -454,7 +528,7 @@ function Reconcile-Fleet($ProfileRecord, [string]$Generation) {
 }
 
 function Get-ProfileForGroup([string]$GroupName) {
-  foreach ($name in @("anthropic-only", "hybrid-current")) {
+  foreach ($name in @("anthropic-only", "chatgpt-only", "hybrid-current")) {
     $record = Read-Profile $name
     if ($record.Data.group_name -eq $GroupName) { return $record }
   }
@@ -489,12 +563,16 @@ function Invoke-Switch([string]$ProfileName) {
   $oldGroups = Get-Groups
   $oldGroup = @($oldGroups | Where-Object { [int64]$_.id -eq [int64]$oldGroupId }) | Select-Object -First 1
 
-  if ($ProfileName -eq "anthropic-only") {
-    $targetGroup = Ensure-AnthropicGroup $profile
-    Ensure-AnthropicAccount $profile ([int64]$targetGroup.id) | Out-Null
+  if ($profile.PSObject.Properties.Name -contains "group") {
+    $targetGroup = Ensure-ManagedGroup $profile
   } else {
     $targetGroup = Get-GroupByName $profile.group_name
     if ($null -eq $targetGroup) { throw "Hybrid group '$($profile.group_name)' does not exist" }
+  }
+  if ($ProfileName -eq "anthropic-only") {
+    Ensure-AnthropicAccount $profile ([int64]$targetGroup.id) | Out-Null
+  } elseif ($ProfileName -eq "chatgpt-only") {
+    Ensure-ChatGPTAccount $profile ([int64]$targetGroup.id) | Out-Null
   }
 
   $targetGroupId = [int64]$targetGroup.id
@@ -581,6 +659,7 @@ $script:adminHeaders = Get-AdminSession
 switch ($Command) {
   "status" { Show-Status }
   "anthropic" { Invoke-Switch "anthropic-only" }
+  "chatgpt" { Invoke-Switch "chatgpt-only" }
   "hybrid" { Invoke-Switch "hybrid-current" }
   "reconcile" { Invoke-Reconcile }
   "verify" { Invoke-Verify }
