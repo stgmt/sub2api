@@ -138,6 +138,8 @@ Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof cont
   Assert-True ($controllerText.Contains('preserving sub2api-owned OAuth credentials')) "Existing Anthropic account must not require stale local Claude credentials"
   Assert-True ($controllerText.Contains('if ($source) { $updateBody.expires_at')) "Existing account expiry must be preserved when no local OAuth source is available"
   Assert-True ($controllerText.Contains('[Security.SecureString]::new()')) "Windows guest reconcile must construct credentials without lazy module loading"
+  Assert-True ($controllerText.Contains('[Security.Cryptography.SHA256]::Create()')) "Codex auth hashing must not depend on a lazy PowerShell module"
+  Assert-True (-not $controllerText.Contains('Get-FileHash')) "Provider controller must not depend on the unavailable Microsoft.PowerShell.Utility hash cmdlet"
   Assert-True ($controllerText.Contains('Get-VMNetworkAdapter -VMName')) "Linux guest reconcile must discover the current Hyper-V address instead of trusting a stale IP"
   Assert-True (-not $controllerText.Contains('ConvertTo-SecureString $password')) "Windows guest reconcile must not depend on a broken PowerShell.Security module"
   $providerVerifierText = Get-Content -Raw (Join-Path $scriptRoot 'verify-claude-provider-route.ps1')

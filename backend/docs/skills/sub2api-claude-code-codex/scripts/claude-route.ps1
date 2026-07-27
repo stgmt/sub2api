@@ -28,6 +28,17 @@ $statePath = Join-Path $RuntimeRoot "data\provider-route-state.json"
 $envPath = Join-Path $RuntimeRoot ".env"
 $postgresContainer = "sub2api-codex-postgres"
 
+function Get-Sha256Hex([string]$Path) {
+  $stream = [IO.File]::OpenRead($Path)
+  $sha = [Security.Cryptography.SHA256]::Create()
+  try {
+    return ([BitConverter]::ToString($sha.ComputeHash($stream))).Replace("-", "").ToLowerInvariant()
+  } finally {
+    $sha.Dispose()
+    $stream.Dispose()
+  }
+}
+
 function Test-HttpEndpoint([string]$BaseUrl) {
   try {
     Invoke-WebRequest -UseBasicParsing -Uri "$($BaseUrl.TrimEnd('/'))/health" -TimeoutSec 3 | Out-Null
@@ -200,7 +211,7 @@ function Sync-CodexAuthFile {
   }
   $envMap = Read-DotEnv $envPath
   $stateRoot = if ($envMap.ContainsKey("SUB2API_STATE_ROOT") -and $envMap["SUB2API_STATE_ROOT"].Trim()) { $envMap["SUB2API_STATE_ROOT"].Trim() } else { "./data" }
-  $sourceHash = (Get-FileHash -LiteralPath $CodexAuthPath -Algorithm SHA256).Hash.ToLowerInvariant()
+  $sourceHash = Get-Sha256Hex $CodexAuthPath
   if ($stateRoot.StartsWith("/")) {
     $sourcePortable = $CodexAuthPath -replace '\\', '/'
     $sourceWsl = @(& wsl.exe -d $WslDistro -- wslpath -a -u -- $sourcePortable 2>$null)
@@ -226,7 +237,7 @@ function Sync-CodexAuthFile {
   $target = Join-Path $targetDir "codex-auth.json"
   New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
   Copy-Item -LiteralPath $CodexAuthPath -Destination $target -Force
-  $targetHash = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant()
+  $targetHash = Get-Sha256Hex $target
   if ($sourceHash -ne $targetHash) { throw "Codex auth hash verification failed" }
   return [pscustomobject]@{ status = "synced"; target = $target; sha256 = $sourceHash }
 }
