@@ -149,9 +149,15 @@ func TestIsClaudeCodeCompactRequestForMultiprovider(t *testing.T) {
 	c, _ = gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = req
 
-	body := []byte(`{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"Your task is to create a detailed summary of the conversation so far."}]}`)
-	require.True(t, isClaudeCodeCompactRequestForMultiprovider(c, body))
-	require.False(t, isClaudeCodeCompactRequestForMultiprovider(c, []byte(`{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"ordinary task"}]}`)))
+	for _, body := range [][]byte{
+		[]byte(`{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"Your task is to create a detailed summary of the conversation so far."}]}`),
+		[]byte(`{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"Research context compaction, then compare current models."}]}`),
+		[]byte(`{"model":"gpt-5.6-sol","system":"Context compaction documentation","messages":[{"role":"user","content":"ordinary task"}]}`),
+		[]byte(`{"model":"gpt-5.6-sol","messages":[{"role":"assistant","content":"compact summary"},{"role":"user","content":"ordinary task"}]}`),
+		[]byte(`{"model":"gpt-5.6-sol","messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"<command-name>/compact</command-name> Context compaction"}]}]}`),
+	} {
+		require.False(t, isClaudeCodeCompactRequestForMultiprovider(c, body))
+	}
 }
 
 func TestIsClaudeCodeSDKCLIRequest(t *testing.T) {
@@ -162,7 +168,8 @@ func TestIsClaudeCodeSDKCLIRequest(t *testing.T) {
 		userAgent string
 		want      bool
 	}{
-		{name: "standalone print", userAgent: "claude-cli/2.1.202 (external, sdk-cli)", want: true},
+		{name: "standalone print", userAgent: "claude-cli/2.1.219 (external, cli)", want: false},
+		{name: "sdk cli without agent sdk marker", userAgent: "claude-cli/2.1.202 (external, sdk-cli)", want: false},
 		{name: "agent sdk", userAgent: "claude-cli/2.1.202 (external, sdk-cli, agent-sdk/0.3.201)", want: true},
 		{name: "interactive cli", userAgent: "claude-cli/2.1.202 (external, cli)", want: false},
 		{name: "unrelated sdk", userAgent: "other/1.0 (external, sdk-cli)", want: false},

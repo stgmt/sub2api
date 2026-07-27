@@ -714,17 +714,17 @@ if (-not $SubagentModel) { $SubagentModel = "qwen3.8-max-preview" }
 $isNativeClaudeProfile = $Model -match '^claude-'
 $normalizedSmallFastModel = $SmallFastModel -replace '\[[^\]]+\]$', ''
 $normalizedSubagentModel = $SubagentModel -replace '\[[^\]]+\]$', ''
-$isChatGPTOnlyProfile = (-not $isNativeClaudeProfile) -and $normalizedSmallFastModel -eq "gpt-5.6-luna" -and $normalizedSubagentModel -eq "gpt-5.6-luna"
+$isChatGPTOnlyProfile = (-not $isNativeClaudeProfile) -and $normalizedSmallFastModel -eq "gpt-5.6-terra-medium" -and $normalizedSubagentModel -eq "gpt-5.6-terra-medium"
 if (-not $MessagesDispatchGroupName) {
   $MessagesDispatchGroupName = if ($isNativeClaudeProfile) { "claude-subscription-only" } elseif ($isChatGPTOnlyProfile) { "chatgpt-subscription-only" } else { "codex-gpt56-claude-code" }
 }
 if (-not $AutomaticFallbackModel -and -not $isNativeClaudeProfile -and -not $isChatGPTOnlyProfile) { $AutomaticFallbackModel = "gpt-5.6-sol" }
 if (-not $ExpectedUpstream) { $ExpectedUpstream = $Model -replace '\[[^\]]+\]$', '' }
 $sdkCliModel = $SubagentModel -replace '\[[^\]]+\]$', ''
-$sdkCliEffort = if ($isChatGPTOnlyProfile) { "xhigh" } else { "high" }
+$sdkCliEffort = if ($isChatGPTOnlyProfile) { "medium" } else { "high" }
 $planModel = if ($isChatGPTOnlyProfile) { "gpt-5.6-sol" } else { $sdkCliModel }
 $planEffort = if ($isChatGPTOnlyProfile) { "high" } else { $sdkCliEffort }
-$sdkCliAutomaticFallbackModel = if ($isChatGPTOnlyProfile) { "gpt-5.6-sol" } else { "" }
+$sdkCliAutomaticFallbackModel = ""
 
 Write-Host "Claude/Headroom base URL: $BaseUrl"
 Write-Host "sub2api admin/diagnostic URL: $Sub2apiBaseUrl"

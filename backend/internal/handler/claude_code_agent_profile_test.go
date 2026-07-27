@@ -40,7 +40,7 @@ func planProfileSystem() string {
 func sdkCLIContext() *gin.Context {
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest("POST", "/v1/messages", nil)
-	c.Request.Header.Set("User-Agent", "claude-cli/2.1.219 (external, sdk-cli)")
+	c.Request.Header.Set("User-Agent", "claude-cli/2.1.219 (external, sdk-cli, agent-sdk/0.3.201)")
 	return c
 }
 

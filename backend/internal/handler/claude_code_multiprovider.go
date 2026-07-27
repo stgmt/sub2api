@@ -132,7 +132,7 @@ func (h *Handlers) MultiproviderMessages(c *gin.Context) {
 			modelRewritten = true
 			automaticRoute = true
 		}
-		if !modelRewritten && !isClaudeCodeCompactRequestForMultiprovider(c, body) {
+		if !modelRewritten && !compactRequest {
 			var rewriteErr error
 			body, model, rewriteErr = rewriteExplicitClaudeCodeModelForMultiprovider(body, model, groupPlatform, apiKey.Group)
 			if rewriteErr != nil {
@@ -338,28 +338,12 @@ func forceGinPlatform(c *gin.Context, platform string) {
 	c.Set(string(middleware2.ContextKeyForcePlatform), platform)
 }
 
-func isClaudeCodeCompactRequestForMultiprovider(c *gin.Context, body []byte) bool {
-	if strings.TrimSpace(c.GetHeader("x-sub2api-claude-compact")) == "1" {
-		return true
-	}
-	if len(body) == 0 {
-		return false
-	}
-	lower := strings.ToLower(string(body))
-	for _, anchor := range []string{
-		"<command-name>/compact</command-name>",
-		"your task is to create a detailed summary",
-		"create a detailed summary",
-		"detailed summary of the conversation",
-		"summary of the conversation so far",
-		"context compaction",
-		"compact summary",
-	} {
-		if strings.Contains(lower, anchor) {
-			return true
-		}
-	}
-	return false
+func isClaudeCodeCompactRequestForMultiprovider(c *gin.Context, _ []byte) bool {
+	// Headroom recognizes Claude Code's native compact turn before any content
+	// transforms and forwards this trusted structural signal. Never infer the
+	// route from request text: user prompts, history, skills, and tool results
+	// can legitimately discuss compaction and must not change models.
+	return c != nil && strings.TrimSpace(c.GetHeader("x-sub2api-claude-compact")) == "1"
 }
 
 func isClaudeCodeSDKCLIRequest(c *gin.Context) bool {
@@ -367,7 +351,9 @@ func isClaudeCodeSDKCLIRequest(c *gin.Context) bool {
 		return false
 	}
 	userAgent := strings.ToLower(strings.TrimSpace(c.GetHeader("User-Agent")))
-	return strings.HasPrefix(userAgent, "claude-cli/") && strings.Contains(userAgent, "external, sdk-cli")
+	return strings.HasPrefix(userAgent, "claude-cli/") &&
+		strings.Contains(userAgent, "external, sdk-cli") &&
+		strings.Contains(userAgent, "agent-sdk/")
 }
 
 func rewriteClaudeCodeCompactModelForMultiprovider(body []byte, compactMappedModel string) ([]byte, string, error) {

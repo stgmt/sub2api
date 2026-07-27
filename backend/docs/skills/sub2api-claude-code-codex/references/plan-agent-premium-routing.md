@@ -3,16 +3,16 @@
 ## Contract
 
 Under `chatgpt-only`, the parent session remains user-selectable, ordinary Agent
-SDK children use `gpt-5.6-luna/xhigh`, and the built-in Plan agent uses
+SDK children use `gpt-5.6-terra-medium/medium`, and the built-in Plan agent uses
 `gpt-5.6-sol/high`. Compact has higher precedence and remains
-`gpt-5.6-luna/high`.
+`gpt-5.6-terra-medium/medium`.
 
 ```json
 {
   "plan_mapped_model": "gpt-5.6-sol",
   "plan_reasoning_effort": "high",
-  "sdk_cli_mapped_model": "gpt-5.6-luna",
-  "sdk_cli_reasoning_effort": "xhigh"
+  "sdk_cli_mapped_model": "gpt-5.6-terra-medium",
+  "sdk_cli_reasoning_effort": "medium"
 }
 ```
 
@@ -23,7 +23,8 @@ routing covers every host and VM using the stable key.
 
 Classify only when all independent signals agree:
 
-1. User-Agent starts with `claude-cli/` and contains `external, sdk-cli`.
+1. User-Agent starts with `claude-cli/` and contains both `external, sdk-cli`
+   and the `agent-sdk/...` marker.
 2. `metadata.user_id` is non-empty.
 3. Structured `system` contains `cc_entrypoint=sdk-cli`,
    `cc_is_subagent=true`, and all three current Plan anchors:
@@ -58,8 +59,9 @@ The tagged live Plan request must correlate to `usage_logs` with OpenAI OAuth
 account `codex-chatgpt-subscription`, model `gpt-5.6-sol`, and
 `reasoning_effort=high`. The proxy log must contain
 `claude_code.agent_role_route`, `agent_role=plan`, and source
-`system_composite` or `session_cache`. The same run must prove generic SDK stays
-Luna/xhigh and compact stays Luna/high.
+`system_composite` or `session_cache`. The same run must prove verified Agent
+SDK and compact stay Terra-medium/medium, standalone CLI stays on its selected
+main model, and no Luna target is reached.
 
 If Claude Code changes an anchor or tool set, fail closed. Capture a new
 positive/control dataset, update tests first, then change the classifier.

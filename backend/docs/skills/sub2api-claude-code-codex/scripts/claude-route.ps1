@@ -83,7 +83,7 @@ function Read-DotEnv([string]$Path) {
 function Read-Profile([string]$Name) {
   $fileName = switch ($Name) {
     "anthropic-only" { "anthropic-only.v4.json" }
-    "chatgpt-only" { "chatgpt-only.v3.json" }
+    "chatgpt-only" { "chatgpt-only.v4.json" }
     "hybrid-current" { "hybrid-current.v1.json" }
     default { throw "Unknown provider profile: $Name" }
   }
