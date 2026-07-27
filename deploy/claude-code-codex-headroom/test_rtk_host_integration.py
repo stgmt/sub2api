@@ -55,6 +55,9 @@ def test_hook_bridge_is_msys_safe_and_probed_through_git_bash() -> None:
     assert "-InputText $payload" in verifier
     assert '$ErrorActionPreference = "Continue"' in verifier
     assert "$rtkProbeExitCode = $LASTEXITCODE" in verifier
+    assert '"sub2api-rtk-probe-$PID"' in verifier
+    assert "git -C $rtkProbeRoot init --quiet" in verifier
+    assert "Remove-Item -LiteralPath $rtkProbeRoot -Recurse -Force" in verifier
 
 
 def test_accuracy_exclusions_and_live_gain_checks_are_durable() -> None:

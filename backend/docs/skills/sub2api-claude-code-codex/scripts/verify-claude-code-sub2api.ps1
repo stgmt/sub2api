@@ -99,7 +99,11 @@ function Test-ClaudeRtkHook {
   }
 
   $before = (& $rtkCommand.Source gain --format json | Out-String | ConvertFrom-Json).summary
-  Push-Location $PSScriptRoot
+  $rtkProbeRoot = Join-Path ([IO.Path]::GetTempPath()) "sub2api-rtk-probe-$PID"
+  New-Item -ItemType Directory -Path $rtkProbeRoot -Force | Out-Null
+  & git -C $rtkProbeRoot init --quiet
+  if ($LASTEXITCODE -ne 0) { throw "Failed to initialize isolated RTK git probe at $rtkProbeRoot" }
+  Push-Location $rtkProbeRoot
   try {
     # Windows RTK may emit a non-fatal shell-hook reminder on stderr. Under
     # PowerShell 5.1, ErrorActionPreference=Stop promotes that stderr record to
@@ -115,6 +119,7 @@ function Test-ClaudeRtkHook {
     if ($rtkProbeExitCode -ne 0) { throw "Host RTK execution probe failed with exit code $rtkProbeExitCode" }
   } finally {
     Pop-Location
+    Remove-Item -LiteralPath $rtkProbeRoot -Recurse -Force -ErrorAction SilentlyContinue
   }
   $after = (& $rtkCommand.Source gain --format json | Out-String | ConvertFrom-Json).summary
   if ([int64]$after.total_commands -le [int64]$before.total_commands) {
