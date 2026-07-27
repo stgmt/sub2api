@@ -738,7 +738,8 @@ Write-Host "Has API token: $([bool]$ApiKey)"
 
 $wrapperModelSync = Join-Path $PSScriptRoot "sync-claude-wrapper-models.ps1"
 if (Test-Path -LiteralPath $wrapperModelSync) {
-  & $wrapperModelSync `
+	$global:LASTEXITCODE = 0
+  $wrapperCheck = @(& $wrapperModelSync `
     -Model $Model `
     -SmallFastModel $SmallFastModel `
     -DefaultOpusModel $DefaultOpusModel `
@@ -746,7 +747,10 @@ if (Test-Path -LiteralPath $wrapperModelSync) {
     -DefaultSonnetModel $DefaultSonnetModel `
     -DefaultHaikuModel $DefaultHaikuModel `
     -SubagentModel $SubagentModel `
-    -CheckOnly
+    -CheckOnly 2>&1)
+  $wrapperCheck | Write-Output
+  $wrapperCheckExitCode = $LASTEXITCODE
+  if ($wrapperCheckExitCode -ne 0) { throw "Claude wrapper model contract check failed" }
 }
 
 $sdkCLIRoutingSync = Join-Path $PSScriptRoot "sync-sub2api-sdk-cli-routing.ps1"
@@ -763,15 +767,19 @@ if (Test-Path -LiteralPath $sdkCLIRoutingSync) {
 
 $subagentProfileSync = Join-Path $PSScriptRoot "sync-claude-subagent-profile.ps1"
 if (Test-Path -LiteralPath $subagentProfileSync) {
-  & $subagentProfileSync `
+	$global:LASTEXITCODE = 0
+  $subagentCheck = @(& $subagentProfileSync `
     -Model $SubagentModel `
     -SmallFastModel $SmallFastModel `
     -DefaultOpusModel $DefaultOpusModel `
     -DefaultFableModel $DefaultFableModel `
     -DefaultSonnetModel $DefaultSonnetModel `
     -DefaultHaikuModel $DefaultHaikuModel `
-    -Effort "high" `
-    -CheckOnly
+    -Effort $sdkCliEffort `
+    -CheckOnly 2>&1)
+  $subagentCheck | Write-Output
+  $subagentCheckExitCode = $LASTEXITCODE
+  if ($subagentCheckExitCode -ne 0) { throw "Claude subagent profile contract check failed" }
 }
 
 Test-Sub2apiAutostartTask

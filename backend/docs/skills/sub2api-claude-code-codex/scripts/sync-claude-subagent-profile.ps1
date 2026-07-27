@@ -6,7 +6,7 @@ param(
   [string]$DefaultFableModel = "",
   [string]$DefaultSonnetModel = "",
   [string]$DefaultHaikuModel = "",
-  [ValidateSet("low", "medium", "high", "max")]
+  [ValidateSet("low", "medium", "high", "xhigh", "max")]
   [string]$Effort = "high",
   [string]$ClaudeHome = (Join-Path $HOME ".claude"),
   [string]$WrapperPath = (Join-Path $HOME ".local\bin\claude.cmd"),
