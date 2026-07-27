@@ -264,6 +264,8 @@ Do not classify every `stream:false` request as a bug. Native compact is intenti
 
 Keep `CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK=1` in every host that launches Claude Code, not just Windows. Correlate the Claude transcript timestamp with `ops_error_logs.request_id`, `stream`, and sub2api `body_bytes`; then test a fresh process through the same host namespace. Do not add a model fallback for this symptom unless the user asks for one.
 
+`chatgpt-only` F39 is narrower than that Sol emergency-fallback symptom. If the original route is Haiku, compact, or SDK/subagent, the rewritten model is Luna, and sub2api reports `502 ... without assistant content or tool output`, profile v2 uses only `automatic_model_fallbacks.gpt-5.6-luna=[gpt-5.6-sol]`. The handler must preserve the original model before alias rewrite and emit `openai_messages.model_fallback_switching` before any `pool_mode_same_account_retry`. Generic fallbacks remain empty, so a directly selected Luna session is not silently rerouted and no Anthropic/Alibaba account can enter the request.
+
 ## Native Linux hooks report `node` or `python` not found
 
 Repeated `UserPromptSubmit hook error` lines such as `/bin/sh: node: not found` or `/bin/sh: python: not found` are local Claude-host failures. They can appear beside a gateway error, but they are not emitted by Headroom or sub2api. Check the exact Linux user that launches Claude Code:

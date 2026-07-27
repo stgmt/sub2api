@@ -140,6 +140,8 @@ def test_verifier_uses_active_profile_for_all_wrapper_picker_aliases() -> None:
         assert f'-Default{slot}Model "qwen3.8-max-preview"' not in verifier
 
     assert 'if ($isNativeClaudeProfile) { "claude-subscription-only" }' in verifier
+    assert 'elseif ($isChatGPTOnlyProfile) { "chatgpt-subscription-only" }' in verifier
+    assert '$sdkCliAutomaticFallbackModel = if ($isChatGPTOnlyProfile) { "gpt-5.6-sol" } else { "" }' in verifier
     assert '$sdkCliModel = $SubagentModel -replace' in verifier
     assert '$usesNativeRtk = $hookCommand.Trim() -eq "rtk hook claude"' in verifier
     assert '-DefaultOpusModel $DefaultOpusModel' in verifier
@@ -148,6 +150,8 @@ def test_verifier_uses_active_profile_for_all_wrapper_picker_aliases() -> None:
     assert "$fallbackUpdateSql = if ($fallbackModelSql)" in sdk_sync
     assert "- '$modelSql'" in sdk_sync
     assert "AND NOT (COALESCE(messages_dispatch_model_config->'model_fallbacks'" in sdk_sync
+    assert "$automaticFallbackUpdateSql = if ($automaticFallbackModelSql)" in sdk_sync
+    assert "automatic_model_fallbacks" in sdk_sync
 
     subagent_sync = (scripts / "sync-claude-subagent-profile.ps1").read_text(encoding="utf-8")
     assert "$modelValues = [ordered]@{" in subagent_sync

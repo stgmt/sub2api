@@ -93,6 +93,10 @@ Assert-Contains `
   'model_fallbacks' `
   "terminal Qwen quota fallback persistence"
 Assert-Contains `
+  "backend/docs/skills/sub2api-claude-code-codex/scripts/sync-sub2api-sdk-cli-routing.ps1" `
+  'automatic_model_fallbacks' `
+  "bounded same-provider automatic fallback persistence"
+Assert-Contains `
   "backend/internal/service/alibaba_token_plan_rate_limit.go" `
   'quota has been exhausted' `
   "terminal Alibaba Token Plan quota classifier"

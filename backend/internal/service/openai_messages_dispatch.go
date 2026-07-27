@@ -58,35 +58,42 @@ func normalizeOpenAIMessagesDispatchModelConfig(cfg OpenAIMessagesDispatchModelC
 		}
 	}
 
-	if len(cfg.ModelFallbacks) > 0 {
-		out.ModelFallbacks = make(map[string][]string, len(cfg.ModelFallbacks))
-		for requestedModel, fallbackModels := range cfg.ModelFallbacks {
-			requestedModel = strings.TrimSpace(requestedModel)
-			if requestedModel == "" {
-				continue
-			}
-			normalizedFallbacks := make([]string, 0, len(fallbackModels))
-			seen := make(map[string]bool, len(fallbackModels))
-			for _, fallbackModel := range fallbackModels {
-				fallbackModel = normalizeOpenAIMessagesDispatchFallbackModel(fallbackModel)
-				if fallbackModel == "" {
-					continue
-				}
-				key := strings.ToLower(fallbackModel)
-				if seen[key] {
-					continue
-				}
-				seen[key] = true
-				normalizedFallbacks = append(normalizedFallbacks, fallbackModel)
-			}
-			out.ModelFallbacks[requestedModel] = normalizedFallbacks
-		}
-		if len(out.ModelFallbacks) == 0 {
-			out.ModelFallbacks = nil
-		}
-	}
+	out.ModelFallbacks = normalizeOpenAIMessagesDispatchFallbacks(cfg.ModelFallbacks)
+	out.AutomaticModelFallbacks = normalizeOpenAIMessagesDispatchFallbacks(cfg.AutomaticModelFallbacks)
 
 	return out
+}
+
+func normalizeOpenAIMessagesDispatchFallbacks(fallbacks map[string][]string) map[string][]string {
+	if len(fallbacks) == 0 {
+		return nil
+	}
+	normalized := make(map[string][]string, len(fallbacks))
+	for requestedModel, fallbackModels := range fallbacks {
+		requestedModel = strings.TrimSpace(requestedModel)
+		if requestedModel == "" {
+			continue
+		}
+		normalizedFallbacks := make([]string, 0, len(fallbackModels))
+		seen := make(map[string]bool, len(fallbackModels))
+		for _, fallbackModel := range fallbackModels {
+			fallbackModel = normalizeOpenAIMessagesDispatchFallbackModel(fallbackModel)
+			if fallbackModel == "" {
+				continue
+			}
+			key := strings.ToLower(fallbackModel)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			normalizedFallbacks = append(normalizedFallbacks, fallbackModel)
+		}
+		normalized[requestedModel] = normalizedFallbacks
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+	return normalized
 }
 
 func claudeMessagesDispatchFamily(model string) string {
@@ -187,12 +194,27 @@ func (g *Group) ResolveMessagesDispatchFallbackModels(requestedModel, mappedMode
 		return nil
 	}
 
+	return resolveMessagesDispatchFallbackModels(cfg.ModelFallbacks, requestedModel, mappedModel)
+}
+
+func (g *Group) ResolveMessagesDispatchAutomaticFallbackModels(requestedModel, mappedModel string) []string {
+	if g == nil {
+		return nil
+	}
+	cfg := normalizeOpenAIMessagesDispatchModelConfig(g.MessagesDispatchModelConfig)
+	return resolveMessagesDispatchFallbackModels(cfg.AutomaticModelFallbacks, requestedModel, mappedModel)
+}
+
+func resolveMessagesDispatchFallbackModels(fallbacks map[string][]string, requestedModel, mappedModel string) []string {
+	if len(fallbacks) == 0 {
+		return nil
+	}
 	var candidates []string
 	for _, key := range []string{strings.TrimSpace(mappedModel), strings.TrimSpace(requestedModel)} {
 		if key == "" {
 			continue
 		}
-		if models, matched := resolveRequestedModelInSliceMapping(cfg.ModelFallbacks, key); matched {
+		if models, matched := resolveRequestedModelInSliceMapping(fallbacks, key); matched {
 			candidates = append(candidates, models...)
 		}
 	}

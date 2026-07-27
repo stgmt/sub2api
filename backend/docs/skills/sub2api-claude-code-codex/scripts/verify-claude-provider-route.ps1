@@ -34,11 +34,28 @@ if (-not (Test-Path -LiteralPath $statePath)) { throw "Provider route state is n
 $state = Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json
 $profileFile = switch ($state.active_profile) {
   "anthropic-only" { "anthropic-only.v4.json" }
-  "chatgpt-only" { "chatgpt-only.v1.json" }
+  "chatgpt-only" { "chatgpt-only.v2.json" }
   "hybrid-current" { "hybrid-current.v1.json" }
   default { throw "Unknown active provider profile: $($state.active_profile)" }
 }
 $profile = Get-Content -Raw -LiteralPath (Join-Path $skillRoot "profiles\$profileFile") | ConvertFrom-Json
+if ([int]$state.profile_version -ne [int]$profile.version) {
+  throw "Provider profile state is stale: active version $($state.profile_version), repo version $($profile.version)"
+}
+if ($state.active_profile -eq "chatgpt-only") {
+  $groupNameSql = ([string]$profile.group_name).Replace("'", "''")
+  $contractRows = @(Invoke-Sql @"
+SELECT id::text
+FROM groups
+WHERE name = '$groupNameSql'
+  AND platform = 'openai'
+  AND NOT (COALESCE(messages_dispatch_model_config->'model_fallbacks', '{}'::jsonb) ? 'gpt-5.6-luna')
+  AND messages_dispatch_model_config->'automatic_model_fallbacks'->'gpt-5.6-luna'->>0 = 'gpt-5.6-sol';
+"@)
+  if ($contractRows.Count -ne 1) {
+    throw "ChatGPT-only v2 bounded Luna-to-Sol recovery contract is not active"
+  }
+}
 $keyNameSql = $StableKeyName.Replace("'", "''")
 $keyRows = @(Invoke-Sql "SELECT id || chr(9) || key FROM api_keys WHERE name='$keyNameSql' AND status='active' AND deleted_at IS NULL;")
 if ($keyRows.Count -ne 1) { throw "Stable key lookup failed" }

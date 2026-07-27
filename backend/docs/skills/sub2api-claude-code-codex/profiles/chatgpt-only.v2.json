@@ -1,6 +1,6 @@
 {
   "name": "chatgpt-only",
-  "version": 1,
+  "version": 2,
   "group_name": "chatgpt-subscription-only",
   "account_name": "codex-chatgpt-subscription",
   "main_model": "gpt-5.6-sol",
@@ -29,7 +29,7 @@
   },
   "group": {
     "name": "chatgpt-subscription-only",
-    "description": "Managed by sub2api-claude-code-codex. ChatGPT/Codex subscription only; no Anthropic or Alibaba fallback.",
+    "description": "Managed by sub2api-claude-code-codex. ChatGPT/Codex subscription only; bounded automatic Luna-to-Sol recovery, no Anthropic or Alibaba fallback.",
     "platform": "openai",
     "rate_multiplier": 1.0,
     "is_exclusive": false,
@@ -54,6 +54,11 @@
       "sdk_cli_mapped_model": "gpt-5.6-luna",
       "sdk_cli_reasoning_effort": "xhigh",
       "model_fallbacks": {},
+      "automatic_model_fallbacks": {
+        "gpt-5.6-luna": [
+          "gpt-5.6-sol"
+        ]
+      },
       "exact_model_mappings": {
         "opus": "gpt-5.6-sol",
         "fable": "gpt-5.6-terra",

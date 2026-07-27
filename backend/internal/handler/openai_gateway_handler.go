@@ -68,6 +68,13 @@ func resolveOpenAIMessagesDispatchFallbackModels(apiKey *service.APIKey, request
 	return apiKey.Group.ResolveMessagesDispatchFallbackModels(requestedModel, mappedModel)
 }
 
+func resolveOpenAIMessagesDispatchAutomaticFallbackModels(apiKey *service.APIKey, requestedModel, mappedModel string) []string {
+	if apiKey == nil || apiKey.Group == nil {
+		return nil
+	}
+	return apiKey.Group.ResolveMessagesDispatchAutomaticFallbackModels(requestedModel, mappedModel)
+}
+
 func shouldTryOpenAIMessagesModelFallback(statusCode int, message string, responseBody []byte) bool {
 	if isOpenAIMessagesContextWindowError(message, responseBody) {
 		return false
@@ -82,11 +89,11 @@ func shouldTryOpenAIMessagesModelFallback(statusCode int, message string, respon
 	return openAIMessagesModelFallbackText(message + " " + string(responseBody))
 }
 
-func shouldFastFallbackOpenAIMessagesBeforeSameAccountRetry(requestedModel, mappedModel string, reqStream bool, failoverErr *service.UpstreamFailoverError, message string) bool {
+func shouldFastFallbackOpenAIMessagesBeforeSameAccountRetry(requestedModel, mappedModel string, reqStream, automaticRoute bool, failoverErr *service.UpstreamFailoverError, message string) bool {
 	if reqStream || failoverErr == nil || !failoverErr.RetryableOnSameAccount {
 		return false
 	}
-	if !isClaudeCodeSmallFastMessagesRoute(requestedModel, mappedModel) {
+	if !automaticRoute && !isClaudeCodeSmallFastMessagesRoute(requestedModel, mappedModel) {
 		return false
 	}
 	if !openAIMessagesEmptyVisibleOutputText(message + " " + string(failoverErr.ResponseBody)) {
@@ -814,6 +821,12 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	routingModel := service.NormalizeOpenAICompatRequestedModel(reqModel)
 	preferredMappedModel := resolveOpenAIMessagesDispatchMappedModel(apiKey, reqModel)
 	modelFallbackCandidates := resolveOpenAIMessagesDispatchFallbackModels(apiKey, reqModel, preferredMappedModel)
+	originalReqModel := claudeCodeOriginalMessagesModel(c, reqModel)
+	automaticMessagesRoute := isClaudeCodeAutomaticMessagesRoute(c)
+	if automaticMessagesRoute || isClaudeCodeSmallFastMessagesRoute(originalReqModel, preferredMappedModel) {
+		modelFallbackCandidates = append(modelFallbackCandidates,
+			resolveOpenAIMessagesDispatchAutomaticFallbackModels(apiKey, reqModel, preferredMappedModel)...)
+	}
 	reqStream := gjson.GetBytes(body, "stream").Bool()
 
 	reqLog = reqLog.With(zap.String("model", reqModel), zap.Bool("stream", reqStream))
@@ -1043,7 +1056,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 						)
 					}
 					h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
-					fastFallbackBeforeRetry := shouldFastFallbackOpenAIMessagesBeforeSameAccountRetry(reqModel, defaultMappedModel, reqStream, failoverErr, upstreamMsg)
+					fastFallbackBeforeRetry := shouldFastFallbackOpenAIMessagesBeforeSameAccountRetry(originalReqModel, defaultMappedModel, reqStream, automaticMessagesRoute, failoverErr, upstreamMsg)
 					if fastFallbackBeforeRetry && tryNextModelFallback("upstream_failover_fast_small_model", failoverErr.StatusCode, upstreamMsg) {
 						continue
 					}

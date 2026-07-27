@@ -8,7 +8,7 @@ $applier = Join-Path $scriptRoot "apply-claude-provider-profile.ps1"
 $controller = Join-Path $scriptRoot "claude-route.ps1"
 $installer = Join-Path $scriptRoot "install-claude-route.ps1"
 $anthropicProfile = Join-Path $skillRoot "profiles\anthropic-only.v4.json"
-$chatgptProfile = Join-Path $skillRoot "profiles\chatgpt-only.v1.json"
+$chatgptProfile = Join-Path $skillRoot "profiles\chatgpt-only.v2.json"
 $hybridProfile = Join-Path $skillRoot "profiles\hybrid-current.v1.json"
 $temp = Join-Path ([IO.Path]::GetTempPath()) ("sub2api-provider-route-test-" + [guid]::NewGuid())
 
@@ -109,13 +109,16 @@ Assert-True ($anthropic.group.messages_dispatch_model_config.exact_model_mapping
 Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof contract must name provider"
   Assert-True ($hybrid.expected_provider -eq "openai") "Hybrid proof contract must name provider"
   Assert-True ($chatgpt.main_model -eq "gpt-5.6-sol") "ChatGPT-only main must use Sol"
+  Assert-True ($chatgpt.version -eq 2) "ChatGPT-only bounded recovery profile must be version 2"
   Assert-True ($chatgpt.agent_model -eq "gpt-5.6-luna") "ChatGPT-only delegated model must use Luna"
   Assert-True ($chatgpt.agent_effort -eq "xhigh") "ChatGPT-only delegated effort must be xhigh"
   Assert-True ($chatgpt.group.messages_dispatch_model_config.compact_mapped_model -eq "gpt-5.6-luna") "ChatGPT-only compact must use Luna"
   Assert-True ($chatgpt.group.messages_dispatch_model_config.compact_reasoning_effort -eq "high") "ChatGPT-only compact must use high effort"
   Assert-True ($chatgpt.group.messages_dispatch_model_config.sdk_cli_mapped_model -eq "gpt-5.6-luna") "ChatGPT-only SDK CLI must use Luna"
   Assert-True ($chatgpt.group.messages_dispatch_model_config.sdk_cli_reasoning_effort -eq "xhigh") "ChatGPT-only SDK CLI must use xhigh"
-  Assert-True (@($chatgpt.group.messages_dispatch_model_config.model_fallbacks.PSObject.Properties).Count -eq 0) "ChatGPT-only fallbacks must be empty"
+  Assert-True (@($chatgpt.group.messages_dispatch_model_config.model_fallbacks.PSObject.Properties).Count -eq 0) "ChatGPT-only generic fallbacks must remain empty"
+  Assert-True (@($chatgpt.group.messages_dispatch_model_config.automatic_model_fallbacks.PSObject.Properties).Count -eq 1) "ChatGPT-only must define one bounded automatic fallback"
+  Assert-True ($chatgpt.group.messages_dispatch_model_config.automatic_model_fallbacks.'gpt-5.6-luna'[0] -eq "gpt-5.6-sol") "ChatGPT-only automatic Luna recovery must use Sol"
   Assert-True ($chatgpt.group.messages_dispatch_model_config.exact_model_mappings.'qwen3.8-max-preview' -eq "gpt-5.6-luna") "Stale Qwen IDs must fail closed to Luna"
   Assert-True (@($chatgpt.group.models_list_config.models | Where-Object { $_ -match '^(qwen|glm|deepseek|claude)' }).Count -eq 0) "ChatGPT-only catalog must contain GPT/Codex models only"
   Assert-True (@($chatgpt.unset_client_env) -contains "CLAUDE_CODE_EFFORT_LEVEL") "ChatGPT-only must declare hard-effort cleanup"
@@ -134,6 +137,9 @@ Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof cont
   Assert-True ($controllerText.Contains('[Security.SecureString]::new()')) "Windows guest reconcile must construct credentials without lazy module loading"
   Assert-True ($controllerText.Contains('Get-VMNetworkAdapter -VMName')) "Linux guest reconcile must discover the current Hyper-V address instead of trusting a stale IP"
   Assert-True (-not $controllerText.Contains('ConvertTo-SecureString $password')) "Windows guest reconcile must not depend on a broken PowerShell.Security module"
+  $providerVerifierText = Get-Content -Raw (Join-Path $scriptRoot 'verify-claude-provider-route.ps1')
+  Assert-True ($providerVerifierText.Contains("automatic_model_fallbacks'->'gpt-5.6-luna'->>0 = 'gpt-5.6-sol'")) "Provider verifier must prove bounded Luna-to-Sol recovery"
+  Assert-True ($providerVerifierText.Contains('Provider profile state is stale')) "Provider verifier must reject stale profile generations"
   Assert-True ((Get-Content -Raw $applier).Contains('SetEnvironmentVariable')) "Windows applier must reconcile user-level env overrides"
   $skillsRoot = Split-Path -Parent $skillRoot
   $setupText = Get-Content -Raw (Join-Path $skillsRoot "sub2api-claude-code-codex\scripts\setup-sub2api-claude-code.ps1")
@@ -159,7 +165,8 @@ Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof cont
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -InstallRoot $installedSkill -BinDir (Join-Path $installFixture 'bin') -LegacySkillRoot $legacySkill -SkipPathUpdate -SkipStatus | Out-Null
   Assert-True ($LASTEXITCODE -eq 0) "Consolidated installer fixture must succeed"
   Assert-True (Test-Path -LiteralPath (Join-Path $installedSkill 'profiles\anthropic-only.v4.json')) "Installer must copy Anthropic profile v4"
-  Assert-True (Test-Path -LiteralPath (Join-Path $installedSkill 'profiles\chatgpt-only.v1.json')) "Installer must copy ChatGPT-only profile v1"
+  Assert-True (Test-Path -LiteralPath (Join-Path $installedSkill 'profiles\chatgpt-only.v2.json')) "Installer must copy ChatGPT-only profile v2"
+  Assert-True (-not (Test-Path -LiteralPath (Join-Path $installedSkill 'profiles\chatgpt-only.v1.json'))) "Installer must remove legacy ChatGPT-only profile v1"
   Assert-True (-not (Test-Path -LiteralPath $legacyProfileV1)) "Installer must remove stale Anthropic profile v1"
   Assert-True (-not (Test-Path -LiteralPath $legacyProfileV2)) "Installer must remove stale Anthropic profile v2"
   Assert-True (-not (Test-Path -LiteralPath $legacyProfileV3)) "Installer must remove stale Anthropic profile v3"

@@ -26,7 +26,45 @@ const (
 	claudeCodeMessagesRouteAnthropic
 )
 
-const claudeCodeAutomaticFallbackHopKey = "sub2api_claude_code_automatic_fallback_hop"
+const (
+	claudeCodeAutomaticFallbackHopKey   = "sub2api_claude_code_automatic_fallback_hop"
+	claudeCodeAutomaticMessagesRouteKey = "sub2api_claude_code_automatic_messages_route"
+	claudeCodeOriginalMessagesModelKey  = "sub2api_claude_code_original_messages_model"
+)
+
+func claudeCodeOriginalMessagesModel(c *gin.Context, fallback string) string {
+	if c != nil {
+		if value, ok := c.Get(claudeCodeOriginalMessagesModelKey); ok {
+			if model, ok := value.(string); ok && strings.TrimSpace(model) != "" {
+				return strings.TrimSpace(model)
+			}
+		}
+	}
+	return strings.TrimSpace(fallback)
+}
+
+func isClaudeCodeAutomaticMessagesRoute(c *gin.Context) bool {
+	if c == nil {
+		return false
+	}
+	value, ok := c.Get(claudeCodeAutomaticMessagesRouteKey)
+	automatic, _ := value.(bool)
+	return ok && automatic
+}
+
+func markClaudeCodeMessagesRoute(c *gin.Context, originalModel string, automatic bool) {
+	if c == nil {
+		return
+	}
+	if originalModel = strings.TrimSpace(originalModel); originalModel != "" {
+		if _, exists := c.Get(claudeCodeOriginalMessagesModelKey); !exists {
+			c.Set(claudeCodeOriginalMessagesModelKey, originalModel)
+		}
+	}
+	if automatic {
+		c.Set(claudeCodeAutomaticMessagesRouteKey, true)
+	}
+}
 
 // MultiproviderMessages keeps one Claude-compatible endpoint usable for mixed
 // groups. GPT/Codex requests stay on the OpenAI bridge, while Anthropic/Qwen
@@ -47,6 +85,7 @@ func (h *Handlers) MultiproviderMessages(c *gin.Context) {
 	resetGinRequestBody(c, body)
 
 	model := strings.TrimSpace(gjson.GetBytes(body, "model").String())
+	markClaudeCodeMessagesRoute(c, model, false)
 	groupPlatform := ""
 	automaticRoute := false
 	automaticFallbackModel := ""
@@ -118,6 +157,7 @@ func (h *Handlers) MultiproviderMessages(c *gin.Context) {
 			}
 		}
 		if automaticRoute {
+			markClaudeCodeMessagesRoute(c, "", true)
 			automaticFallbackModel = resolveClaudeCodeAutomaticFallbackModel(apiKey.Group, model, groupPlatform)
 		}
 		resetGinRequestBody(c, body)

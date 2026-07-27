@@ -5,6 +5,7 @@ param(
   [ValidateSet("low", "medium", "high", "xhigh", "max")]
   [string]$Effort = "high",
   [string]$FallbackModel = "gpt-5.6-sol",
+  [string]$AutomaticFallbackModel = "",
   [string]$PostgresContainer = "sub2api-codex-postgres",
   [string]$RedisContainer = "sub2api-codex-redis",
   [string]$WslDistro = "Ubuntu-24.04",
@@ -66,6 +67,7 @@ $groupSql = ConvertTo-SqlLiteral $GroupName
 $modelSql = ConvertTo-SqlLiteral $Model
 $effortSql = ConvertTo-SqlLiteral $Effort.ToLowerInvariant()
 $fallbackModelSql = ConvertTo-SqlLiteral $FallbackModel
+$automaticFallbackModelSql = ConvertTo-SqlLiteral $AutomaticFallbackModel
 $fallbackUpdateSql = if ($fallbackModelSql) {
   "COALESCE(messages_dispatch_model_config->'model_fallbacks', '{}'::jsonb) || jsonb_build_object('$modelSql', jsonb_build_array('$fallbackModelSql'::text))"
 } else {
@@ -75,6 +77,16 @@ $fallbackCheckSql = if ($fallbackModelSql) {
   "AND messages_dispatch_model_config->'model_fallbacks'->'$modelSql'->>0 = '$fallbackModelSql'"
 } else {
   "AND NOT (COALESCE(messages_dispatch_model_config->'model_fallbacks', '{}'::jsonb) ? '$modelSql')"
+}
+$automaticFallbackUpdateSql = if ($automaticFallbackModelSql) {
+  "COALESCE(messages_dispatch_model_config->'automatic_model_fallbacks', '{}'::jsonb) || jsonb_build_object('$modelSql', jsonb_build_array('$automaticFallbackModelSql'::text))"
+} else {
+  "COALESCE(messages_dispatch_model_config->'automatic_model_fallbacks', '{}'::jsonb) - '$modelSql'"
+}
+$automaticFallbackCheckSql = if ($automaticFallbackModelSql) {
+  "AND messages_dispatch_model_config->'automatic_model_fallbacks'->'$modelSql'->>0 = '$automaticFallbackModelSql'"
+} else {
+  "AND NOT (COALESCE(messages_dispatch_model_config->'automatic_model_fallbacks', '{}'::jsonb) ? '$modelSql')"
 }
 
 if (-not $CheckOnly) {
@@ -87,17 +99,22 @@ BEGIN
   SET messages_dispatch_model_config = jsonb_set(
     jsonb_set(
       jsonb_set(
-        COALESCE(messages_dispatch_model_config, '{}'::jsonb),
-        '{sdk_cli_mapped_model}',
-        to_jsonb('$modelSql'::text),
+        jsonb_set(
+          COALESCE(messages_dispatch_model_config, '{}'::jsonb),
+          '{sdk_cli_mapped_model}',
+          to_jsonb('$modelSql'::text),
+          true
+        ),
+        '{sdk_cli_reasoning_effort}',
+        to_jsonb('$effortSql'::text),
         true
       ),
-      '{sdk_cli_reasoning_effort}',
-      to_jsonb('$effortSql'::text),
+      '{model_fallbacks}',
+      $fallbackUpdateSql,
       true
     ),
-    '{model_fallbacks}',
-    $fallbackUpdateSql,
+    '{automatic_model_fallbacks}',
+    $automaticFallbackUpdateSql,
     true
   ),
     updated_at = now()
@@ -117,13 +134,15 @@ $checkSql = @"
 SELECT id || '|' || name || '|' ||
        COALESCE(messages_dispatch_model_config->>'sdk_cli_mapped_model', '') || '|' ||
        COALESCE(messages_dispatch_model_config->>'sdk_cli_reasoning_effort', '') || '|' ||
-       COALESCE(messages_dispatch_model_config->'model_fallbacks'->'$modelSql'->>0, '')
+       COALESCE(messages_dispatch_model_config->'model_fallbacks'->'$modelSql'->>0, '') || '|' ||
+       COALESCE(messages_dispatch_model_config->'automatic_model_fallbacks'->'$modelSql'->>0, '')
 FROM groups
 WHERE name = '$groupSql'
   AND platform = 'openai'
   AND messages_dispatch_model_config->>'sdk_cli_mapped_model' = '$modelSql'
   AND messages_dispatch_model_config->>'sdk_cli_reasoning_effort' = '$effortSql'
-  $fallbackCheckSql;
+  $fallbackCheckSql
+  $automaticFallbackCheckSql;
 "@
 $proof = @(Invoke-PostgresSql $checkSql | Where-Object { $_ -and $_.Trim() })
 if ($proof.Count -ne 1) {

@@ -509,12 +509,14 @@ func TestShouldFastFallbackOpenAIMessagesBeforeSameAccountRetry(t *testing.T) {
 		"claude-haiku-4-5-20251001",
 		"gpt-5.3-codex-spark",
 		false,
+		false,
 		emptyOutputErr,
 		"OpenAI messages buffered response completed without assistant content or tool output",
 	))
 	require.True(t, shouldFastFallbackOpenAIMessagesBeforeSameAccountRetry(
 		"gpt-5.3-codex-spark",
 		"gpt-5.3-codex-spark",
+		false,
 		false,
 		emptyOutputErr,
 		"OpenAI messages stream completed without assistant content or tool output",
@@ -524,6 +526,7 @@ func TestShouldFastFallbackOpenAIMessagesBeforeSameAccountRetry(t *testing.T) {
 		"claude-haiku-4-5-20251001",
 		"gpt-5.3-codex-spark",
 		true,
+		false,
 		emptyOutputErr,
 		"OpenAI messages buffered response completed without assistant content or tool output",
 	))
@@ -531,12 +534,14 @@ func TestShouldFastFallbackOpenAIMessagesBeforeSameAccountRetry(t *testing.T) {
 		"gpt-5.6-sol",
 		"gpt-5.6-sol",
 		false,
+		false,
 		emptyOutputErr,
 		"OpenAI messages buffered response completed without assistant content or tool output",
 	))
 	require.False(t, shouldFastFallbackOpenAIMessagesBeforeSameAccountRetry(
 		"claude-haiku-4-5-20251001",
 		"gpt-5.3-codex-spark",
+		false,
 		false,
 		&service.UpstreamFailoverError{StatusCode: http.StatusBadGateway, RetryableOnSameAccount: false},
 		"OpenAI messages buffered response completed without assistant content or tool output",
@@ -545,9 +550,30 @@ func TestShouldFastFallbackOpenAIMessagesBeforeSameAccountRetry(t *testing.T) {
 		"claude-haiku-4-5-20251001",
 		"gpt-5.3-codex-spark",
 		false,
+		false,
 		&service.UpstreamFailoverError{StatusCode: http.StatusBadRequest, ResponseBody: []byte(`{"error":{"code":"context_length_exceeded"}}`), RetryableOnSameAccount: true},
 		"Your input exceeds the context window of this model",
 	))
+	require.True(t, shouldFastFallbackOpenAIMessagesBeforeSameAccountRetry(
+		"gpt-5.6-sol",
+		"gpt-5.6-luna",
+		false,
+		true,
+		emptyOutputErr,
+		"OpenAI messages buffered response completed without assistant content or tool output",
+	))
+}
+
+func TestMarkClaudeCodeMessagesRoutePreservesOriginalModel(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+
+	markClaudeCodeMessagesRoute(c, " claude-haiku-4-5-20251001 ", false)
+	markClaudeCodeMessagesRoute(c, "gpt-5.6-luna", true)
+
+	require.Equal(t, "claude-haiku-4-5-20251001", claudeCodeOriginalMessagesModel(c, "fallback"))
+	require.True(t, isClaudeCodeAutomaticMessagesRoute(c))
+	require.Equal(t, "fallback", claudeCodeOriginalMessagesModel(nil, " fallback "))
+	require.False(t, isClaudeCodeAutomaticMessagesRoute(nil))
 }
 
 func TestShouldAutohealOpenAIOAuth403(t *testing.T) {
