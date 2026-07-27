@@ -501,10 +501,14 @@ export interface OpenAIMessagesDispatchModelConfig {
   sonnet_mapped_model?: string
   haiku_mapped_model?: string
   compact_mapped_model?: string
+  compact_reasoning_effort?: string
+  plan_mapped_model?: string
+  plan_reasoning_effort?: string
   sdk_cli_mapped_model?: string
   sdk_cli_reasoning_effort?: string
   exact_model_mappings?: Record<string, string>
   model_fallbacks?: Record<string, string[]>
+  automatic_model_fallbacks?: Record<string, string[]>
 }
 
 export interface Group {

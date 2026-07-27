@@ -16,6 +16,7 @@ $requiredFiles = @(
   "backend/docs/skills/sub2api-claude-code-codex/evals/evals.json",
   "backend/docs/skills/sub2api-claude-code-codex/references/fullpower-profile.json",
   "backend/docs/skills/sub2api-claude-code-codex/references/group-and-compact-routing.md",
+  "backend/docs/skills/sub2api-claude-code-codex/references/plan-agent-premium-routing.md",
   "backend/docs/skills/sub2api-claude-code-codex/references/harness-publication.md",
   "backend/docs/skills/sub2api-claude-code-codex/references/session-failure-registry.md",
   "backend/docs/skills/sub2api-claude-code-codex/references/verification.md",
@@ -38,6 +39,10 @@ $requiredFiles = @(
   "backend/internal/domain/openai_messages_dispatch.go",
   "backend/internal/service/openai_messages_dispatch.go",
   "backend/internal/service/openai_messages_dispatch_test.go",
+  "backend/internal/service/claude_code_agent_role.go",
+  "backend/internal/service/claude_code_agent_role_test.go",
+  "backend/internal/handler/claude_code_agent_profile.go",
+  "backend/internal/handler/claude_code_agent_profile_test.go",
   "backend/internal/handler/claude_code_multiprovider.go",
   "backend/internal/handler/claude_code_multiprovider_test.go",
   "frontend/src/views/admin/groupsMessagesDispatch.ts",
@@ -81,6 +86,10 @@ Assert-Contains `
   "sync-sub2api-sdk-cli-routing\.ps1[\s\S]*-CheckOnly" `
   "SDK CLI routing verification"
 Assert-Contains `
+  "backend/docs/skills/sub2api-claude-code-codex/scripts/verify-claude-code-sub2api.ps1" `
+  '-PlanModel \$planModel[\s\S]*-PlanEffort \$planEffort' `
+  "profile-aware Plan routing verification"
+Assert-Contains `
   "backend/docs/skills/sub2api-claude-code-codex/scripts/sync-sub2api-sdk-cli-routing.ps1" `
   'sdk_cli_mapped_model' `
   "SDK CLI mapped-model persistence"
@@ -88,6 +97,18 @@ Assert-Contains `
   "backend/docs/skills/sub2api-claude-code-codex/scripts/sync-sub2api-sdk-cli-routing.ps1" `
   'sdk_cli_reasoning_effort' `
   "SDK CLI effort persistence"
+Assert-Contains `
+  "backend/docs/skills/sub2api-claude-code-codex/scripts/sync-sub2api-sdk-cli-routing.ps1" `
+  'plan_mapped_model' `
+  "Plan mapped-model persistence"
+Assert-Contains `
+  "backend/internal/service/claude_code_agent_role.go" `
+  'claudeCodePlanArchitectAnchor' `
+  "structured Plan role classifier"
+Assert-Contains `
+  "backend/internal/service/claude_code_agent_role_test.go" `
+  'anchors only in user prompt' `
+  "Plan prompt-injection negative control"
 Assert-Contains `
   "backend/docs/skills/sub2api-claude-code-codex/scripts/sync-sub2api-sdk-cli-routing.ps1" `
   'model_fallbacks' `

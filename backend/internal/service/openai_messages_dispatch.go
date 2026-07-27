@@ -39,6 +39,8 @@ func normalizeOpenAIMessagesDispatchModelConfig(cfg OpenAIMessagesDispatchModelC
 		HaikuMappedModel:       normalizeOpenAIMessagesDispatchMappedModel(cfg.HaikuMappedModel),
 		CompactMappedModel:     normalizeOpenAIMessagesDispatchFallbackModel(cfg.CompactMappedModel),
 		CompactReasoningEffort: normalizeOpenAIMessagesDispatchReasoningEffort(cfg.CompactReasoningEffort),
+		PlanMappedModel:        normalizeOpenAIMessagesDispatchFallbackModel(cfg.PlanMappedModel),
+		PlanReasoningEffort:    normalizeOpenAIMessagesDispatchReasoningEffort(cfg.PlanReasoningEffort),
 		SDKCLIMappedModel:      normalizeOpenAIMessagesDispatchFallbackModel(cfg.SDKCLIMappedModel),
 		SDKCLIReasoningEffort:  normalizeOpenAIMessagesDispatchReasoningEffort(cfg.SDKCLIReasoningEffort),
 	}
@@ -235,6 +237,14 @@ func (g *Group) ResolveMessagesDispatchSDKCLIProfile() (model, reasoningEffort s
 	}
 	cfg := normalizeOpenAIMessagesDispatchModelConfig(g.MessagesDispatchModelConfig)
 	return strings.TrimSpace(cfg.SDKCLIMappedModel), strings.TrimSpace(cfg.SDKCLIReasoningEffort)
+}
+
+func (g *Group) ResolveMessagesDispatchPlanProfile() (model, reasoningEffort string) {
+	if g == nil {
+		return "", ""
+	}
+	cfg := normalizeOpenAIMessagesDispatchModelConfig(g.MessagesDispatchModelConfig)
+	return strings.TrimSpace(cfg.PlanMappedModel), strings.TrimSpace(cfg.PlanReasoningEffort)
 }
 
 func sanitizeGroupMessagesDispatchFields(g *Group) {

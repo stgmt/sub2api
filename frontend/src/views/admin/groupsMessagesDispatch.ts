@@ -11,10 +11,14 @@ export interface MessagesDispatchFormState {
   sonnet_mapped_model: string;
   haiku_mapped_model: string;
   compact_mapped_model: string;
+  compact_reasoning_effort: string;
+  plan_mapped_model: string;
+  plan_reasoning_effort: string;
   sdk_cli_mapped_model: string;
   sdk_cli_reasoning_effort: string;
   exact_model_mappings: MessagesDispatchMappingRow[];
   model_fallbacks: Record<string, string[]>;
+  automatic_model_fallbacks: Record<string, string[]>;
 }
 
 export function createDefaultMessagesDispatchFormState(): MessagesDispatchFormState {
@@ -24,10 +28,14 @@ export function createDefaultMessagesDispatchFormState(): MessagesDispatchFormSt
     sonnet_mapped_model: "gpt-5.3-codex",
     haiku_mapped_model: "gpt-5.3-codex-spark",
     compact_mapped_model: "",
+    compact_reasoning_effort: "",
+    plan_mapped_model: "",
+    plan_reasoning_effort: "",
     sdk_cli_mapped_model: "",
     sdk_cli_reasoning_effort: "",
     exact_model_mappings: [],
     model_fallbacks: {},
+    automatic_model_fallbacks: {},
   };
 }
 
@@ -48,11 +56,18 @@ export function messagesDispatchConfigToFormState(
     haiku_mapped_model:
       config?.haiku_mapped_model?.trim() || defaults.haiku_mapped_model,
     compact_mapped_model: config?.compact_mapped_model?.trim() || "",
+    compact_reasoning_effort:
+      config?.compact_reasoning_effort?.trim() || "",
+    plan_mapped_model: config?.plan_mapped_model?.trim() || "",
+    plan_reasoning_effort: config?.plan_reasoning_effort?.trim() || "",
     sdk_cli_mapped_model: config?.sdk_cli_mapped_model?.trim() || "",
     sdk_cli_reasoning_effort:
       config?.sdk_cli_reasoning_effort?.trim() || "",
     exact_model_mappings: exactMappings,
     model_fallbacks: structuredClone(config?.model_fallbacks || {}),
+    automatic_model_fallbacks: structuredClone(
+      config?.automatic_model_fallbacks || {},
+    ),
   };
 }
 
@@ -70,10 +85,16 @@ export function messagesDispatchFormStateToConfig(
     sonnet_mapped_model: state.sonnet_mapped_model.trim(),
     haiku_mapped_model: state.haiku_mapped_model.trim(),
     compact_mapped_model: state.compact_mapped_model.trim(),
+    compact_reasoning_effort: state.compact_reasoning_effort.trim(),
+    plan_mapped_model: state.plan_mapped_model.trim(),
+    plan_reasoning_effort: state.plan_reasoning_effort.trim(),
     sdk_cli_mapped_model: state.sdk_cli_mapped_model.trim(),
     sdk_cli_reasoning_effort: state.sdk_cli_reasoning_effort.trim(),
     exact_model_mappings: exactModelMappings,
     model_fallbacks: structuredClone(state.model_fallbacks),
+    automatic_model_fallbacks: structuredClone(
+      state.automatic_model_fallbacks,
+    ),
   };
 }
 
@@ -86,8 +107,12 @@ export function resetMessagesDispatchFormState(
   target.sonnet_mapped_model = defaults.sonnet_mapped_model;
   target.haiku_mapped_model = defaults.haiku_mapped_model;
   target.compact_mapped_model = defaults.compact_mapped_model;
+  target.compact_reasoning_effort = defaults.compact_reasoning_effort;
+  target.plan_mapped_model = defaults.plan_mapped_model;
+  target.plan_reasoning_effort = defaults.plan_reasoning_effort;
   target.sdk_cli_mapped_model = defaults.sdk_cli_mapped_model;
   target.sdk_cli_reasoning_effort = defaults.sdk_cli_reasoning_effort;
   target.exact_model_mappings = [];
   target.model_fallbacks = {};
+  target.automatic_model_fallbacks = {};
 }

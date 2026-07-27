@@ -94,7 +94,10 @@ func (h *Handlers) MultiproviderMessages(c *gin.Context) {
 		sdkCLIRequest := isClaudeCodeSDKCLIRequest(c)
 		compactRequest := isClaudeCodeCompactRequestForMultiprovider(c, body)
 		compactModel, compactEffort := apiKey.Group.ResolveMessagesDispatchCompactProfile()
-		sdkCLIModel, sdkCLIEffort := apiKey.Group.ResolveMessagesDispatchSDKCLIProfile()
+		agentProfile, agentProfileMatched := claudeCodeAgentProfile{}, false
+		if !compactRequest {
+			agentProfile, agentProfileMatched = resolveClaudeCodeAgentProfile(c, body, apiKey.Group, defaultClaudeCodeAgentRoleSessionCache)
+		}
 		modelRewritten := false
 		if compactRequest && compactModel != "" {
 			var rewriteErr error
@@ -112,9 +115,9 @@ func (h *Handlers) MultiproviderMessages(c *gin.Context) {
 			modelRewritten = true
 			automaticRoute = true
 		}
-		if !modelRewritten && sdkCLIRequest && sdkCLIModel != "" {
+		if !modelRewritten && sdkCLIRequest && agentProfileMatched && agentProfile.Model != "" {
 			var rewriteErr error
-			body, model, rewriteErr = rewriteClaudeCodeSDKCLIProfileForMultiprovider(body, sdkCLIModel, sdkCLIEffort)
+			body, model, rewriteErr = rewriteClaudeCodeSDKCLIProfileForMultiprovider(body, agentProfile.Model, agentProfile.ReasoningEffort)
 			if rewriteErr != nil {
 				c.JSON(http.StatusBadRequest, gin.H{
 					"type": "error",
@@ -125,6 +128,7 @@ func (h *Handlers) MultiproviderMessages(c *gin.Context) {
 				})
 				return
 			}
+			markClaudeCodeAgentProfileRoute(c, claudeCodeOriginalMessagesModel(c, model), agentProfile)
 			modelRewritten = true
 			automaticRoute = true
 		}
@@ -142,9 +146,9 @@ func (h *Handlers) MultiproviderMessages(c *gin.Context) {
 				return
 			}
 		}
-		if !compactRequest && sdkCLIRequest && sdkCLIEffort != "" {
+		if !compactRequest && sdkCLIRequest && agentProfileMatched && agentProfile.ReasoningEffort != "" {
 			var rewriteErr error
-			body, rewriteErr = rewriteClaudeCodeSDKCLIEffortForMultiprovider(body, sdkCLIEffort)
+			body, rewriteErr = rewriteClaudeCodeSDKCLIEffortForMultiprovider(body, agentProfile.ReasoningEffort)
 			if rewriteErr != nil {
 				c.JSON(http.StatusBadRequest, gin.H{
 					"type": "error",
@@ -258,12 +262,16 @@ func (h *Handlers) MultiproviderCountTokens(c *gin.Context) {
 	resetGinRequestBody(c, body)
 
 	model := strings.TrimSpace(gjson.GetBytes(body, "model").String())
+	originalModel := model
 	groupPlatform := ""
 	if apiKey, _ := middleware2.GetAPIKeyFromContext(c); apiKey != nil && apiKey.Group != nil {
 		groupPlatform = apiKey.Group.Platform
 		var rewriteErr error
-		if sdkCLIModel, _ := apiKey.Group.ResolveMessagesDispatchSDKCLIProfile(); isClaudeCodeSDKCLIRequest(c) && sdkCLIModel != "" {
-			body, model, rewriteErr = rewriteClaudeCodeCompactModelForMultiprovider(body, sdkCLIModel)
+		if agentProfile, matched := resolveClaudeCodeAgentProfile(c, body, apiKey.Group, defaultClaudeCodeAgentRoleSessionCache); matched && agentProfile.Model != "" {
+			body, model, rewriteErr = rewriteClaudeCodeCompactModelForMultiprovider(body, agentProfile.Model)
+			if rewriteErr == nil {
+				markClaudeCodeAgentProfileRoute(c, originalModel, agentProfile)
+			}
 		} else {
 			body, model, rewriteErr = rewriteExplicitClaudeCodeModelForMultiprovider(body, model, groupPlatform, apiKey.Group)
 		}
@@ -297,6 +305,22 @@ func (h *Handlers) MultiproviderCountTokens(c *gin.Context) {
 		}
 		h.Gateway.CountTokens(c)
 	}
+}
+
+func markClaudeCodeAgentProfileRoute(c *gin.Context, originalModel string, profile claudeCodeAgentProfile) {
+	if c == nil || profile.Role == service.ClaudeCodeAgentRoleUnknown {
+		return
+	}
+	c.Set("sub2api_claude_code_agent_role", string(profile.Role))
+	c.Set("sub2api_claude_code_agent_role_source", profile.Source)
+	requestLogger(c, "handler.claude_code_multiprovider").Info(
+		"claude_code.agent_role_route",
+		zap.String("agent_role", string(profile.Role)),
+		zap.String("role_source", profile.Source),
+		zap.String("from_model", strings.TrimSpace(originalModel)),
+		zap.String("to_model", profile.Model),
+		zap.String("reasoning_effort", profile.ReasoningEffort),
+	)
 }
 
 func resetGinRequestBody(c *gin.Context, body []byte) {

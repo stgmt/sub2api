@@ -610,6 +610,8 @@ func TestAdminService_CreateGroup_NormalizesMessagesDispatchModelConfig(t *testi
 			HaikuMappedModel:       " gpt-5.3-codex-spark ",
 			CompactMappedModel:     " claude-sonnet-5 ",
 			CompactReasoningEffort: " LOW ",
+			PlanMappedModel:        " gpt-5.6-sol ",
+			PlanReasoningEffort:    " HIGH ",
 			SDKCLIMappedModel:      " qwen3.8-max-preview ",
 			SDKCLIReasoningEffort:  " HIGH ",
 			ExactModelMappings: map[string]string{
@@ -626,6 +628,8 @@ func TestAdminService_CreateGroup_NormalizesMessagesDispatchModelConfig(t *testi
 		HaikuMappedModel:       "gpt-5.3-codex-spark",
 		CompactMappedModel:     "claude-sonnet-5",
 		CompactReasoningEffort: "low",
+		PlanMappedModel:        "gpt-5.6-sol",
+		PlanReasoningEffort:    "high",
 		SDKCLIMappedModel:      "qwen3.8-max-preview",
 		SDKCLIReasoningEffort:  "high",
 		ExactModelMappings: map[string]string{
@@ -649,6 +653,8 @@ func TestAdminService_UpdateGroup_NormalizesMessagesDispatchModelConfig(t *testi
 			SonnetMappedModel:      " gpt-5.4-medium ",
 			CompactMappedModel:     " claude-sonnet-5 ",
 			CompactReasoningEffort: " LOW ",
+			PlanMappedModel:        " gpt-5.6-sol ",
+			PlanReasoningEffort:    " HIGH ",
 			SDKCLIMappedModel:      " qwen3.8-max-preview ",
 			SDKCLIReasoningEffort:  " HIGH ",
 			ExactModelMappings: map[string]string{
@@ -663,6 +669,8 @@ func TestAdminService_UpdateGroup_NormalizesMessagesDispatchModelConfig(t *testi
 		SonnetMappedModel:      "gpt-5.4",
 		CompactMappedModel:     "claude-sonnet-5",
 		CompactReasoningEffort: "low",
+		PlanMappedModel:        "gpt-5.6-sol",
+		PlanReasoningEffort:    "high",
 		SDKCLIMappedModel:      "qwen3.8-max-preview",
 		SDKCLIReasoningEffort:  "high",
 		ExactModelMappings: map[string]string{

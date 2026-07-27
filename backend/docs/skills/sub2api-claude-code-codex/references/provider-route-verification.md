@@ -20,7 +20,7 @@ Run `claude-route verify` for the reproducible first pass. It uses a unique User
 ## Negative Proof
 
 - `anthropic-only`: after the switch timestamp, no new OpenAI/Codex or Alibaba account usage may appear for the stable key.
-- `chatgpt-only`: every row must use the OpenAI OAuth account `codex-chatgpt-subscription`; no Anthropic/Alibaba account may appear. The four-probe verifier expects Sol for main, Luna for stale foreign IDs, Luna/high for compact, and Luna/xhigh for Agent SDK traffic.
+- `chatgpt-only`: every row must use the OpenAI OAuth account `codex-chatgpt-subscription`; no Anthropic/Alibaba account may appear. The five-probe verifier expects Sol for main, Luna for stale foreign IDs, Luna/high for compact, Luna/xhigh for generic Agent SDK traffic, and Sol/high for the built-in Plan composite.
 - `hybrid-current`: main must use OpenAI/Codex; delegated/compact/SDK traffic must use Alibaba while healthy; native Anthropic must receive no traffic unless the profile version explicitly allows it.
 
 Catalog output and UI labels are supporting evidence only.
@@ -29,7 +29,7 @@ Catalog output and UI labels are supporting evidence only.
 
 Run main, compact, `claude -p`, ordinary subagent, named subagent, nested subagent, and stale-session probes on every reachable node. Also inspect project-local settings that may override user config. For `anthropic-only` v4, require Claude Code 2.1.219 or later, `claude-opus-5[1m]`/`claude-sonnet-5[1m]` in client-facing config, and both context env values at `1000000`. A server-side model rewrite or an env-only edit is insufficient: a fresh JSON `modelUsage.contextWindow` probe must report `1000000`, while sub2api usage logs must show the stripped raw model ID.
 
-For `chatgpt-only`, require a host/WSL Codex auth SHA-256 match, an active schedulable OpenAI OAuth account, a GPT-only `/v1/models` catalog, empty fallbacks, clean profile check-only output, and correlated Agent SDK rows on Luna/xhigh. Treat standalone `claude -p` as a main CLI request on Claude Code 2.1.219 unless its User-Agent actually contains `sdk-cli`; do not broaden the proxy matcher to all `(external, cli)` traffic.
+For `chatgpt-only`, require a host/WSL Codex auth SHA-256 match, an active schedulable OpenAI OAuth account, a GPT-only `/v1/models` catalog, empty fallbacks, clean profile check-only output, correlated generic Agent SDK rows on Luna/xhigh, and a structurally verified Plan row on Sol/high. Treat standalone `claude -p` as a main CLI request on Claude Code 2.1.219 unless its User-Agent actually contains `sdk-cli`; do not broaden the proxy matcher to all `(external, cli)` traffic. Read `plan-agent-premium-routing.md` before changing the Plan signature.
 
 ## Rollback
 

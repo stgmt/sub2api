@@ -8,7 +8,7 @@ $applier = Join-Path $scriptRoot "apply-claude-provider-profile.ps1"
 $controller = Join-Path $scriptRoot "claude-route.ps1"
 $installer = Join-Path $scriptRoot "install-claude-route.ps1"
 $anthropicProfile = Join-Path $skillRoot "profiles\anthropic-only.v4.json"
-$chatgptProfile = Join-Path $skillRoot "profiles\chatgpt-only.v2.json"
+$chatgptProfile = Join-Path $skillRoot "profiles\chatgpt-only.v3.json"
 $hybridProfile = Join-Path $skillRoot "profiles\hybrid-current.v1.json"
 $temp = Join-Path ([IO.Path]::GetTempPath()) ("sub2api-provider-route-test-" + [guid]::NewGuid())
 
@@ -109,11 +109,13 @@ Assert-True ($anthropic.group.messages_dispatch_model_config.exact_model_mapping
 Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof contract must name provider"
   Assert-True ($hybrid.expected_provider -eq "openai") "Hybrid proof contract must name provider"
   Assert-True ($chatgpt.main_model -eq "gpt-5.6-sol") "ChatGPT-only main must use Sol"
-  Assert-True ($chatgpt.version -eq 2) "ChatGPT-only bounded recovery profile must be version 2"
+  Assert-True ($chatgpt.version -eq 3) "ChatGPT-only Plan routing profile must be version 3"
   Assert-True ($chatgpt.agent_model -eq "gpt-5.6-luna") "ChatGPT-only delegated model must use Luna"
   Assert-True ($chatgpt.agent_effort -eq "xhigh") "ChatGPT-only delegated effort must be xhigh"
   Assert-True ($chatgpt.group.messages_dispatch_model_config.compact_mapped_model -eq "gpt-5.6-luna") "ChatGPT-only compact must use Luna"
   Assert-True ($chatgpt.group.messages_dispatch_model_config.compact_reasoning_effort -eq "high") "ChatGPT-only compact must use high effort"
+  Assert-True ($chatgpt.group.messages_dispatch_model_config.plan_mapped_model -eq "gpt-5.6-sol") "ChatGPT-only Plan agent must use Sol"
+  Assert-True ($chatgpt.group.messages_dispatch_model_config.plan_reasoning_effort -eq "high") "ChatGPT-only Plan agent must use high effort"
   Assert-True ($chatgpt.group.messages_dispatch_model_config.sdk_cli_mapped_model -eq "gpt-5.6-luna") "ChatGPT-only SDK CLI must use Luna"
   Assert-True ($chatgpt.group.messages_dispatch_model_config.sdk_cli_reasoning_effort -eq "xhigh") "ChatGPT-only SDK CLI must use xhigh"
   Assert-True (@($chatgpt.group.messages_dispatch_model_config.model_fallbacks.PSObject.Properties).Count -eq 0) "ChatGPT-only generic fallbacks must remain empty"
@@ -157,22 +159,25 @@ Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof cont
   $legacyProfileV1 = Join-Path $installedSkill "profiles\anthropic-only.v1.json"
   $legacyProfileV2 = Join-Path $installedSkill "profiles\anthropic-only.v2.json"
   $legacyProfileV3 = Join-Path $installedSkill "profiles\anthropic-only.v3.json"
+  $legacyChatGPTV2 = Join-Path $installedSkill "profiles\chatgpt-only.v2.json"
   New-Item -ItemType Directory -Path (Split-Path -Parent $legacyProfileV1), $legacySkill -Force | Out-Null
   [IO.File]::WriteAllText($legacyProfileV1, '{}', [Text.UTF8Encoding]::new($false))
   [IO.File]::WriteAllText($legacyProfileV2, '{}', [Text.UTF8Encoding]::new($false))
   [IO.File]::WriteAllText($legacyProfileV3, '{}', [Text.UTF8Encoding]::new($false))
+  [IO.File]::WriteAllText($legacyChatGPTV2, '{}', [Text.UTF8Encoding]::new($false))
   [IO.File]::WriteAllText((Join-Path $legacySkill 'SKILL.md'), "---`nname: claude-provider-switcher`n---`n", [Text.UTF8Encoding]::new($false))
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -InstallRoot $installedSkill -BinDir (Join-Path $installFixture 'bin') -LegacySkillRoot $legacySkill -SkipPathUpdate -SkipStatus | Out-Null
   Assert-True ($LASTEXITCODE -eq 0) "Consolidated installer fixture must succeed"
   Assert-True (Test-Path -LiteralPath (Join-Path $installedSkill 'profiles\anthropic-only.v4.json')) "Installer must copy Anthropic profile v4"
-  Assert-True (Test-Path -LiteralPath (Join-Path $installedSkill 'profiles\chatgpt-only.v2.json')) "Installer must copy ChatGPT-only profile v2"
+  Assert-True (Test-Path -LiteralPath (Join-Path $installedSkill 'profiles\chatgpt-only.v3.json')) "Installer must copy ChatGPT-only profile v3"
+  Assert-True (-not (Test-Path -LiteralPath (Join-Path $installedSkill 'profiles\chatgpt-only.v2.json'))) "Installer must remove legacy ChatGPT-only profile v2"
   Assert-True (-not (Test-Path -LiteralPath (Join-Path $installedSkill 'profiles\chatgpt-only.v1.json'))) "Installer must remove legacy ChatGPT-only profile v1"
   Assert-True (-not (Test-Path -LiteralPath $legacyProfileV1)) "Installer must remove stale Anthropic profile v1"
   Assert-True (-not (Test-Path -LiteralPath $legacyProfileV2)) "Installer must remove stale Anthropic profile v2"
   Assert-True (-not (Test-Path -LiteralPath $legacyProfileV3)) "Installer must remove stale Anthropic profile v3"
   Assert-True (-not (Test-Path -LiteralPath $legacySkill)) "Installer must remove the managed standalone provider skill"
 
-  [pscustomobject]@{ status = "PASS"; assertions = 83; profiles = @("anthropic-only", "chatgpt-only", "hybrid-current") } | ConvertTo-Json -Compress
+  [pscustomobject]@{ status = "PASS"; assertions = 84; profiles = @("anthropic-only", "chatgpt-only", "hybrid-current") } | ConvertTo-Json -Compress
 } finally {
   Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
 }

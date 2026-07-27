@@ -13,12 +13,16 @@ describe("groupsMessagesDispatch", () => {
       allow_messages_dispatch: false,
       opus_mapped_model: "gpt-5.4",
       sonnet_mapped_model: "gpt-5.3-codex",
-		haiku_mapped_model: "gpt-5.3-codex-spark",
+      haiku_mapped_model: "gpt-5.3-codex-spark",
       compact_mapped_model: "",
+      compact_reasoning_effort: "",
+      plan_mapped_model: "",
+      plan_reasoning_effort: "",
       sdk_cli_mapped_model: "",
       sdk_cli_reasoning_effort: "",
       exact_model_mappings: [],
       model_fallbacks: {},
+      automatic_model_fallbacks: {},
     });
   });
 
@@ -29,6 +33,9 @@ describe("groupsMessagesDispatch", () => {
       sonnet_mapped_model: "gpt-5.3-codex",
 		haiku_mapped_model: " gpt-5.3-codex-spark ",
       compact_mapped_model: " qwen3.8-max-preview ",
+      compact_reasoning_effort: " low ",
+      plan_mapped_model: " gpt-5.6-sol ",
+      plan_reasoning_effort: " high ",
       sdk_cli_mapped_model: " qwen3.8-max-preview ",
       sdk_cli_reasoning_effort: " high ",
       exact_model_mappings: [
@@ -40,6 +47,9 @@ describe("groupsMessagesDispatch", () => {
         { claude_model: "claude-opus-4-6", target_model: " " },
       ],
       model_fallbacks: {},
+      automatic_model_fallbacks: {
+        "gpt-5.6-luna": ["gpt-5.6-sol"],
+      },
     });
 
     expect(config).toEqual({
@@ -47,12 +57,18 @@ describe("groupsMessagesDispatch", () => {
       sonnet_mapped_model: "gpt-5.3-codex",
 		haiku_mapped_model: "gpt-5.3-codex-spark",
       compact_mapped_model: "qwen3.8-max-preview",
+      compact_reasoning_effort: "low",
+      plan_mapped_model: "gpt-5.6-sol",
+      plan_reasoning_effort: "high",
       sdk_cli_mapped_model: "qwen3.8-max-preview",
       sdk_cli_reasoning_effort: "high",
       exact_model_mappings: {
         "claude-sonnet-4-5-20250929": "gpt-5.2",
       },
       model_fallbacks: {},
+      automatic_model_fallbacks: {
+        "gpt-5.6-luna": ["gpt-5.6-sol"],
+      },
     });
   });
 
@@ -63,6 +79,9 @@ describe("groupsMessagesDispatch", () => {
         sonnet_mapped_model: "gpt-5.2",
         haiku_mapped_model: "gpt-5.3-codex-spark",
         compact_mapped_model: "qwen3.8-max-preview",
+        compact_reasoning_effort: "low",
+        plan_mapped_model: "gpt-5.6-sol",
+        plan_reasoning_effort: "high",
         sdk_cli_mapped_model: "qwen3.8-max-preview",
         sdk_cli_reasoning_effort: "high",
         exact_model_mappings: {
@@ -72,6 +91,9 @@ describe("groupsMessagesDispatch", () => {
         model_fallbacks: {
           "qwen3.8-max-preview": ["qwen3.7-max"],
         },
+        automatic_model_fallbacks: {
+          "gpt-5.6-luna": ["gpt-5.6-sol"],
+        },
       }),
     ).toEqual({
       allow_messages_dispatch: false,
@@ -79,6 +101,9 @@ describe("groupsMessagesDispatch", () => {
       sonnet_mapped_model: "gpt-5.2",
 		haiku_mapped_model: "gpt-5.3-codex-spark",
       compact_mapped_model: "qwen3.8-max-preview",
+      compact_reasoning_effort: "low",
+      plan_mapped_model: "gpt-5.6-sol",
+      plan_reasoning_effort: "high",
       sdk_cli_mapped_model: "qwen3.8-max-preview",
       sdk_cli_reasoning_effort: "high",
       exact_model_mappings: [
@@ -91,6 +116,9 @@ describe("groupsMessagesDispatch", () => {
       model_fallbacks: {
         "qwen3.8-max-preview": ["qwen3.7-max"],
       },
+      automatic_model_fallbacks: {
+        "gpt-5.6-luna": ["gpt-5.6-sol"],
+      },
     });
   });
 
@@ -101,12 +129,18 @@ describe("groupsMessagesDispatch", () => {
       sonnet_mapped_model: "gpt-5.4",
       haiku_mapped_model: "gpt-5.1",
       compact_mapped_model: "qwen3.7-max",
+      compact_reasoning_effort: "low",
+      plan_mapped_model: "gpt-5.6-sol",
+      plan_reasoning_effort: "high",
       sdk_cli_mapped_model: "gpt-5.6-terra",
       sdk_cli_reasoning_effort: "medium",
       exact_model_mappings: [
         { claude_model: "claude-opus-4-6", target_model: "gpt-5.4" },
       ],
       model_fallbacks: { "gpt-5.6-terra": ["gpt-5.4"] },
+      automatic_model_fallbacks: {
+        "gpt-5.6-luna": ["gpt-5.6-sol"],
+      },
     };
 
     resetMessagesDispatchFormState(state);
@@ -117,10 +151,14 @@ describe("groupsMessagesDispatch", () => {
       sonnet_mapped_model: "gpt-5.3-codex",
 		haiku_mapped_model: "gpt-5.3-codex-spark",
       compact_mapped_model: "",
+      compact_reasoning_effort: "",
+      plan_mapped_model: "",
+      plan_reasoning_effort: "",
       sdk_cli_mapped_model: "",
       sdk_cli_reasoning_effort: "",
       exact_model_mappings: [],
       model_fallbacks: {},
+      automatic_model_fallbacks: {},
     });
   });
 });

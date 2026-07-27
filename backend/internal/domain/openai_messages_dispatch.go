@@ -8,6 +8,8 @@ type OpenAIMessagesDispatchModelConfig struct {
 	HaikuMappedModel        string              `json:"haiku_mapped_model,omitempty"`
 	CompactMappedModel      string              `json:"compact_mapped_model,omitempty"`
 	CompactReasoningEffort  string              `json:"compact_reasoning_effort,omitempty"`
+	PlanMappedModel         string              `json:"plan_mapped_model,omitempty"`
+	PlanReasoningEffort     string              `json:"plan_reasoning_effort,omitempty"`
 	SDKCLIMappedModel       string              `json:"sdk_cli_mapped_model,omitempty"`
 	SDKCLIReasoningEffort   string              `json:"sdk_cli_reasoning_effort,omitempty"`
 	ExactModelMappings      map[string]string   `json:"exact_model_mappings,omitempty"`

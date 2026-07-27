@@ -34,7 +34,7 @@ if (-not (Test-Path -LiteralPath $statePath)) { throw "Provider route state is n
 $state = Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json
 $profileFile = switch ($state.active_profile) {
   "anthropic-only" { "anthropic-only.v4.json" }
-  "chatgpt-only" { "chatgpt-only.v2.json" }
+  "chatgpt-only" { "chatgpt-only.v3.json" }
   "hybrid-current" { "hybrid-current.v1.json" }
   default { throw "Unknown active provider profile: $($state.active_profile)" }
 }
@@ -49,11 +49,13 @@ SELECT id::text
 FROM groups
 WHERE name = '$groupNameSql'
   AND platform = 'openai'
+  AND messages_dispatch_model_config->>'plan_mapped_model' = 'gpt-5.6-sol'
+  AND messages_dispatch_model_config->>'plan_reasoning_effort' = 'high'
   AND NOT (COALESCE(messages_dispatch_model_config->'model_fallbacks', '{}'::jsonb) ? 'gpt-5.6-luna')
   AND messages_dispatch_model_config->'automatic_model_fallbacks'->'gpt-5.6-luna'->>0 = 'gpt-5.6-sol';
 "@)
   if ($contractRows.Count -ne 1) {
-    throw "ChatGPT-only v2 bounded Luna-to-Sol recovery contract is not active"
+    throw "ChatGPT-only v3 Plan and bounded Luna-to-Sol recovery contract is not active"
   }
 }
 $keyNameSql = $StableKeyName.Replace("'", "''")
@@ -70,7 +72,8 @@ $probes = @(
   @{ name = "main"; model = [string]$profile.main_model; system = "You are Claude Code, Anthropic's official CLI for Claude." },
   @{ name = "stale-qwen"; model = "qwen3.8-max-preview"; system = "You are Claude Code, Anthropic's official CLI for Claude." },
   @{ name = "compact"; model = [string]$profile.main_model; system = "Your task is to create a detailed summary of the conversation."; effort = "max"; adaptive = $true },
-  @{ name = "sdk-cli"; model = [string]$profile.main_model; system = "You are Claude Code, Anthropic's official CLI for Claude."; user_agent = "claude-cli/2.1.202 (external, sdk-cli)" }
+  @{ name = "sdk-cli"; model = [string]$profile.main_model; system = "You are Claude Code, Anthropic's official CLI for Claude."; user_agent = "claude-cli/2.1.202 (external, sdk-cli)" },
+  @{ name = "plan"; model = [string]$profile.main_model; system = "x-anthropic-billing-header: cc_entrypoint=sdk-cli; cc_is_subagent=true;`nYou are a software architect and planning specialist for Claude Code.`n=== CRITICAL: READ-ONLY MODE - NO FILE MODIFICATIONS ===`nThis is a READ-ONLY planning task."; user_agent = "claude-cli/2.1.202 (external, sdk-cli)"; tools = @("Bash", "Glob", "Grep", "Read") }
 )
 
 $httpProof = @()
@@ -87,6 +90,7 @@ foreach ($probe in $probes) {
   }
   if ($probe.effort) { $body.output_config = @{ effort = [string]$probe.effort } }
   if ($probe.adaptive) { $body.thinking = @{ type = "adaptive" } }
+  if ($probe.tools) { $body.tools = @($probe.tools | ForEach-Object { @{ name = [string]$_; description = "verification tool"; input_schema = @{ type = "object" } } }) }
   $body = $body | ConvertTo-Json -Depth 20 -Compress
   $response = Invoke-WebRequest -UseBasicParsing -Method Post -Uri "$baseUrl/v1/messages" -Headers $headers -ContentType "application/json" -Body $body -TimeoutSec 180
   $httpProof += [pscustomobject]@{ probe = $probe.name; status = [int]$response.StatusCode }
@@ -118,7 +122,7 @@ if ($usageProof.Count -ne $probes.Count) { throw "Expected $($probes.Count) usag
 if ($state.active_profile -eq "anthropic-only") {
   $forbidden = @($usageProof | Where-Object { $_.platform -ne "anthropic" -or $_.type -ne "oauth" -or $_.account_name -ne $profile.expected_account_name })
   if ($forbidden.Count -gt 0) { throw "Anthropic-only verification observed a forbidden provider account" }
-  $expectedModels = @($profile.main_model, "claude-sonnet-5", "claude-sonnet-5", "claude-sonnet-5")
+  $expectedModels = @($profile.main_model, "claude-sonnet-5", "claude-sonnet-5", "claude-sonnet-5", "claude-sonnet-5")
   for ($i = 0; $i -lt $expectedModels.Count; $i++) {
     if ([string]$usageProof[$i].model -ne [string]$expectedModels[$i]) {
       throw "Probe '$($probes[$i].name)' expected model '$($expectedModels[$i])', got '$($usageProof[$i].model)'"
@@ -130,10 +134,13 @@ if ($state.active_profile -eq "anthropic-only") {
   if ([string]$usageProof[3].reasoning_effort -ne "high") {
     throw "SDK CLI probe expected reasoning effort 'high', got '$($usageProof[3].reasoning_effort)'"
   }
+  if ([string]$usageProof[4].reasoning_effort -ne "high") {
+    throw "Plan probe expected reasoning effort 'high', got '$($usageProof[4].reasoning_effort)'"
+  }
 } elseif ($state.active_profile -eq "chatgpt-only") {
   $forbidden = @($usageProof | Where-Object { $_.platform -ne "openai" -or $_.type -ne "oauth" -or $_.account_name -ne $profile.expected_account_name })
   if ($forbidden.Count -gt 0) { throw "ChatGPT-only verification observed a forbidden provider account" }
-  $expectedModels = @($profile.main_model, "gpt-5.6-luna", "gpt-5.6-luna", "gpt-5.6-luna")
+  $expectedModels = @($profile.main_model, "gpt-5.6-luna", "gpt-5.6-luna", "gpt-5.6-luna", "gpt-5.6-sol")
   for ($i = 0; $i -lt $expectedModels.Count; $i++) {
     if ([string]$usageProof[$i].model -ne [string]$expectedModels[$i]) {
       throw "Probe '$($probes[$i].name)' expected model '$($expectedModels[$i])', got '$($usageProof[$i].model)'"
@@ -144,6 +151,9 @@ if ($state.active_profile -eq "anthropic-only") {
   }
   if ([string]$usageProof[3].reasoning_effort -ne "xhigh") {
     throw "SDK CLI probe expected reasoning effort 'xhigh', got '$($usageProof[3].reasoning_effort)'"
+  }
+  if ([string]$usageProof[4].reasoning_effort -ne "high") {
+    throw "Plan probe expected reasoning effort 'high', got '$($usageProof[4].reasoning_effort)'"
   }
 }
 

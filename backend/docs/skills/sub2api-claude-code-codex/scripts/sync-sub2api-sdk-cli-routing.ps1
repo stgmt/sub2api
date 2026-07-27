@@ -4,6 +4,9 @@ param(
   [string]$Model = "qwen3.8-max-preview",
   [ValidateSet("low", "medium", "high", "xhigh", "max")]
   [string]$Effort = "high",
+  [string]$PlanModel = "qwen3.8-max-preview",
+  [ValidateSet("low", "medium", "high", "xhigh", "max")]
+  [string]$PlanEffort = "high",
   [string]$FallbackModel = "gpt-5.6-sol",
   [string]$AutomaticFallbackModel = "",
   [string]$PostgresContainer = "sub2api-codex-postgres",
@@ -66,6 +69,8 @@ function Invoke-PostgresSql([string]$Sql) {
 $groupSql = ConvertTo-SqlLiteral $GroupName
 $modelSql = ConvertTo-SqlLiteral $Model
 $effortSql = ConvertTo-SqlLiteral $Effort.ToLowerInvariant()
+$planModelSql = ConvertTo-SqlLiteral $PlanModel
+$planEffortSql = ConvertTo-SqlLiteral $PlanEffort.ToLowerInvariant()
 $fallbackModelSql = ConvertTo-SqlLiteral $FallbackModel
 $automaticFallbackModelSql = ConvertTo-SqlLiteral $AutomaticFallbackModel
 $fallbackUpdateSql = if ($fallbackModelSql) {
@@ -96,26 +101,13 @@ DECLARE
   affected integer;
 BEGIN
   UPDATE groups
-  SET messages_dispatch_model_config = jsonb_set(
-    jsonb_set(
-      jsonb_set(
-        jsonb_set(
-          COALESCE(messages_dispatch_model_config, '{}'::jsonb),
-          '{sdk_cli_mapped_model}',
-          to_jsonb('$modelSql'::text),
-          true
-        ),
-        '{sdk_cli_reasoning_effort}',
-        to_jsonb('$effortSql'::text),
-        true
-      ),
-      '{model_fallbacks}',
-      $fallbackUpdateSql,
-      true
-    ),
-    '{automatic_model_fallbacks}',
-    $automaticFallbackUpdateSql,
-    true
+  SET messages_dispatch_model_config = COALESCE(messages_dispatch_model_config, '{}'::jsonb) || jsonb_build_object(
+    'sdk_cli_mapped_model', '$modelSql'::text,
+    'sdk_cli_reasoning_effort', '$effortSql'::text,
+    'plan_mapped_model', '$planModelSql'::text,
+    'plan_reasoning_effort', '$planEffortSql'::text,
+    'model_fallbacks', $fallbackUpdateSql,
+    'automatic_model_fallbacks', $automaticFallbackUpdateSql
   ),
     updated_at = now()
   WHERE name = '$groupSql' AND platform = 'openai';
@@ -134,6 +126,8 @@ $checkSql = @"
 SELECT id || '|' || name || '|' ||
        COALESCE(messages_dispatch_model_config->>'sdk_cli_mapped_model', '') || '|' ||
        COALESCE(messages_dispatch_model_config->>'sdk_cli_reasoning_effort', '') || '|' ||
+       COALESCE(messages_dispatch_model_config->>'plan_mapped_model', '') || '|' ||
+       COALESCE(messages_dispatch_model_config->>'plan_reasoning_effort', '') || '|' ||
        COALESCE(messages_dispatch_model_config->'model_fallbacks'->'$modelSql'->>0, '') || '|' ||
        COALESCE(messages_dispatch_model_config->'automatic_model_fallbacks'->'$modelSql'->>0, '')
 FROM groups
@@ -141,11 +135,13 @@ WHERE name = '$groupSql'
   AND platform = 'openai'
   AND messages_dispatch_model_config->>'sdk_cli_mapped_model' = '$modelSql'
   AND messages_dispatch_model_config->>'sdk_cli_reasoning_effort' = '$effortSql'
+  AND messages_dispatch_model_config->>'plan_mapped_model' = '$planModelSql'
+  AND messages_dispatch_model_config->>'plan_reasoning_effort' = '$planEffortSql'
   $fallbackCheckSql
   $automaticFallbackCheckSql;
 "@
 $proof = @(Invoke-PostgresSql $checkSql | Where-Object { $_ -and $_.Trim() })
 if ($proof.Count -ne 1) {
-  throw "sdk-cli routing contract is not active for group '$GroupName'"
+  throw "sdk-cli/Plan routing contract is not active for group '$GroupName'"
 }
-Write-Host "SUB2API_SDK_CLI_ROUTING_OK $($proof[0])"
+Write-Host "SUB2API_SDK_CLI_PLAN_ROUTING_OK $($proof[0])"

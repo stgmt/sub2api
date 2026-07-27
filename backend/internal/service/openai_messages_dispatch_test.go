@@ -13,6 +13,8 @@ func TestNormalizeOpenAIMessagesDispatchModelConfig(t *testing.T) {
 		HaikuMappedModel:       " gpt-5.3-codex-spark ",
 		CompactMappedModel:     " claude-sonnet-5 ",
 		CompactReasoningEffort: " LOW ",
+		PlanMappedModel:        " gpt-5.6-sol ",
+		PlanReasoningEffort:    " HIGH ",
 		SDKCLIMappedModel:      " qwen3.8-max-preview ",
 		SDKCLIReasoningEffort:  " HIGH ",
 		ExactModelMappings: map[string]string{
@@ -35,6 +37,8 @@ func TestNormalizeOpenAIMessagesDispatchModelConfig(t *testing.T) {
 	require.Equal(t, "gpt-5.3-codex-spark", cfg.HaikuMappedModel)
 	require.Equal(t, "claude-sonnet-5", cfg.CompactMappedModel)
 	require.Equal(t, "low", cfg.CompactReasoningEffort)
+	require.Equal(t, "gpt-5.6-sol", cfg.PlanMappedModel)
+	require.Equal(t, "high", cfg.PlanReasoningEffort)
 	require.Equal(t, "qwen3.8-max-preview", cfg.SDKCLIMappedModel)
 	require.Equal(t, "high", cfg.SDKCLIReasoningEffort)
 	require.Equal(t, map[string]string{
@@ -153,6 +157,26 @@ func TestGroupResolveMessagesDispatchSDKCLIProfile(t *testing.T) {
 	require.Equal(t, "high", effort)
 
 	model, effort = (*Group)(nil).ResolveMessagesDispatchSDKCLIProfile()
+	require.Empty(t, model)
+	require.Empty(t, effort)
+}
+
+func TestGroupResolveMessagesDispatchPlanProfile(t *testing.T) {
+	t.Parallel()
+
+	group := &Group{
+		Platform: PlatformOpenAI,
+		MessagesDispatchModelConfig: OpenAIMessagesDispatchModelConfig{
+			PlanMappedModel:     " gpt-5.6-sol ",
+			PlanReasoningEffort: " HIGH ",
+		},
+	}
+
+	model, effort := group.ResolveMessagesDispatchPlanProfile()
+	require.Equal(t, "gpt-5.6-sol", model)
+	require.Equal(t, "high", effort)
+
+	model, effort = (*Group)(nil).ResolveMessagesDispatchPlanProfile()
 	require.Empty(t, model)
 	require.Empty(t, effort)
 }

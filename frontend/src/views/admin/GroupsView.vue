@@ -3669,11 +3669,16 @@ const createForm = reactive({
   sonnet_mapped_model: createMessagesDispatchDefaults.sonnet_mapped_model,
   haiku_mapped_model: createMessagesDispatchDefaults.haiku_mapped_model,
   compact_mapped_model: createMessagesDispatchDefaults.compact_mapped_model,
+  compact_reasoning_effort:
+    createMessagesDispatchDefaults.compact_reasoning_effort,
+  plan_mapped_model: createMessagesDispatchDefaults.plan_mapped_model,
+  plan_reasoning_effort: createMessagesDispatchDefaults.plan_reasoning_effort,
   sdk_cli_mapped_model: createMessagesDispatchDefaults.sdk_cli_mapped_model,
   sdk_cli_reasoning_effort:
     createMessagesDispatchDefaults.sdk_cli_reasoning_effort,
   exact_model_mappings: [] as MessagesDispatchMappingRow[],
   model_fallbacks: {} as Record<string, string[]>,
+  automatic_model_fallbacks: {} as Record<string, string[]>,
   // 账号过滤控制（OpenAI/Antigravity 平台）
   require_oauth_only: false,
   require_privacy_set: false,
@@ -4014,11 +4019,16 @@ const editForm = reactive({
   sonnet_mapped_model: editMessagesDispatchDefaults.sonnet_mapped_model,
   haiku_mapped_model: editMessagesDispatchDefaults.haiku_mapped_model,
   compact_mapped_model: editMessagesDispatchDefaults.compact_mapped_model,
+  compact_reasoning_effort:
+    editMessagesDispatchDefaults.compact_reasoning_effort,
+  plan_mapped_model: editMessagesDispatchDefaults.plan_mapped_model,
+  plan_reasoning_effort: editMessagesDispatchDefaults.plan_reasoning_effort,
   sdk_cli_mapped_model: editMessagesDispatchDefaults.sdk_cli_mapped_model,
   sdk_cli_reasoning_effort:
     editMessagesDispatchDefaults.sdk_cli_reasoning_effort,
   exact_model_mappings: [] as MessagesDispatchMappingRow[],
   model_fallbacks: {} as Record<string, string[]>,
+  automatic_model_fallbacks: {} as Record<string, string[]>,
   // 账号过滤控制（OpenAI/Antigravity 平台）
   require_oauth_only: false,
   require_privacy_set: false,
@@ -4382,10 +4392,15 @@ const handleCreateGroup = async () => {
               sonnet_mapped_model: createForm.sonnet_mapped_model,
               haiku_mapped_model: createForm.haiku_mapped_model,
               compact_mapped_model: createForm.compact_mapped_model,
+              compact_reasoning_effort: createForm.compact_reasoning_effort,
+              plan_mapped_model: createForm.plan_mapped_model,
+              plan_reasoning_effort: createForm.plan_reasoning_effort,
               sdk_cli_mapped_model: createForm.sdk_cli_mapped_model,
               sdk_cli_reasoning_effort: createForm.sdk_cli_reasoning_effort,
               exact_model_mappings: createForm.exact_model_mappings,
               model_fallbacks: createForm.model_fallbacks,
+              automatic_model_fallbacks:
+                createForm.automatic_model_fallbacks,
             })
           : undefined,
     };
@@ -4471,6 +4486,11 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.haiku_mapped_model = messagesDispatchFormState.haiku_mapped_model;
   editForm.compact_mapped_model =
     messagesDispatchFormState.compact_mapped_model;
+  editForm.compact_reasoning_effort =
+    messagesDispatchFormState.compact_reasoning_effort;
+  editForm.plan_mapped_model = messagesDispatchFormState.plan_mapped_model;
+  editForm.plan_reasoning_effort =
+    messagesDispatchFormState.plan_reasoning_effort;
   editForm.sdk_cli_mapped_model =
     messagesDispatchFormState.sdk_cli_mapped_model;
   editForm.sdk_cli_reasoning_effort =
@@ -4478,6 +4498,8 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.exact_model_mappings =
     messagesDispatchFormState.exact_model_mappings;
   editForm.model_fallbacks = messagesDispatchFormState.model_fallbacks;
+  editForm.automatic_model_fallbacks =
+    messagesDispatchFormState.automatic_model_fallbacks;
   editForm.require_oauth_only = group.require_oauth_only ?? false;
   editForm.require_privacy_set = group.require_privacy_set ?? false;
   editForm.model_routing_enabled = group.model_routing_enabled || false;
@@ -4558,10 +4580,15 @@ const handleUpdateGroup = async () => {
               sonnet_mapped_model: editForm.sonnet_mapped_model,
               haiku_mapped_model: editForm.haiku_mapped_model,
               compact_mapped_model: editForm.compact_mapped_model,
+              compact_reasoning_effort: editForm.compact_reasoning_effort,
+              plan_mapped_model: editForm.plan_mapped_model,
+              plan_reasoning_effort: editForm.plan_reasoning_effort,
               sdk_cli_mapped_model: editForm.sdk_cli_mapped_model,
               sdk_cli_reasoning_effort: editForm.sdk_cli_reasoning_effort,
               exact_model_mappings: editForm.exact_model_mappings,
               model_fallbacks: editForm.model_fallbacks,
+              automatic_model_fallbacks:
+                editForm.automatic_model_fallbacks,
             })
           : undefined,
     };

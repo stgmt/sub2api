@@ -263,6 +263,8 @@ func TestAPIKeyService_SnapshotRoundTrip_PreservesMessagesDispatchModelConfig(t 
 				HaikuMappedModel:       "gpt-5.3-codex-spark",
 				CompactMappedModel:     "claude-sonnet-5",
 				CompactReasoningEffort: "low",
+				PlanMappedModel:        "gpt-5.6-sol",
+				PlanReasoningEffort:    "high",
 				SDKCLIMappedModel:      "qwen3.8-max-preview",
 				SDKCLIReasoningEffort:  "high",
 				ExactModelMappings: map[string]string{

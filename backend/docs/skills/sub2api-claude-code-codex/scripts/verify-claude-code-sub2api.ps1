@@ -722,6 +722,8 @@ if (-not $AutomaticFallbackModel -and -not $isNativeClaudeProfile -and -not $isC
 if (-not $ExpectedUpstream) { $ExpectedUpstream = $Model -replace '\[[^\]]+\]$', '' }
 $sdkCliModel = $SubagentModel -replace '\[[^\]]+\]$', ''
 $sdkCliEffort = if ($isChatGPTOnlyProfile) { "xhigh" } else { "high" }
+$planModel = if ($isChatGPTOnlyProfile) { "gpt-5.6-sol" } else { $sdkCliModel }
+$planEffort = if ($isChatGPTOnlyProfile) { "high" } else { $sdkCliEffort }
 $sdkCliAutomaticFallbackModel = if ($isChatGPTOnlyProfile) { "gpt-5.6-sol" } else { "" }
 
 Write-Host "Claude/Headroom base URL: $BaseUrl"
@@ -734,6 +736,7 @@ Write-Host "Subagent model: $SubagentModel"
 Write-Host "Messages dispatch group: $MessagesDispatchGroupName"
 Write-Host "Automatic fallback: $(if ($AutomaticFallbackModel) { $AutomaticFallbackModel } else { '<none>' })"
 Write-Host "SDK CLI automatic fallback: $(if ($sdkCliAutomaticFallbackModel) { $sdkCliAutomaticFallbackModel } else { '<none>' })"
+Write-Host "Plan agent profile: $planModel/$planEffort"
 Write-Host "Has API token: $([bool]$ApiKey)"
 
 $wrapperModelSync = Join-Path $PSScriptRoot "sync-claude-wrapper-models.ps1"
@@ -759,6 +762,8 @@ if (Test-Path -LiteralPath $sdkCLIRoutingSync) {
     -GroupName $MessagesDispatchGroupName `
     -Model $sdkCliModel `
     -Effort $sdkCliEffort `
+    -PlanModel $planModel `
+    -PlanEffort $planEffort `
     -FallbackModel $AutomaticFallbackModel `
     -AutomaticFallbackModel $sdkCliAutomaticFallbackModel `
     -WslDistro $WslDistro `

@@ -1,6 +1,6 @@
 {
   "name": "chatgpt-only",
-  "version": 2,
+  "version": 3,
   "group_name": "chatgpt-subscription-only",
   "account_name": "codex-chatgpt-subscription",
   "main_model": "gpt-5.6-sol",
@@ -51,6 +51,8 @@
       "haiku_mapped_model": "gpt-5.6-luna",
       "compact_mapped_model": "gpt-5.6-luna",
       "compact_reasoning_effort": "high",
+      "plan_mapped_model": "gpt-5.6-sol",
+      "plan_reasoning_effort": "high",
       "sdk_cli_mapped_model": "gpt-5.6-luna",
       "sdk_cli_reasoning_effort": "xhigh",
       "model_fallbacks": {},
