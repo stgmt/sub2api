@@ -60,6 +60,21 @@ func DetectClaudeCodeAgentRole(userAgent string, body []byte) ClaudeCodeAgentRol
 	return detection
 }
 
+// IsClaudeCodeSubagentRequest recognizes Claude Code child requests from
+// trusted request structure. The sdk-cli User-Agent is shared by standalone
+// `claude -p`, so it is necessary but never sufficient on its own.
+func IsClaudeCodeSubagentRequest(userAgent string, body []byte) bool {
+	if !isClaudeCodeSDKCLIUserAgent(userAgent) || !gjson.ValidBytes(body) {
+		return false
+	}
+	if strings.TrimSpace(gjson.GetBytes(body, "metadata.user_id").String()) == "" {
+		return false
+	}
+	systemText := claudeCodeSystemText(body)
+	return strings.Contains(systemText, "cc_entrypoint=sdk-cli") &&
+		strings.Contains(systemText, "cc_is_subagent=true")
+}
+
 func isClaudeCodeSDKCLIUserAgent(userAgent string) bool {
 	userAgent = strings.ToLower(strings.TrimSpace(userAgent))
 	return strings.HasPrefix(userAgent, "claude-cli/") && strings.Contains(userAgent, "external, sdk-cli")

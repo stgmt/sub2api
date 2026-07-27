@@ -76,8 +76,8 @@ $probes = @(
   @{ name = "main"; model = [string]$profile.main_model; system = "You are Claude Code, Anthropic's official CLI for Claude." },
   @{ name = "stale-qwen"; model = "qwen3.8-max-preview"; system = "You are Claude Code, Anthropic's official CLI for Claude." },
   @{ name = "compact"; model = [string]$profile.main_model; system = "Your task is to create a detailed summary of the conversation."; effort = "max"; adaptive = $true; compact_header = $true },
-  @{ name = "sdk-cli"; model = [string]$profile.main_model; system = "You are Claude Code, Anthropic's official CLI for Claude."; user_agent = "claude-cli/2.1.219 (external, sdk-cli, agent-sdk/0.3.201)" },
-  @{ name = "plan"; model = [string]$profile.main_model; system = "x-anthropic-billing-header: cc_entrypoint=sdk-cli; cc_is_subagent=true;`nYou are a software architect and planning specialist for Claude Code.`n=== CRITICAL: READ-ONLY MODE - NO FILE MODIFICATIONS ===`nThis is a READ-ONLY planning task."; user_agent = "claude-cli/2.1.219 (external, sdk-cli, agent-sdk/0.3.201)"; tools = @("Bash", "Glob", "Grep", "Read") }
+  @{ name = "sdk-cli"; model = [string]$profile.main_model; system = "x-anthropic-billing-header: cc_entrypoint=sdk-cli; cc_is_subagent=true;`nYou are a Claude Code delegated worker."; user_agent = "claude-cli/2.1.219 (external, sdk-cli)" },
+  @{ name = "plan"; model = [string]$profile.main_model; system = "x-anthropic-billing-header: cc_entrypoint=sdk-cli; cc_is_subagent=true;`nYou are a software architect and planning specialist for Claude Code.`n=== CRITICAL: READ-ONLY MODE - NO FILE MODIFICATIONS ===`nThis is a READ-ONLY planning task."; user_agent = "claude-cli/2.1.219 (external, sdk-cli)"; tools = @("Bash", "Glob", "Grep", "Read") }
 )
 
 $httpProof = @()

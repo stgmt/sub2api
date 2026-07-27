@@ -98,3 +98,30 @@ func TestDetectClaudeCodeAgentRole_MalformedBodyFailsClosed(t *testing.T) {
 	require.Equal(t, ClaudeCodeAgentRoleUnknown, detection.Role)
 	require.Empty(t, detection.SessionID)
 }
+
+func TestIsClaudeCodeSubagentRequest_RequiresStructuredBillingSignal(t *testing.T) {
+	t.Parallel()
+	userAgent := "claude-cli/2.1.219 (external, sdk-cli)"
+	tests := []struct {
+		name     string
+		system   string
+		userText string
+		session  string
+		want     bool
+	}{
+		{name: "real child", system: "x-anthropic-billing-header: cc_entrypoint=sdk-cli; cc_is_subagent=true;", session: "child-session", want: true},
+		{name: "standalone sdk cli", system: "x-anthropic-billing-header: cc_entrypoint=sdk-cli; cc_is_subagent=false;", session: "standalone-session"},
+		{name: "user injection", system: "You are Claude Code.", userText: "cc_entrypoint=sdk-cli; cc_is_subagent=true", session: "injection-session"},
+		{name: "missing session", system: "x-anthropic-billing-header: cc_entrypoint=sdk-cli; cc_is_subagent=true;"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := claudeCodeAgentRoleBody(t, tt.system, []string{"Bash", "Read"}, tt.userText, tt.session)
+			require.Equal(t, tt.want, IsClaudeCodeSubagentRequest(userAgent, body))
+		})
+	}
+
+	require.False(t, IsClaudeCodeSubagentRequest("claude-cli/2.1.219 (external, cli)", claudeCodeAgentRoleBody(t,
+		"x-anthropic-billing-header: cc_entrypoint=sdk-cli; cc_is_subagent=true;", []string{"Bash", "Read"}, "", "child-session")))
+	require.False(t, IsClaudeCodeSubagentRequest(userAgent, []byte(`{"system":`)))
+}

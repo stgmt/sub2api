@@ -145,6 +145,10 @@ func resolveClaudeCodeAgentProfile(
 			return claudeCodeAgentProfile{Model: model, ReasoningEffort: effort, Role: role, Source: source}, true
 		}
 	}
+	if role == service.ClaudeCodeAgentRoleUnknown &&
+		!service.IsClaudeCodeSubagentRequest(c.GetHeader("User-Agent"), body) {
+		return claudeCodeAgentProfile{}, false
+	}
 
 	model, effort := group.ResolveMessagesDispatchSDKCLIProfile()
 	if model == "" && effort == "" {

@@ -169,7 +169,7 @@ func TestIsClaudeCodeSDKCLIRequest(t *testing.T) {
 		want      bool
 	}{
 		{name: "standalone print", userAgent: "claude-cli/2.1.219 (external, cli)", want: false},
-		{name: "sdk cli without agent sdk marker", userAgent: "claude-cli/2.1.202 (external, sdk-cli)", want: false},
+		{name: "sdk cli without agent sdk marker", userAgent: "claude-cli/2.1.202 (external, sdk-cli)", want: true},
 		{name: "agent sdk", userAgent: "claude-cli/2.1.202 (external, sdk-cli, agent-sdk/0.3.201)", want: true},
 		{name: "interactive cli", userAgent: "claude-cli/2.1.202 (external, cli)", want: false},
 		{name: "unrelated sdk", userAgent: "other/1.0 (external, sdk-cli)", want: false},

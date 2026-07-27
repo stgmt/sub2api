@@ -352,8 +352,7 @@ func isClaudeCodeSDKCLIRequest(c *gin.Context) bool {
 	}
 	userAgent := strings.ToLower(strings.TrimSpace(c.GetHeader("User-Agent")))
 	return strings.HasPrefix(userAgent, "claude-cli/") &&
-		strings.Contains(userAgent, "external, sdk-cli") &&
-		strings.Contains(userAgent, "agent-sdk/")
+		strings.Contains(userAgent, "external, sdk-cli")
 }
 
 func rewriteClaudeCodeCompactModelForMultiprovider(body []byte, compactMappedModel string) ([]byte, string, error) {

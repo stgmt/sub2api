@@ -23,8 +23,7 @@ routing covers every host and VM using the stable key.
 
 Classify only when all independent signals agree:
 
-1. User-Agent starts with `claude-cli/` and contains both `external, sdk-cli`
-   and the `agent-sdk/...` marker.
+1. User-Agent starts with `claude-cli/` and contains `external, sdk-cli`.
 2. `metadata.user_id` is non-empty.
 3. Structured `system` contains `cc_entrypoint=sdk-cli`,
    `cc_is_subagent=true`, and all three current Plan anchors:
@@ -32,6 +31,11 @@ Classify only when all independent signals agree:
    - `=== CRITICAL: READ-ONLY MODE - NO FILE MODIFICATIONS ===`
    - `This is a READ-ONLY planning task.`
 4. Tools contain `Bash`, `Glob`, `Grep`, and `Read`; `Edit` and `Write` are absent.
+
+Do not require an `agent-sdk/...` User-Agent marker: real Claude Code 2.1.219
+children do not consistently send one. Conversely, never route on the generic
+`sdk-cli` User-Agent alone because standalone `claude -p` can send the same
+value. The structured billing signal is the child boundary.
 
 Never scan `messages` or the serialized whole body. User text can quote a Plan
 prompt and must not escalate an ordinary worker to Sol.

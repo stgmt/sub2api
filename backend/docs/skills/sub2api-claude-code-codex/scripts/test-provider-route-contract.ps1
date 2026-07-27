@@ -145,6 +145,9 @@ Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof cont
   $providerVerifierText = Get-Content -Raw (Join-Path $scriptRoot 'verify-claude-provider-route.ps1')
   Assert-True ($providerVerifierText.Contains("COALESCE(messages_dispatch_model_config->'automatic_model_fallbacks', '{}'::jsonb) = '{}'::jsonb")) "Provider verifier must prove zero automatic fallback"
   Assert-True ($providerVerifierText.Contains('Provider profile state is stale')) "Provider verifier must reject stale profile generations"
+  Assert-True ($providerVerifierText.Contains('cc_entrypoint=sdk-cli; cc_is_subagent=true')) "Provider verifier must mark synthetic delegated children structurally"
+  Assert-True ($providerVerifierText.Contains('claude-cli/2.1.219 (external, sdk-cli)')) "Provider verifier must exercise the real generic sdk-cli User-Agent"
+  Assert-True (-not $providerVerifierText.Contains('agent-sdk/0.3.201')) "Provider verifier must not depend on the absent Agent SDK User-Agent marker"
   Assert-True ((Get-Content -Raw $applier).Contains('SetEnvironmentVariable')) "Windows applier must reconcile user-level env overrides"
   $skillsRoot = Split-Path -Parent $skillRoot
   $setupText = Get-Content -Raw (Join-Path $skillsRoot "sub2api-claude-code-codex\scripts\setup-sub2api-claude-code.ps1")
@@ -181,7 +184,7 @@ Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof cont
   Assert-True (-not (Test-Path -LiteralPath $legacyProfileV3)) "Installer must remove stale Anthropic profile v3"
   Assert-True (-not (Test-Path -LiteralPath $legacySkill)) "Installer must remove the managed standalone provider skill"
 
-  [pscustomobject]@{ status = "PASS"; assertions = 84; profiles = @("anthropic-only", "chatgpt-only", "hybrid-current") } | ConvertTo-Json -Compress
+  [pscustomobject]@{ status = "PASS"; assertions = 87; profiles = @("anthropic-only", "chatgpt-only", "hybrid-current") } | ConvertTo-Json -Compress
 } finally {
   Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
 }
