@@ -15,7 +15,7 @@ Capture a switch timestamp and request correlation IDs. Verify through Headroom,
 
 For every row, record requested model, mapped model, provider account ID/platform, reasoning effort, status, and duration from sub2api usage/error logs.
 
-Run `claude-route verify` for the reproducible first pass. It uses a unique User-Agent correlation ID so concurrent user sessions cannot pollute its four-row proof. Follow with a real `claude --print` and a named-agent probe when changing the profile implementation.
+Run `claude-route verify` for the reproducible first pass. It uses a unique User-Agent correlation ID so concurrent user sessions cannot pollute its proof. Follow with a real parent turn that invokes built-in `Explore`; require the child JSONL model and correlated `(external, sdk-cli)` usage row to match the profile. `claude --agent Explore` is not sufficient because it promotes the definition to the main session and does not prove child routing.
 
 ## Negative Proof
 

@@ -38,11 +38,11 @@ The local `~/.claude/.credentials.json` is an import source, not the long-term r
 
 ## hybrid-current
 
-The profile is a versioned snapshot, not an informal restoration guess. Its initial contract is:
+The profile is a versioned snapshot, not an informal restoration guess. Version 2 is a managed group snapshot whose contract is:
 
 - main: `gpt-5.6-sol`, user-selected effort preserved;
 - picker Opus/Fable/Sonnet/Haiku: `qwen3.8-max-preview`, effort high;
-- compact/small-fast/subagents/SDK CLI: `qwen3.8-max-preview`, effort high;
+- compact/small-fast/subagents/SDK CLI: `qwen3.8-max-preview`, effort high. This includes built-in `Explore` children: they enter through the SDK CLI route and may ignore user-level `Explore.md` plus `CLAUDE_CODE_SUBAGENT_MODEL`;
 - provider membership: OpenAI/Codex OAuth plus Alibaba Token Plan;
 - automatic fallback: only the existing terminal Alibaba subscription-quota route to `gpt-5.6-sol` for automatic compact/SDK/delegated traffic;
 - native Anthropic account: not a member of the hybrid group unless a later profile version explicitly says so.

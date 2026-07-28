@@ -27,6 +27,7 @@ $linuxProfileApplier = Join-Path $scriptRoot "apply-claude-provider-profile.sh"
 $statePath = Join-Path $RuntimeRoot "data\provider-route-state.json"
 $envPath = Join-Path $RuntimeRoot ".env"
 $postgresContainer = "sub2api-codex-postgres"
+$maxProviderStateBytes = 1MB
 
 function Get-Sha256Hex([string]$Path) {
   $stream = [IO.File]::OpenRead($Path)
@@ -95,7 +96,7 @@ function Read-Profile([string]$Name) {
   $fileName = switch ($Name) {
     "anthropic-only" { "anthropic-only.v4.json" }
     "chatgpt-only" { "chatgpt-only.v4.json" }
-    "hybrid-current" { "hybrid-current.v1.json" }
+    "hybrid-current" { "hybrid-current.v2.json" }
     default { throw "Unknown provider profile: $Name" }
   }
   $path = Join-Path $profileRoot $fileName
@@ -419,11 +420,31 @@ FROM (
 
 function Read-State {
   if (-not (Test-Path -LiteralPath $statePath)) { return $null }
-  return Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json
+  $stateFile = Get-Item -LiteralPath $statePath -Force
+  if ($stateFile.Length -gt $maxProviderStateBytes) {
+    $quarantine = "$statePath.corrupt-$([DateTimeOffset]::UtcNow.ToString('yyyyMMddTHHmmssZ'))"
+    Move-Item -LiteralPath $statePath -Destination $quarantine -Force
+    Write-Warning "Provider route state exceeded $maxProviderStateBytes bytes and was quarantined at $quarantine"
+    return $null
+  }
+  try {
+    $strictUtf8 = [Text.UTF8Encoding]::new($false, $true)
+    $content = [IO.File]::ReadAllText($statePath, $strictUtf8)
+    return $content | ConvertFrom-Json -ErrorAction Stop
+  } catch {
+    $quarantine = "$statePath.corrupt-$([DateTimeOffset]::UtcNow.ToString('yyyyMMddTHHmmssZ'))"
+    Move-Item -LiteralPath $statePath -Destination $quarantine -Force
+    Write-Warning "Provider route state was invalid UTF-8/JSON and was quarantined at $quarantine"
+    return $null
+  }
 }
 
 function Write-State($State) {
-  Write-Utf8NoBom $statePath (($State | ConvertTo-Json -Depth 30) + [Environment]::NewLine)
+  $content = ($State | ConvertTo-Json -Depth 30) + [Environment]::NewLine
+  if ([Text.Encoding]::UTF8.GetByteCount($content) -gt $maxProviderStateBytes) {
+    throw "Refusing to persist provider route state larger than $maxProviderStateBytes bytes"
+  }
+  Write-Utf8NoBom $statePath $content
 }
 
 function Apply-HostProfile($ProfileRecord, [string]$Generation) {

@@ -9,7 +9,7 @@ $controller = Join-Path $scriptRoot "claude-route.ps1"
 $installer = Join-Path $scriptRoot "install-claude-route.ps1"
 $anthropicProfile = Join-Path $skillRoot "profiles\anthropic-only.v4.json"
 $chatgptProfile = Join-Path $skillRoot "profiles\chatgpt-only.v4.json"
-$hybridProfile = Join-Path $skillRoot "profiles\hybrid-current.v1.json"
+$hybridProfile = Join-Path $skillRoot "profiles\hybrid-current.v2.json"
 $temp = Join-Path ([IO.Path]::GetTempPath()) ("sub2api-provider-route-test-" + [guid]::NewGuid())
 
 function Assert-True([bool]$Condition, [string]$Message) {
@@ -116,6 +116,13 @@ Assert-True ($anthropic.client_env.CLAUDE_CODE_SUBAGENT_MODEL -eq "claude-sonnet
 Assert-True ($anthropic.group.messages_dispatch_model_config.exact_model_mappings.'gpt-5.3-codex-spark' -eq "claude-sonnet-5") "Stale Spark IDs must route to Sonnet 5 under Anthropic-only"
 Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof contract must name provider"
   Assert-True ($hybrid.expected_provider -eq "openai") "Hybrid proof contract must name provider"
+  Assert-True ($hybrid.version -eq 2) "Hybrid Qwen SDK routing profile must be version 2"
+  Assert-True ($hybrid.group.messages_dispatch_model_config.sdk_cli_mapped_model -eq "qwen3.8-max-preview") "Hybrid SDK CLI and built-in Explore children must use Qwen"
+  Assert-True ($hybrid.group.messages_dispatch_model_config.sdk_cli_reasoning_effort -eq "high") "Hybrid SDK CLI and built-in Explore children must use high effort"
+  Assert-True ($hybrid.group.messages_dispatch_model_config.compact_mapped_model -eq "qwen3.8-max-preview") "Hybrid compact must use Qwen"
+  Assert-True (@($hybrid.group.messages_dispatch_model_config.model_fallbacks.PSObject.Properties).Count -eq 1) "Hybrid must keep exactly one terminal-quota fallback"
+  Assert-True ($hybrid.group.messages_dispatch_model_config.model_fallbacks.'qwen3.8-max-preview'[0] -eq "gpt-5.6-sol") "Hybrid Qwen terminal-quota fallback must use Sol"
+  Assert-True ($null -eq $hybrid.group.messages_dispatch_model_config.model_fallbacks.'gpt-5.6-luna') "Hybrid must not preserve the stale Luna fallback"
   Assert-True ($chatgpt.main_model -eq "gpt-5.6-sol") "ChatGPT-only main must use Sol"
   Assert-True ($chatgpt.version -eq 4) "ChatGPT-only Terra-medium routing profile must be version 4"
   Assert-True ($chatgpt.agent_model -eq "gpt-5.6-terra-medium") "ChatGPT-only delegated model must use Terra-medium"
@@ -148,10 +155,14 @@ Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof cont
   Assert-True ($controllerText.Contains('preserving sub2api-owned OAuth credentials')) "Existing Anthropic account must not require stale local Claude credentials"
   Assert-True ($controllerText.Contains('if ($source) { $updateBody.expires_at')) "Existing account expiry must be preserved when no local OAuth source is available"
   Assert-True ($controllerText.Contains('[Security.SecureString]::new()')) "Windows guest reconcile must construct credentials without lazy module loading"
+  Assert-True ((Get-Content -Raw (Join-Path $skillRoot 'scripts\install-claude-route.ps1')).Contains('hybrid-current.v1.json')) "Installer must remove the stale unmanaged hybrid v1 snapshot"
   Assert-True ($controllerText.Contains('[Security.Cryptography.SHA256]::Create()')) "Codex auth hashing must not depend on a lazy PowerShell module"
   Assert-True (-not $controllerText.Contains('Get-FileHash')) "Provider controller must not depend on the unavailable Microsoft.PowerShell.Utility hash cmdlet"
   Assert-True ($controllerText.Contains('Get-VMNetworkAdapter -VMName')) "Linux guest reconcile must discover the current Hyper-V address instead of trusting a stale IP"
   Assert-True (-not $controllerText.Contains('ConvertTo-SecureString $password')) "Windows guest reconcile must not depend on a broken PowerShell.Security module"
+  Assert-True ($controllerText.Contains('[IO.File]::ReadAllText($statePath, $strictUtf8)')) "Provider state must be decoded as strict UTF-8 instead of the PowerShell 5.1 ANSI default"
+  Assert-True ($controllerText.Contains('$maxProviderStateBytes = 1MB')) "Provider state must have a bounded persistence contract"
+  Assert-True ($controllerText.Contains('Provider route state exceeded')) "Oversized provider state must be quarantined instead of exhausting the controller process"
   $providerVerifierText = Get-Content -Raw (Join-Path $scriptRoot 'verify-claude-provider-route.ps1')
   Assert-True ($providerVerifierText.Contains("COALESCE(messages_dispatch_model_config->'automatic_model_fallbacks', '{}'::jsonb) = '{}'::jsonb")) "Provider verifier must prove zero automatic fallback"
   Assert-True ($providerVerifierText.Contains('Provider profile state is stale')) "Provider verifier must reject stale profile generations"
@@ -194,7 +205,7 @@ Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof cont
   Assert-True (-not (Test-Path -LiteralPath $legacyProfileV3)) "Installer must remove stale Anthropic profile v3"
   Assert-True (-not (Test-Path -LiteralPath $legacySkill)) "Installer must remove the managed standalone provider skill"
 
-  [pscustomobject]@{ status = "PASS"; assertions = 97; profiles = @("anthropic-only", "chatgpt-only", "hybrid-current") } | ConvertTo-Json -Compress
+  [pscustomobject]@{ status = "PASS"; assertions = 108; profiles = @("anthropic-only", "chatgpt-only", "hybrid-current") } | ConvertTo-Json -Compress
 } finally {
   Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
 }

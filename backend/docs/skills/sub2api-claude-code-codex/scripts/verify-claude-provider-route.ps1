@@ -35,7 +35,7 @@ $state = Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json
 $profileFile = switch ($state.active_profile) {
   "anthropic-only" { "anthropic-only.v4.json" }
   "chatgpt-only" { "chatgpt-only.v4.json" }
-  "hybrid-current" { "hybrid-current.v1.json" }
+  "hybrid-current" { "hybrid-current.v2.json" }
   default { throw "Unknown active provider profile: $($state.active_profile)" }
 }
 $profile = Get-Content -Raw -LiteralPath (Join-Path $skillRoot "profiles\$profileFile") | ConvertFrom-Json
