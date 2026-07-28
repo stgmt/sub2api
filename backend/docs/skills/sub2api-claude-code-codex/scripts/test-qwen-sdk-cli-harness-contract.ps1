@@ -20,7 +20,9 @@ $requiredFiles = @(
   "backend/docs/skills/sub2api-claude-code-codex/references/harness-publication.md",
   "backend/docs/skills/sub2api-claude-code-codex/references/session-failure-registry.md",
   "backend/docs/skills/sub2api-claude-code-codex/references/subagent-concurrency-policy.md",
+  "backend/docs/skills/sub2api-claude-code-codex/references/terra-medium-vs-qwen-high-issue153.md",
   "backend/docs/skills/sub2api-claude-code-codex/references/verification.md",
+  "backend/docs/skills/sub2api-claude-code-codex/scripts/benchmark-issue153-terra-vs-qwen.ps1",
   "backend/docs/skills/sub2api-claude-code-codex/scripts/setup-sub2api-claude-code.ps1",
   "backend/docs/skills/sub2api-claude-code-codex/scripts/verify-claude-code-sub2api.ps1",
   "backend/docs/skills/sub2api-claude-code-codex/scripts/sync-sub2api-sdk-cli-routing.ps1",
@@ -154,5 +156,25 @@ Assert-Contains `
   "backend/docs/skills/sub2api-claude-code-codex/profiles/chatgpt-only.v4.json" `
   '"CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH"\s*:\s*"1"' `
   "provider-profile nested subagent hard cap"
+Assert-Contains `
+  "backend/docs/skills/sub2api-claude-code-codex/scripts/benchmark-issue153-terra-vs-qwen.ps1" `
+  "sdk_cli_mapped_model[\s\S]*plan_mapped_model[\s\S]*compact_mapped_model" `
+  "benchmark temporary-group role routing isolation"
+Assert-Contains `
+  "backend/docs/skills/sub2api-claude-code-codex/scripts/benchmark-issue153-terra-vs-qwen.ps1" `
+  "model_fallbacks[\s\S]*'\{\}'::jsonb" `
+  "benchmark fallback suppression"
+Assert-Contains `
+  "backend/docs/skills/sub2api-claude-code-codex/scripts/benchmark-issue153-terra-vs-qwen.ps1" `
+  "built-in Explore[\s\S]*built-in Plan" `
+  "benchmark delegated-route preflight"
+Assert-Contains `
+  "backend/docs/skills/sub2api-claude-code-codex/scripts/benchmark-issue153-terra-vs-qwen.ps1" `
+  "route contamination" `
+  "benchmark strict usage-log purity assertion"
+Assert-Contains `
+  "backend/docs/skills/sub2api-claude-code-codex/scripts/benchmark-issue153-terra-vs-qwen.ps1" `
+  "CompletedAt" `
+  "benchmark per-arm terminal timestamp"
 
 Write-Output "SUB2API_QWEN_HARNESS_CONTRACT_OK files=$($requiredFiles.Count)"

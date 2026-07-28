@@ -108,7 +108,8 @@ Read only the file needed for the current task:
 - `references/subagent-terra-medium-profile.md`: historical Terra-medium delegated-agent profile plus the current Qwen-high override, exact files/env knobs to set, missing-override behavior, and future GPT-5.7 migration checklist.
 - `references/subagent-concurrency-policy.md`: native Claude Code 10-worker hard cap, depth-1 nesting policy, the 367-agent incident evidence, provider-switch persistence, and fleet-wide limitations.
 - `references/workflow-qwen-high-rationale.md`: why workflow agents, subagents, compact, small-fast, and picker aliases are pinned to Qwen high; read before changing those defaults or reverting Spark/Terra/Haiku behavior.
-- `references/terra-medium-vs-qwen-high-issue153.md`: controlled Claude Code implementation benchmark, route-isolation proof, latency/token comparison, mutation checks, and the defects each model missed.
+- `references/terra-medium-vs-qwen-high-issue153.md`: two controlled issue #153 rounds (Terra medium/high vs Qwen high/medium), temporary-group route isolation, latency/token comparisons, real Docker BDD, mutation checks, and the defects each model missed.
+- `scripts/benchmark-issue153-terra-vs-qwen.ps1`: reproducible route-isolated A/B harness with clean-baseline checks, temporary group/key cleanup, `Explore` + `Plan` preflight, strict model/effort purity assertions, and an exact 90-minute deadline.
 - `references/harness-publication.md`: complete skill/deploy/source publication boundary, deliberate local-state exclusions, and the release checklist.
 - `references/verification.md`: health probes, Claude Code probes, `/v1/messages` checks, usage_logs queries, compact verification, and expected evidence.
 - `references/troubleshooting.md`: 429/503/no-available-accounts, stale cooldowns, empty streams, context overflow, Luna availability, localhost relay, and usage-display bugs.
