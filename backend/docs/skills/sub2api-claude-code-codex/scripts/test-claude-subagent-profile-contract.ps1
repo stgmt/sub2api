@@ -44,6 +44,8 @@ set "CLAUDE_CODE_SUBAGENT_MODEL=stale-model"
   foreach ($key in $keys) {
     if ($settings.env.$key -ne "qwen3.8-max-preview") { throw "Wrong settings value for $key" }
   }
+  if ($settings.env.CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS -ne "10") { throw "Concurrent subagent hard cap was not applied" }
+  if ($settings.env.CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH -ne "1") { throw "Nested subagent hard cap was not applied" }
   foreach ($name in @("general-purpose", "Explore", "workflow-subagent", "bench-reviewer", "bench-triage")) {
     $text = Get-Content -LiteralPath (Join-Path $claudeHome "agents\$name.md") -Raw
     if ($text -notmatch '(?m)^model: qwen3\.8-max-preview$') { throw "$name model was not pinned" }
@@ -54,6 +56,8 @@ set "CLAUDE_CODE_SUBAGENT_MODEL=stale-model"
   $wrapperText = Get-Content -LiteralPath $wrapper -Raw
   if ($wrapperText -notmatch 'ANTHROPIC_MODEL=gpt-5\.6-sol') { throw "Main model wrapper assignment was changed" }
   if ($wrapperText -notmatch 'CLAUDE_CODE_SUBAGENT_MODEL=qwen3\.8-max-preview') { throw "Subagent wrapper assignment was not repaired" }
+  if ($wrapperText -notmatch 'CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS=10') { throw "Concurrent subagent wrapper assignment was not applied" }
+  if ($wrapperText -notmatch 'CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1') { throw "Nested subagent wrapper assignment was not applied" }
 
   & $ScriptPath -ClaudeHome $claudeHome -WrapperPath $wrapper -SkipUserEnvironment -CheckOnly | Out-Null
   Write-Host "CLAUDE_SUBAGENT_PROFILE_CONTRACT_OK"

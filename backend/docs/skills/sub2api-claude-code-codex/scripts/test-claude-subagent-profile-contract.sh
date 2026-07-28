@@ -41,6 +41,11 @@ keys = [
     "CLAUDE_CODE_SUBAGENT_MODEL",
 ]
 assert all(settings["env"][key] == "qwen3.8-max-preview" for key in keys)
+assert settings["env"]["CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"] == "10"
+assert settings["env"]["CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH"] == "1"
+environment = (root / ".config/environment.d/90-claude-subagents.conf").read_text()
+assert "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS=10" in environment
+assert "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1" in environment
 for name in ["general-purpose", "Explore", "workflow-subagent", "bench-reviewer", "bench-triage"]:
     text = (root / ".claude/agents" / f"{name}.md").read_text()
     assert "model: qwen3.8-max-preview" in text

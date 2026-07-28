@@ -49,6 +49,8 @@ try {
   Assert-True ($afterAnthropic.env.ANTHROPIC_MODEL -eq "claude-opus-5[1m]") "Anthropic gateway main model must request 1M context"
   Assert-True ($afterAnthropic.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS -eq "1000000") "Anthropic settings context must replace stale hybrid context"
   Assert-True ($afterAnthropic.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW -eq "1000000") "Anthropic settings compact window must replace stale hybrid window"
+  Assert-True ($afterAnthropic.env.CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS -eq "10") "Anthropic profile must enforce the concurrent subagent cap"
+  Assert-True ($afterAnthropic.env.CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH -eq "1") "Anthropic profile must disable nested subagent spawning"
   Assert-True ($afterAnthropic.env.CLAUDE_PROVIDER_PROFILE_GENERATION -eq "7") "Generation marker must apply"
   $agentAfter = Get-Content -Raw $agentPath
   Assert-True ($agentAfter -match '(?m)^model: claude-sonnet-5\[1m\]$') "Agent model must switch to Sonnet 1M"
@@ -70,6 +72,8 @@ try {
   $afterHybrid = Get-Content -Raw $settingsPath | ConvertFrom-Json
   Assert-True ($afterHybrid.env.ANTHROPIC_MODEL -eq "gpt-5.6-sol") "Hybrid main model must restore"
   Assert-True ($afterHybrid.env.CLAUDE_CODE_SUBAGENT_MODEL -eq "qwen3.8-max-preview") "Hybrid subagent must restore"
+  Assert-True ($afterHybrid.env.CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS -eq "10") "Hybrid profile must preserve the concurrent subagent cap"
+  Assert-True ($afterHybrid.env.CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH -eq "1") "Hybrid profile must preserve the nested subagent cap"
   Assert-True ((Get-Content -Raw $agentPath) -match '(?m)^model: qwen3.8-max-preview$') "Agent frontmatter must restore"
 
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $applier -ProfilePath $chatgptProfile -SettingsPath $settingsPath -AgentsPath $agentsPath -WrapperPath $wrapperPath -Generation 9 -EnvironmentTarget None | Out-Null
@@ -79,6 +83,8 @@ try {
   Assert-True ($afterChatGPT.env.CLAUDE_CODE_SUBAGENT_MODEL -eq "gpt-5.6-terra-medium") "ChatGPT-only subagents must use Terra-medium"
   Assert-True ($afterChatGPT.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS -eq "370000") "ChatGPT-only client context target must be 370k"
   Assert-True ($afterChatGPT.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW -eq "340000") "ChatGPT-only compact threshold must be 340k"
+  Assert-True ($afterChatGPT.env.CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS -eq "10") "ChatGPT-only profile must enforce the concurrent subagent cap"
+  Assert-True ($afterChatGPT.env.CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH -eq "1") "ChatGPT-only profile must disable nested subagent spawning"
   Assert-True ($afterChatGPT.env.PSObject.Properties.Name -notcontains "CLAUDE_CODE_EFFORT_LEVEL") "ChatGPT-only must clear hard interactive effort"
   $agentAfterChatGPT = Get-Content -Raw $agentPath
   Assert-True ($agentAfterChatGPT -match '(?m)^model: gpt-5.6-terra-medium$') "ChatGPT-only agent frontmatter must use Terra-medium"
@@ -99,6 +105,8 @@ Assert-True ($anthropic.main_model -eq "claude-opus-5") "Anthropic-only main mus
 Assert-True ($anthropic.client_env.ANTHROPIC_DEFAULT_OPUS_MODEL -eq "claude-opus-5[1m]") "Gateway Opus alias must request the 1M client window"
 Assert-True ($anthropic.client_env.CLAUDE_CODE_MAX_CONTEXT_TOKENS -eq "1000000") "Anthropic-only client context must match Opus 5 1M"
 Assert-True ($anthropic.client_env.CLAUDE_CODE_AUTO_COMPACT_WINDOW -eq "1000000") "Anthropic-only auto-compact window must use the 1M model window"
+Assert-True ($anthropic.client_env.CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS -eq "10") "Anthropic-only profile must publish the concurrent subagent cap"
+Assert-True ($anthropic.client_env.CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH -eq "1") "Anthropic-only profile must publish the nested subagent cap"
 Assert-True ($anthropic.group.messages_dispatch_model_config.opus_mapped_model -eq "claude-opus-5") "Opus picker must route to Opus 5"
 Assert-True ($anthropic.group.messages_dispatch_model_config.compact_mapped_model -eq "claude-sonnet-5") "Anthropic-only compact must route directly to Sonnet 5"
 Assert-True ($anthropic.group.messages_dispatch_model_config.compact_reasoning_effort -eq "low") "Anthropic-only compact must force low effort"
@@ -112,6 +120,8 @@ Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof cont
   Assert-True ($chatgpt.version -eq 4) "ChatGPT-only Terra-medium routing profile must be version 4"
   Assert-True ($chatgpt.agent_model -eq "gpt-5.6-terra-medium") "ChatGPT-only delegated model must use Terra-medium"
   Assert-True ($chatgpt.agent_effort -eq "medium") "ChatGPT-only delegated effort must be medium"
+  Assert-True ($chatgpt.client_env.CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS -eq "10") "ChatGPT-only profile must publish the concurrent subagent cap"
+  Assert-True ($chatgpt.client_env.CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH -eq "1") "ChatGPT-only profile must publish the nested subagent cap"
   Assert-True ($chatgpt.group.messages_dispatch_model_config.compact_mapped_model -eq "gpt-5.6-terra-medium") "ChatGPT-only compact must use Terra-medium"
   Assert-True ($chatgpt.group.messages_dispatch_model_config.compact_reasoning_effort -eq "medium") "ChatGPT-only compact must use medium effort"
   Assert-True ($chatgpt.group.messages_dispatch_model_config.plan_mapped_model -eq "gpt-5.6-sol") "ChatGPT-only Plan agent must use Sol"
@@ -184,7 +194,7 @@ Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof cont
   Assert-True (-not (Test-Path -LiteralPath $legacyProfileV3)) "Installer must remove stale Anthropic profile v3"
   Assert-True (-not (Test-Path -LiteralPath $legacySkill)) "Installer must remove the managed standalone provider skill"
 
-  [pscustomobject]@{ status = "PASS"; assertions = 87; profiles = @("anthropic-only", "chatgpt-only", "hybrid-current") } | ConvertTo-Json -Compress
+  [pscustomobject]@{ status = "PASS"; assertions = 97; profiles = @("anthropic-only", "chatgpt-only", "hybrid-current") } | ConvertTo-Json -Compress
 } finally {
   Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
 }

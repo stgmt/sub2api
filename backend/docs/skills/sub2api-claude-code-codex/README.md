@@ -36,3 +36,5 @@ Claude Code -> http://127.0.0.1:8787 -> Headroom -> http://sub2api:8080 -> sub2a
 The direct sub2api port `http://127.0.0.1:18081` is kept for the admin UI, diagnostics, and non-Claude clients. Claude Code should use Headroom on `8787`.
 
 Install the bundled route controller with `scripts/install-claude-route.ps1`, then use `claude-route status|anthropic|hybrid|reconcile|verify`. No separate provider-switcher skill is required.
+
+Every provider profile also enforces the provider-independent Claude Code worker policy: at most 10 concurrent subagents and spawn depth 1. See `references/subagent-concurrency-policy.md` for incident evidence, fleet scope, and verification.

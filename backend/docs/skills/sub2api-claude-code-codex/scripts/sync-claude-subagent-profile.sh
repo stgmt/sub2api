@@ -3,6 +3,8 @@ set -euo pipefail
 
 MODEL="qwen3.8-max-preview"
 EFFORT="high"
+MAX_CONCURRENT_SUBAGENTS="10"
+MAX_SUBAGENT_SPAWN_DEPTH="1"
 CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
 CHECK_ONLY=0
 
@@ -10,13 +12,15 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --model) MODEL="$2"; shift 2 ;;
     --effort) EFFORT="$2"; shift 2 ;;
+    --max-concurrent-subagents) MAX_CONCURRENT_SUBAGENTS="$2"; shift 2 ;;
+    --max-subagent-spawn-depth) MAX_SUBAGENT_SPAWN_DEPTH="$2"; shift 2 ;;
     --claude-home) CLAUDE_HOME="$2"; shift 2 ;;
     --check) CHECK_ONLY=1; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
 
-export MODEL EFFORT CLAUDE_HOME CHECK_ONLY
+export MODEL EFFORT MAX_CONCURRENT_SUBAGENTS MAX_SUBAGENT_SPAWN_DEPTH CLAUDE_HOME CHECK_ONLY
 python3 - <<'PY'
 import json
 import os
@@ -28,6 +32,8 @@ model = os.environ["MODEL"]
 effort = os.environ["EFFORT"]
 claude_home = Path(os.environ["CLAUDE_HOME"]).expanduser()
 check_only = os.environ["CHECK_ONLY"] == "1"
+max_concurrent_subagents = os.environ["MAX_CONCURRENT_SUBAGENTS"]
+max_subagent_spawn_depth = os.environ["MAX_SUBAGENT_SPAWN_DEPTH"]
 model_keys = [
     "ANTHROPIC_SMALL_FAST_MODEL",
     "ANTHROPIC_DEFAULT_OPUS_MODEL",
@@ -36,6 +42,10 @@ model_keys = [
     "ANTHROPIC_DEFAULT_HAIKU_MODEL",
     "CLAUDE_CODE_SUBAGENT_MODEL",
 ]
+policy_values = {
+    "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": max_concurrent_subagents,
+    "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": max_subagent_spawn_depth,
+}
 agent_names = ["general-purpose", "Explore", "workflow-subagent", "bench-reviewer", "bench-triage"]
 mismatches = []
 
@@ -49,6 +59,10 @@ for key in model_keys:
     if env.get(key) != model:
         mismatches.append(f"settings:{key}")
         env[key] = model
+for key, value in policy_values.items():
+    if env.get(key) != value:
+        mismatches.append(f"settings:{key}")
+        env[key] = value
 
 agents_dir = claude_home / "agents"
 for name in agent_names:
@@ -96,7 +110,9 @@ for name in agent_names:
         path.write_text(text.rstrip() + "\n", encoding="utf-8")
 
 environment_path = claude_home.parent / ".config" / "environment.d" / "90-claude-subagents.conf"
-expected_environment = "\n".join(f"{key}={model}" for key in model_keys) + "\n"
+expected_environment = "\n".join(
+    [*(f"{key}={model}" for key in model_keys), *(f"{key}={value}" for key, value in policy_values.items())]
+) + "\n"
 if not environment_path.exists() or environment_path.read_text(encoding="utf-8-sig") != expected_environment:
     mismatches.append("environment.d")
 
@@ -112,6 +128,7 @@ result = {
     "claude_home": str(claude_home),
     "model": model,
     "effort": effort,
+    "subagent_policy": policy_values,
     "agents": agent_names,
     "mismatches": mismatches,
 }

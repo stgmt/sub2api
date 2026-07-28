@@ -23,6 +23,10 @@ param(
   [string]$DefaultEffort = "xhigh",
   [int]$MaxContextTokens = 370000,
   [int]$AutoCompactWindow = 340000,
+  [ValidateRange(1, 200)]
+  [int]$MaxConcurrentSubagents = 10,
+  [ValidateRange(1, 5)]
+  [int]$MaxSubagentSpawnDepth = 1,
   [int]$MaxOutputTokens = 64000,
   [int]$MaxThinkingTokens = 8000,
   [string]$HeadroomVersion = "0.31.0",
@@ -635,6 +639,8 @@ if (-not $SkipClaudeConfig) {
   Set-ObjectProperty $settings.env "CLAUDE_CODE_SUBAGENT_MODEL" $SubagentModel
   Set-ObjectProperty $settings.env "CLAUDE_CODE_MAX_CONTEXT_TOKENS" ([string]$MaxContextTokens)
   Set-ObjectProperty $settings.env "CLAUDE_CODE_AUTO_COMPACT_WINDOW" ([string]$AutoCompactWindow)
+  Set-ObjectProperty $settings.env "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS" ([string]$MaxConcurrentSubagents)
+  Set-ObjectProperty $settings.env "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH" ([string]$MaxSubagentSpawnDepth)
   Set-ObjectProperty $settings.env "CLAUDE_CODE_MAX_OUTPUT_TOKENS" ([string]$MaxOutputTokens)
   Set-ObjectProperty $settings.env "MAX_THINKING_TOKENS" ([string]$MaxThinkingTokens)
   Set-ObjectProperty $settings.env "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC" "1"
@@ -660,6 +666,8 @@ if (-not $SkipClaudeConfig) {
   [Environment]::SetEnvironmentVariable("CLAUDE_CODE_SUBAGENT_MODEL", $SubagentModel, "User")
   [Environment]::SetEnvironmentVariable("CLAUDE_CODE_MAX_CONTEXT_TOKENS", [string]$MaxContextTokens, "User")
   [Environment]::SetEnvironmentVariable("CLAUDE_CODE_AUTO_COMPACT_WINDOW", [string]$AutoCompactWindow, "User")
+  [Environment]::SetEnvironmentVariable("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS", [string]$MaxConcurrentSubagents, "User")
+  [Environment]::SetEnvironmentVariable("CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH", [string]$MaxSubagentSpawnDepth, "User")
   [Environment]::SetEnvironmentVariable("CLAUDE_CODE_MAX_OUTPUT_TOKENS", [string]$MaxOutputTokens, "User")
   [Environment]::SetEnvironmentVariable("MAX_THINKING_TOKENS", [string]$MaxThinkingTokens, "User")
   [Environment]::SetEnvironmentVariable("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1", "User")

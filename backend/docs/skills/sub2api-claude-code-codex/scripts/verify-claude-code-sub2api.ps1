@@ -840,6 +840,8 @@ if (-not $SkipClaudeProbe) {
     $env:CLAUDE_CODE_SUBAGENT_MODEL = $SubagentModel
     $env:CLAUDE_CODE_MAX_CONTEXT_TOKENS = [Environment]::GetEnvironmentVariable("CLAUDE_CODE_MAX_CONTEXT_TOKENS", "User")
     $env:CLAUDE_CODE_AUTO_COMPACT_WINDOW = [Environment]::GetEnvironmentVariable("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "User")
+    $env:CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS = [Environment]::GetEnvironmentVariable("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS", "User")
+    $env:CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH = [Environment]::GetEnvironmentVariable("CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH", "User")
     $env:CLAUDE_CODE_MAX_OUTPUT_TOKENS = [Environment]::GetEnvironmentVariable("CLAUDE_CODE_MAX_OUTPUT_TOKENS", "User")
     $env:MAX_THINKING_TOKENS = [Environment]::GetEnvironmentVariable("MAX_THINKING_TOKENS", "User")
     $effortOverride = [Environment]::GetEnvironmentVariable("CLAUDE_CODE_EFFORT_LEVEL", "User")
@@ -848,6 +850,12 @@ if (-not $SkipClaudeProbe) {
     }
     if (-not $env:CLAUDE_CODE_MAX_CONTEXT_TOKENS) { $env:CLAUDE_CODE_MAX_CONTEXT_TOKENS = "370000" }
     if (-not $env:CLAUDE_CODE_AUTO_COMPACT_WINDOW) { $env:CLAUDE_CODE_AUTO_COMPACT_WINDOW = "340000" }
+    if ($env:CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS -ne "10") {
+      throw "Expected User env CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS=10, got '$env:CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS'. Apply the active provider profile again."
+    }
+    if ($env:CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH -ne "1") {
+      throw "Expected User env CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1, got '$env:CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH'. Apply the active provider profile again."
+    }
     if (-not $env:CLAUDE_CODE_MAX_OUTPUT_TOKENS) { $env:CLAUDE_CODE_MAX_OUTPUT_TOKENS = "64000" }
     if (-not $env:MAX_THINKING_TOKENS) { $env:MAX_THINKING_TOKENS = "8000" }
 

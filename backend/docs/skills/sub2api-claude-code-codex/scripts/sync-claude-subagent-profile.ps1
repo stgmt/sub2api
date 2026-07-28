@@ -8,6 +8,10 @@ param(
   [string]$DefaultHaikuModel = "",
   [ValidateSet("low", "medium", "high", "xhigh", "max")]
   [string]$Effort = "high",
+  [ValidateRange(1, 200)]
+  [int]$MaxConcurrentSubagents = 10,
+  [ValidateRange(1, 5)]
+  [int]$MaxSubagentSpawnDepth = 1,
   [string]$ClaudeHome = (Join-Path $HOME ".claude"),
   [string]$WrapperPath = (Join-Path $HOME ".local\bin\claude.cmd"),
   [switch]$SkipUserEnvironment,
@@ -29,6 +33,13 @@ $modelValues = [ordered]@{
   ANTHROPIC_DEFAULT_HAIKU_MODEL = $DefaultHaikuModel
   CLAUDE_CODE_SUBAGENT_MODEL = $Model
 }
+$policyValues = [ordered]@{
+  CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS = [string]$MaxConcurrentSubagents
+  CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH = [string]$MaxSubagentSpawnDepth
+}
+$desiredValues = [ordered]@{}
+foreach ($entry in $modelValues.GetEnumerator()) { $desiredValues[$entry.Key] = $entry.Value }
+foreach ($entry in $policyValues.GetEnumerator()) { $desiredValues[$entry.Key] = $entry.Value }
 $agentNames = @("general-purpose", "Explore", "workflow-subagent", "bench-reviewer", "bench-triage")
 $mismatches = [System.Collections.Generic.List[string]]::new()
 
@@ -113,8 +124,8 @@ if ($null -eq $settings.PSObject.Properties["env"]) {
   Set-JsonProperty -Object $settings -Name "env" -Value ([pscustomobject]@{})
 }
 
-foreach ($key in $modelValues.Keys) {
-  $expectedModel = [string]$modelValues[$key]
+foreach ($key in $desiredValues.Keys) {
+  $expectedModel = [string]$desiredValues[$key]
   $current = $settings.env.PSObject.Properties[$key]
   if ($null -eq $current -or [string]$current.Value -ne $expectedModel) {
     $mismatches.Add("settings:$key")
@@ -145,8 +156,8 @@ foreach ($agentName in $agentNames) {
 
 if (Test-Path -LiteralPath $WrapperPath) {
   $wrapper = Get-Content -LiteralPath $WrapperPath -Raw
-  foreach ($key in $modelValues.Keys) {
-    $expectedModel = [string]$modelValues[$key]
+  foreach ($key in $desiredValues.Keys) {
+    $expectedModel = [string]$desiredValues[$key]
     $pattern = '(?im)^\s*set\s+"?' + [regex]::Escape($key) + '=[^\r\n"]*"?\s*$'
     $expected = 'set "' + $key + '=' + $expectedModel + '"'
     if ($wrapper -match $pattern) {
@@ -174,6 +185,7 @@ $result = [ordered]@{
   claude_home = $ClaudeHome
   model = $Model
   model_aliases = $modelValues
+  subagent_policy = $policyValues
   effort = $Effort
   agents = $agentNames
   mismatches = @($mismatches)

@@ -19,6 +19,7 @@ $requiredFiles = @(
   "backend/docs/skills/sub2api-claude-code-codex/references/plan-agent-premium-routing.md",
   "backend/docs/skills/sub2api-claude-code-codex/references/harness-publication.md",
   "backend/docs/skills/sub2api-claude-code-codex/references/session-failure-registry.md",
+  "backend/docs/skills/sub2api-claude-code-codex/references/subagent-concurrency-policy.md",
   "backend/docs/skills/sub2api-claude-code-codex/references/verification.md",
   "backend/docs/skills/sub2api-claude-code-codex/scripts/setup-sub2api-claude-code.ps1",
   "backend/docs/skills/sub2api-claude-code-codex/scripts/verify-claude-code-sub2api.ps1",
@@ -145,5 +146,13 @@ Assert-Contains `
   "backend/docs/skills/sub2api-claude-code-codex/evals/evals.json" `
   '"id"\s*:\s*28' `
   "standalone print-mode skill eval"
+Assert-Contains `
+  "backend/docs/skills/sub2api-claude-code-codex/profiles/chatgpt-only.v4.json" `
+  '"CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"\s*:\s*"10"' `
+  "provider-profile concurrent subagent hard cap"
+Assert-Contains `
+  "backend/docs/skills/sub2api-claude-code-codex/profiles/chatgpt-only.v4.json" `
+  '"CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH"\s*:\s*"1"' `
+  "provider-profile nested subagent hard cap"
 
 Write-Output "SUB2API_QWEN_HARNESS_CONTRACT_OK files=$($requiredFiles.Count)"
