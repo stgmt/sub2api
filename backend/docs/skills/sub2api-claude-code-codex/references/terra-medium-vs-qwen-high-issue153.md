@@ -2,6 +2,13 @@
 
 Controlled on 2026-07-28 and continued on 2026-07-29 against `stgmt/dev-pomogator@91a0601e` with the complete issue #153 body, clean detached worktrees, parallel Claude Code 2.1.219 processes, separate temporary API keys/groups, command-line `--settings`, and no cross-provider fallback.
 
+Public audit trail:
+
+- source task: [dev-pomogator issue #153](https://github.com/stgmt/dev-pomogator/issues/153);
+- Terra high research alternative: [draft PR #214](https://github.com/stgmt/dev-pomogator/pull/214);
+- Qwen medium merge candidate: [PR #213](https://github.com/stgmt/dev-pomogator/pull/213);
+- reproducible launcher and route-isolation checks: [benchmark-issue153-terra-vs-qwen.ps1](https://github.com/stgmt/sub2api/blob/1fb2721e3825490d64746d687821bb06c222f81f/backend/docs/skills/sub2api-claude-code-codex/scripts/benchmark-issue153-terra-vs-qwen.ps1).
+
 ## Route isolation is part of the benchmark
 
 Do not trust client `--model`, `--effort`, `CLAUDE_CODE_SUBAGENT_MODEL`, or an agent frontmatter override by themselves. Two discarded preflights proved that group dispatch can still change delegated calls:
@@ -105,6 +112,32 @@ Independent Terra rerun:
 - each new scenario ID occurs exactly once.
 
 Independent Qwen evidence remained broader: **37/37 focused scenarios and 173/173 steps**, **118/118 adjacent scenarios and 352/352 steps**, mutation proof, live agent load, PR #213, and green CI.
+
+## Implementation quality review
+
+This is a separate judgment from speed and token consumption. The review compares the final verified diffs, not either model's self-report.
+
+| Criterion | Terra high | Qwen medium | Better arm |
+|---|---|---|---|
+| Core clarity | 188-line evaluator with a structured JSON record | 580-line evaluator with a custom regex Markdown parser | **Terra** |
+| Canonical project architecture | Adds `INDEPENDENT_REVIEW` to the existing readiness inventory and authoritative verdict path | Adds a parallel finalization/status gate outside the canonical readiness lane | **Terra** |
+| Repository evidence | Resolves the cited file, rejects paths outside the repository, and validates the line number | Checks the evidence string shape but does not prove that the file and line exist | **Terra** |
+| Revision coverage | Recursively hashes nested Markdown and feature files after newline normalization | Hashes a fixed list of canonical root documents and root feature files | **Terra** |
+| Contract completeness | Misses durable activation, stable finding IDs, severity ordering, and robust round escalation | Enforces engine-owned activation, IDs/order, waiver rules, residual risks, and three-round escalation | **Qwen** |
+| Backward compatibility | Makes the new readiness lane globally mandatory | Activates the gate through engine-owned `required` state, leaving legacy specs unaffected | **Qwen** |
+| Test design and delivery | Seven focused scenarios appended to the large existing feature; no commit/PR/CI in the benchmark run | Dedicated feature suite, mutation proof, adjacent matrix, committed PR, and green CI | **Qwen** |
+| Least privilege | Reviewer can call spec-changing tools | Reviewer has broad `Write`; the one-artifact restriction remains advisory | **Neither** |
+
+Source-level audit links:
+
+- Terra's compact evaluator and real evidence resolver: [`adversarial-review.mjs`](https://github.com/stgmt/dev-pomogator/blob/9a23c3374a2b3db6fb1da9234342d4c6ab929889/tools/specs-generator/adversarial-review.mjs);
+- Terra's canonical readiness integration: [`readiness-inventory.ts`](https://github.com/stgmt/dev-pomogator/blob/9a23c3374a2b3db6fb1da9234342d4c6ab929889/tools/spec-graph/readiness-inventory.ts);
+- Terra reviewer capabilities: [`spec-phase-adversarial-review.md`](https://github.com/stgmt/dev-pomogator/blob/9a23c3374a2b3db6fb1da9234342d4c6ab929889/.claude/agents/spec-phase-adversarial-review.md);
+- Qwen's full evaluator and atomic progress state: [`adversarial-review.mjs`](https://github.com/stgmt/dev-pomogator/blob/4df9aebcc71d13d0ac7c0765070e84d422d0bec7/tools/specs-generator/adversarial-review.mjs);
+- Qwen's MCP status integration: [`tools.ts`](https://github.com/stgmt/dev-pomogator/blob/4df9aebcc71d13d0ac7c0765070e84d422d0bec7/tools/spec-mcp-server/tools.ts);
+- Qwen's dedicated BDD matrix: [`ADVREV001_adversarial-review-gate.feature`](https://github.com/stgmt/dev-pomogator/blob/4df9aebcc71d13d0ac7c0765070e84d422d0bec7/tests/features/plugins/adversarial-review-gate/ADVREV001_adversarial-review-gate.feature).
+
+The code-style winner is **Terra**: smaller core, less parsing machinery, stronger repository evidence, and better use of the project's canonical readiness model. The safer merge candidate is **Qwen**: it covers more of issue #153, preserves legacy behavior, and arrives with materially stronger executable evidence. A production-quality synthesis would keep Terra's structured record and canonical lane, add Qwen's activation/state and mutation coverage, and replace both reviewers' broad write permissions with one narrow `submit_adversarial_review` tool.
 
 ## Decision
 
