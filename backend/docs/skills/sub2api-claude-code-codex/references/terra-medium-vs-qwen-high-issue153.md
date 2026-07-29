@@ -1,6 +1,6 @@
 # Terra vs Qwen: issue #153 implementation benchmark
 
-Controlled on 2026-07-28 against `stgmt/dev-pomogator@91a0601e` with the complete issue #153 body, clean detached worktrees, parallel Claude Code 2.1.219 processes, separate temporary API keys/groups, command-line `--settings`, and no cross-provider fallback.
+Controlled on 2026-07-28 and continued on 2026-07-29 against `stgmt/dev-pomogator@91a0601e` with the complete issue #153 body, clean detached worktrees, parallel Claude Code 2.1.219 processes, separate temporary API keys/groups, command-line `--settings`, and no cross-provider fallback.
 
 ## Route isolation is part of the benchmark
 
@@ -74,11 +74,44 @@ Qwen did not emit a terminal report before the deadline, but its saved diff pass
 
 Residual Qwen risk: the reviewer has broad `Write` capability so the prompt's one-artifact limit is advisory, and the MCP status addition lacks a dedicated regression assertion. The full repository regression suite did not finish before the deadline.
 
+## Completion follow-up: same sessions, verified to the end
+
+The initial deadline table above remains the checkpoint result. On 2026-07-29 both exact Claude sessions were continued without importing the competing diff.
+
+Terra needed two corrective passes. The first repaired the invalid Cucumber hook, added machine-readable MCP state, normalized the recursive revision digest, and enforced repository `file:line` evidence. Independent review then found a second defect: the new broad test reused the existing `SPECGEN004_578` ID. A final eight-minute pass replaced it with seven unique scenarios (`665` through `671`).
+
+Qwen needed one continuation after the 90-minute cutoff. It completed the wider regression and mutation proof pack, committed the implementation, opened PR #213, and passed CI.
+
+| Verified-to-end metric | Terra high | Qwen 3.8 Max medium |
+|---|---:|---:|
+| Total wall time | **1h 33m 32.6s** | 1h 48m 10s |
+| Corrective continuations | 2 | **1** |
+| Requests | 267 | **160** |
+| Input tokens | **3,594,849** | 4,740,306 |
+| Cache-read tokens | 33,432,576 | **13,246,787** |
+| Cache-creation tokens | **0** | 5,550,096 |
+| Output tokens | **87,431** | 176,548 |
+| Mean / P95 request | **9.93s / 22.96s** | 26.27s / 59.61s |
+| Mean first token | **2.60s** | 7.74s |
+| API-equivalent estimate | **$18.66** | about $33.83 using Qwen 3.7 Max list price as a proxy |
+
+All 267 Terra rows remained `gpt-5.6-terra-high/high`; all 160 Qwen rows remained `qwen3.8-max-preview/medium`. There was no cross-model fallback.
+
+Independent Terra rerun:
+
+- focused review gate: **7/7 scenarios, 44/44 steps**;
+- adjacent orchestrator: **3/3 scenarios, 20/20 steps**;
+- changed-file ESLint, runtime syntax checks, MCP bundle build, and `git diff --check`: green;
+- each new scenario ID occurs exactly once.
+
+Independent Qwen evidence remained broader: **37/37 focused scenarios and 173/173 steps**, **118/118 adjacent scenarios and 352/352 steps**, mutation proof, live agent load, PR #213, and green CI.
+
 ## Decision
 
-- For routine delegated work where latency matters, Terra remains the faster default.
-- For issue #153 implementation quality, Qwen-medium is the stronger starting point despite missing the deadline; its executable coverage caught and repaired real engine defects.
-- Raising Terra from medium to high did not improve this task: it was slower than Round 1 and still declared completion over a broken BDD integration.
-- Lowering Qwen from high to medium did not make it fast: it consumed 3.75x Terra's output tokens and still reached the 90-minute deadline.
+- Terra high won verified wall time, uncached input/output volume, and per-request latency, but required two external verifier loops and 267 calls.
+- Qwen medium made fewer calls and delivered the broader proof pack plus a green PR, but used more wall time and tokens.
+- Terra's final engine is stricter about repository evidence resolution and newline-stable recursive digests. Qwen's delivery evidence is broader.
+- For routine delegation, Terra is the faster default only when the harness automatically rejects false completion and resumes the same session.
+- For high-risk engine work, neither self-report is sufficient; require executable BDD, mutation or adversarial checks, and a delivery boundary such as PR/CI.
 
-Never rank these arms from self-reports alone. The decisive evidence is route-pure `usage_logs`, real Docker BDD, mutation resistance, live agent discoverability, and independent diff review.
+Never rank these arms from first self-reports alone. The decisive measurement is time to independently verified completion.
