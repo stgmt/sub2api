@@ -133,9 +133,9 @@ Source-level audit links:
 - Terra's compact evaluator and real evidence resolver: [`adversarial-review.mjs`](https://github.com/stgmt/dev-pomogator/blob/9a23c3374a2b3db6fb1da9234342d4c6ab929889/tools/specs-generator/adversarial-review.mjs);
 - Terra's canonical readiness integration: [`readiness-inventory.ts`](https://github.com/stgmt/dev-pomogator/blob/9a23c3374a2b3db6fb1da9234342d4c6ab929889/tools/spec-graph/readiness-inventory.ts);
 - Terra reviewer capabilities: [`spec-phase-adversarial-review.md`](https://github.com/stgmt/dev-pomogator/blob/9a23c3374a2b3db6fb1da9234342d4c6ab929889/.claude/agents/spec-phase-adversarial-review.md);
-- Qwen's full evaluator and atomic progress state: [`adversarial-review.mjs`](https://github.com/stgmt/dev-pomogator/blob/4df9aebcc71d13d0ac7c0765070e84d422d0bec7/tools/specs-generator/adversarial-review.mjs);
-- Qwen's MCP status integration: [`tools.ts`](https://github.com/stgmt/dev-pomogator/blob/4df9aebcc71d13d0ac7c0765070e84d422d0bec7/tools/spec-mcp-server/tools.ts);
-- Qwen's dedicated BDD matrix: [`ADVREV001_adversarial-review-gate.feature`](https://github.com/stgmt/dev-pomogator/blob/4df9aebcc71d13d0ac7c0765070e84d422d0bec7/tests/features/plugins/adversarial-review-gate/ADVREV001_adversarial-review-gate.feature).
+- Qwen's full evaluator and atomic progress state: [`adversarial-review.mjs`](https://github.com/stgmt/dev-pomogator/blob/965c036fe3f1e578aee18e0ef594a6423995e8ba/tools/specs-generator/adversarial-review.mjs);
+- Qwen's MCP status integration: [`tools.ts`](https://github.com/stgmt/dev-pomogator/blob/965c036fe3f1e578aee18e0ef594a6423995e8ba/tools/spec-mcp-server/tools.ts);
+- Qwen's dedicated BDD matrix: [`ADVREV001_adversarial-review-gate.feature`](https://github.com/stgmt/dev-pomogator/blob/965c036fe3f1e578aee18e0ef594a6423995e8ba/tests/features/plugins/adversarial-review-gate/ADVREV001_adversarial-review-gate.feature).
 
 The code-style winner is **Terra**: smaller core, less parsing machinery, stronger repository evidence, and better use of the project's canonical readiness model. The safer merge candidate is **Qwen**: it covers more of issue #153, preserves legacy behavior, and arrives with materially stronger executable evidence. A production-quality synthesis would keep Terra's structured record and canonical lane, add Qwen's activation/state and mutation coverage, and replace both reviewers' broad write permissions with one narrow `submit_adversarial_review` tool.
 
