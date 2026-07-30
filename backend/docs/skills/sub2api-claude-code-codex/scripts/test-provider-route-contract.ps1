@@ -10,6 +10,7 @@ $installer = Join-Path $scriptRoot "install-claude-route.ps1"
 $anthropicProfile = Join-Path $skillRoot "profiles\anthropic-only.v4.json"
 $chatgptProfile = Join-Path $skillRoot "profiles\chatgpt-only.v4.json"
 $hybridProfile = Join-Path $skillRoot "profiles\hybrid-current.v2.json"
+$qwenProfile = Join-Path $skillRoot "profiles\qwen-only.v1.json"
 $temp = Join-Path ([IO.Path]::GetTempPath()) ("sub2api-provider-route-test-" + [guid]::NewGuid())
 
 function Assert-True([bool]$Condition, [string]$Message) {
@@ -72,11 +73,22 @@ try {
   $afterHybrid = Get-Content -Raw $settingsPath | ConvertFrom-Json
   Assert-True ($afterHybrid.env.ANTHROPIC_MODEL -eq "gpt-5.6-sol") "Hybrid main model must restore"
   Assert-True ($afterHybrid.env.CLAUDE_CODE_SUBAGENT_MODEL -eq "qwen3.8-max-preview") "Hybrid subagent must restore"
+  Assert-True ($afterHybrid.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS -eq "370000") "Hybrid must replace stale 1M context with its GPT safety target"
+  Assert-True ($afterHybrid.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW -eq "340000") "Hybrid must restore the GPT compact threshold"
   Assert-True ($afterHybrid.env.CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS -eq "10") "Hybrid profile must preserve the concurrent subagent cap"
   Assert-True ($afterHybrid.env.CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH -eq "1") "Hybrid profile must preserve the nested subagent cap"
   Assert-True ((Get-Content -Raw $agentPath) -match '(?m)^model: qwen3.8-max-preview$') "Agent frontmatter must restore"
 
-  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $applier -ProfilePath $chatgptProfile -SettingsPath $settingsPath -AgentsPath $agentsPath -WrapperPath $wrapperPath -Generation 9 -EnvironmentTarget None | Out-Null
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $applier -ProfilePath $qwenProfile -SettingsPath $settingsPath -AgentsPath $agentsPath -WrapperPath $wrapperPath -Generation 9 -AuthToken "fleet-test-key" -EnvironmentTarget None | Out-Null
+  Assert-True ($LASTEXITCODE -eq 0) "Qwen-only profile apply must succeed"
+  $afterQwen = Get-Content -Raw $settingsPath | ConvertFrom-Json
+  Assert-True ($afterQwen.env.ANTHROPIC_MODEL -eq "qwen3.8-max-preview") "Qwen-only main must use Qwen"
+  Assert-True ($afterQwen.env.CLAUDE_CODE_SUBAGENT_MODEL -eq "qwen3.8-max-preview") "Qwen-only subagents must use Qwen"
+  Assert-True ($afterQwen.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS -eq "1000000") "Qwen-only must publish the Qwen 1M context"
+  Assert-True ($afterQwen.env.ANTHROPIC_AUTH_TOKEN -eq "fleet-test-key") "Fleet API key must be reconciled into settings"
+  Assert-True ((Get-Content -Raw $wrapperPath).Contains('ANTHROPIC_AUTH_TOKEN=fleet-test-key')) "Fleet API key must replace a stale wrapper token"
+
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $applier -ProfilePath $chatgptProfile -SettingsPath $settingsPath -AgentsPath $agentsPath -WrapperPath $wrapperPath -Generation 10 -AuthToken "fleet-test-key" -EnvironmentTarget None | Out-Null
   Assert-True ($LASTEXITCODE -eq 0) "ChatGPT-only profile apply must succeed"
   $afterChatGPT = Get-Content -Raw $settingsPath | ConvertFrom-Json
   Assert-True ($afterChatGPT.env.ANTHROPIC_MODEL -eq "gpt-5.6-sol") "ChatGPT-only main must use Sol"
@@ -91,12 +103,13 @@ try {
   Assert-True ($agentAfterChatGPT -match '(?m)^effort: medium$') "ChatGPT-only agent frontmatter must use medium"
   Assert-True ((Get-Content -Raw $wrapperPath).Contains('set "CLAUDE_CODE_EFFORT_LEVEL="')) "ChatGPT-only wrapper must clear inherited hard interactive effort"
 
-  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $applier -ProfilePath $chatgptProfile -SettingsPath $settingsPath -AgentsPath $agentsPath -WrapperPath $wrapperPath -Generation 9 -EnvironmentTarget None -CheckOnly | Out-Null
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $applier -ProfilePath $chatgptProfile -SettingsPath $settingsPath -AgentsPath $agentsPath -WrapperPath $wrapperPath -Generation 10 -AuthToken "fleet-test-key" -EnvironmentTarget None -CheckOnly | Out-Null
   Assert-True ($LASTEXITCODE -eq 0) "ChatGPT-only check-only must be clean immediately after apply"
 
   $anthropic = Get-Content -Raw $anthropicProfile | ConvertFrom-Json
   $chatgpt = Get-Content -Raw $chatgptProfile | ConvertFrom-Json
   $hybrid = Get-Content -Raw $hybridProfile | ConvertFrom-Json
+  $qwen = Get-Content -Raw $qwenProfile | ConvertFrom-Json
   Assert-True ($anthropic.group.platform -eq "openai") "Anthropic-only dispatcher group must remain OpenAI-shaped"
   Assert-True ($anthropic.group.allow_messages_dispatch -eq $true) "Anthropic-only group must dispatch /v1/messages"
 Assert-True (@($anthropic.group.messages_dispatch_model_config.model_fallbacks.PSObject.Properties).Count -eq 0) "Anthropic-only fallbacks must be empty"
@@ -120,6 +133,9 @@ Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof cont
   Assert-True ($hybrid.group.messages_dispatch_model_config.sdk_cli_mapped_model -eq "qwen3.8-max-preview") "Hybrid SDK CLI and built-in Explore children must use Qwen"
   Assert-True ($hybrid.group.messages_dispatch_model_config.sdk_cli_reasoning_effort -eq "high") "Hybrid SDK CLI and built-in Explore children must use high effort"
   Assert-True ($hybrid.group.messages_dispatch_model_config.compact_mapped_model -eq "qwen3.8-max-preview") "Hybrid compact must use Qwen"
+  Assert-True ($hybrid.group.messages_dispatch_model_config.compact_reasoning_effort -eq "high") "Hybrid compact must use high effort"
+  Assert-True ($hybrid.group.messages_dispatch_model_config.plan_mapped_model -eq "gpt-5.6-sol") "Hybrid Plan agent must use Sol"
+  Assert-True ($hybrid.group.messages_dispatch_model_config.plan_reasoning_effort -eq "high") "Hybrid Plan agent must use high effort"
   Assert-True (@($hybrid.group.messages_dispatch_model_config.model_fallbacks.PSObject.Properties).Count -eq 1) "Hybrid must keep exactly one terminal-quota fallback"
   Assert-True ($hybrid.group.messages_dispatch_model_config.model_fallbacks.'qwen3.8-max-preview'[0] -eq "gpt-5.6-sol") "Hybrid Qwen terminal-quota fallback must use Sol"
   Assert-True ($null -eq $hybrid.group.messages_dispatch_model_config.model_fallbacks.'gpt-5.6-luna') "Hybrid must not preserve the stale Luna fallback"
@@ -142,6 +158,13 @@ Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof cont
   Assert-True (@($chatgpt.group.models_list_config.models | Where-Object { $_ -eq 'gpt-5.6-luna' }).Count -eq 0) "ChatGPT-only catalog must not publish Luna"
   Assert-True (@($chatgpt.group.models_list_config.models | Where-Object { $_ -match '^(qwen|glm|deepseek|claude)' }).Count -eq 0) "ChatGPT-only catalog must contain GPT/Codex models only"
   Assert-True (@($chatgpt.unset_client_env) -contains "CLAUDE_CODE_EFFORT_LEVEL") "ChatGPT-only must declare hard-effort cleanup"
+  Assert-True ($qwen.main_model -eq "qwen3.8-max-preview") "Qwen-only main must use Qwen"
+  Assert-True ($qwen.agent_model -eq "qwen3.8-max-preview") "Qwen-only agents must use Qwen"
+  Assert-True ($qwen.group.messages_dispatch_model_config.plan_mapped_model -eq "qwen3.8-max-preview") "Qwen-only Plan must remain Qwen-only"
+  Assert-True ($qwen.group.messages_dispatch_model_config.plan_reasoning_effort -eq "high") "Qwen-only Plan must use high effort"
+  Assert-True (@($qwen.unset_client_env) -contains "CLAUDE_CODE_EFFORT_LEVEL") "Qwen-only interactive effort must remain selectable"
+  Assert-True (@($qwen.group.messages_dispatch_model_config.model_fallbacks.PSObject.Properties).Count -eq 0) "Qwen-only must not fall back to GPT or Claude"
+  Assert-True (@($qwen.group.models_list_config.models).Count -eq 1 -and $qwen.group.models_list_config.models[0] -eq "qwen3.8-max-preview") "Qwen-only picker must publish only Qwen 3.8 Max"
 
   $controllerText = Get-Content -Raw $controller
   foreach ($needle in @('/api/v1/admin/api-keys/', 'usage_logs', 'Invoke-HeadroomProbe', 'route_switcher_source_fingerprint', 'rollback failed')) {
@@ -150,11 +173,21 @@ Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof cont
   Assert-True ($controllerText.Contains('--profile-path')) "Linux reconcile must use the applier's canonical profile argument"
   Assert-True ($controllerText.Contains('probeNonce')) "Switch and rollback probes must bypass Headroom response-cache reuse"
   Assert-True ($controllerText.Contains('"chatgpt" { Invoke-Switch "chatgpt-only" }')) "Controller must expose the ChatGPT-only switch"
+  Assert-True ($controllerText.Contains('"qwen" { Invoke-Switch "qwen-only" }')) "Controller must expose the Qwen-only switch"
+  Assert-True ($controllerText.Contains('"qwen-only" { "qwen-only.v1.json" }')) "Controller must resolve the Qwen-only profile snapshot"
   Assert-True ($controllerText.Contains('Ensure-ChatGPTAccount')) "Controller must bind the dedicated ChatGPT OAuth account"
+  Assert-True ($controllerText.Contains('Ensure-QwenAccount')) "Controller must bind the dedicated Alibaba Token Plan account"
+  Assert-True ($controllerText.Contains('Ensure-HybridAccounts')) "Controller must bind both providers for the hybrid profile"
+  Assert-True (-not $controllerText.Contains('provider-route-node-overrides.json')) "Global switches must not permit hidden per-node profile overrides"
+  Assert-True ($controllerText.Contains('ManagedFleetKeyNames')) "Controller must keep legacy fleet keys on the global group"
+  Assert-True ($controllerText.Contains('Reconcile-WindowsGuest $ProfileRecord $Generation $stableKey.Secret')) "Windows guest must receive the same profile and stable key"
+  Assert-True ($controllerText.Contains('Reconcile-LinuxGuest $ProfileRecord $Generation $stableKey.Secret')) "Linux guest must receive the same profile and stable key"
   Assert-True ($controllerText.Contains("`$sourcePortable = `$CodexAuthPath -replace '\\', '/'")) "Controller must normalize the Windows Codex auth path before WSL translation"
   Assert-True ($controllerText.Contains('preserving sub2api-owned OAuth credentials')) "Existing Anthropic account must not require stale local Claude credentials"
   Assert-True ($controllerText.Contains('if ($source) { $updateBody.expires_at')) "Existing account expiry must be preserved when no local OAuth source is available"
   Assert-True ($controllerText.Contains('[Security.SecureString]::new()')) "Windows guest reconcile must construct credentials without lazy module loading"
+  Assert-True ($controllerText.Contains('apply-sub2api-qwen-profile.cmd')) "Windows guest reconcile must remove the legacy Qwen-only startup override"
+  Assert-True ($controllerText.Contains('legacy_qwen_override_removed')) "Windows guest reconcile must prove the legacy override is absent"
   Assert-True ((Get-Content -Raw (Join-Path $skillRoot 'scripts\install-claude-route.ps1')).Contains('hybrid-current.v1.json')) "Installer must remove the stale unmanaged hybrid v1 snapshot"
   Assert-True ($controllerText.Contains('[Security.Cryptography.SHA256]::Create()')) "Codex auth hashing must not depend on a lazy PowerShell module"
   Assert-True (-not $controllerText.Contains('Get-FileHash')) "Provider controller must not depend on the unavailable Microsoft.PowerShell.Utility hash cmdlet"
@@ -177,6 +210,9 @@ Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof cont
   Assert-True (-not $setupText.Contains('claude-provider-switcher\scripts')) "Canonical setup must not depend on the removed standalone skill"
   Assert-True ($ensureText.Contains('.codex\skills\sub2api-claude-code-codex\scripts\claude-route.ps1')) "Watchdog must resolve the controller from the consolidated skill"
   Assert-True ($ensureText.Contains('Invoke-ProviderRouteReconcile')) "The single stack watchdog must own provider generation repair"
+  Assert-True ($ensureText.Contains('$sameGeneration = [string]$attemptState.generation -eq $generation')) "A new global profile generation must bypass the old reconcile throttle"
+  Assert-True (-not $ensureText.Contains('Sync-HyperVGuestSubagentProfiles')) "Watchdog must not apply a hidden Qwen-only profile outside claude-route"
+  Assert-True (-not $ensureText.Contains('HEADROOM_HYPERV_STAGE_QWEN_PROFILE')) "Legacy Hyper-V Qwen staging must not bypass the active provider profile"
   Assert-True ($ensureText.Contains('$stateRoot.StartsWith("/")')) "Watchdog must recognize Linux absolute state roots on Windows"
   Assert-True ($ensureText.Contains("`$sourcePortable = `$source -replace '\\', '/'")) "Watchdog must normalize the Windows Codex auth path before WSL translation"
 
@@ -197,6 +233,7 @@ Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof cont
   Assert-True ($LASTEXITCODE -eq 0) "Consolidated installer fixture must succeed"
   Assert-True (Test-Path -LiteralPath (Join-Path $installedSkill 'profiles\anthropic-only.v4.json')) "Installer must copy Anthropic profile v4"
   Assert-True (Test-Path -LiteralPath (Join-Path $installedSkill 'profiles\chatgpt-only.v4.json')) "Installer must copy ChatGPT-only profile v4"
+  Assert-True (Test-Path -LiteralPath (Join-Path $installedSkill 'profiles\qwen-only.v1.json')) "Installer must copy Qwen-only profile v1"
   Assert-True (-not (Test-Path -LiteralPath (Join-Path $installedSkill 'profiles\chatgpt-only.v3.json'))) "Installer must remove legacy ChatGPT-only profile v3"
   Assert-True (-not (Test-Path -LiteralPath (Join-Path $installedSkill 'profiles\chatgpt-only.v2.json'))) "Installer must remove legacy ChatGPT-only profile v2"
   Assert-True (-not (Test-Path -LiteralPath (Join-Path $installedSkill 'profiles\chatgpt-only.v1.json'))) "Installer must remove legacy ChatGPT-only profile v1"
@@ -205,7 +242,7 @@ Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof cont
   Assert-True (-not (Test-Path -LiteralPath $legacyProfileV3)) "Installer must remove stale Anthropic profile v3"
   Assert-True (-not (Test-Path -LiteralPath $legacySkill)) "Installer must remove the managed standalone provider skill"
 
-  [pscustomobject]@{ status = "PASS"; assertions = 108; profiles = @("anthropic-only", "chatgpt-only", "hybrid-current") } | ConvertTo-Json -Compress
+  [pscustomobject]@{ status = "PASS"; assertions = 130; profiles = @("anthropic-only", "qwen-only", "chatgpt-only", "hybrid-current") } | ConvertTo-Json -Compress
 } finally {
   Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
 }

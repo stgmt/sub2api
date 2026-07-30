@@ -101,8 +101,10 @@ function Invoke-ProviderRouteReconcile {
     $attemptStatePath = Join-Path $ProfileRoot "logs\provider-route-reconcile-state.json"
     if (-not $localDrift -and (Test-Path -LiteralPath $attemptStatePath)) {
       try {
-        $lastAttempt = [DateTimeOffset]::Parse([string](Get-Content -Raw -LiteralPath $attemptStatePath | ConvertFrom-Json).attempted_at)
-        if (([DateTimeOffset]::UtcNow - $lastAttempt.ToUniversalTime()).TotalMinutes -lt $ProviderReconcileMinutes) {
+        $attemptState = Get-Content -Raw -LiteralPath $attemptStatePath | ConvertFrom-Json
+        $lastAttempt = [DateTimeOffset]::Parse([string]$attemptState.attempted_at)
+        $sameGeneration = [string]$attemptState.generation -eq $generation
+        if ($sameGeneration -and ([DateTimeOffset]::UtcNow - $lastAttempt.ToUniversalTime()).TotalMinutes -lt $ProviderReconcileMinutes) {
           return [pscustomobject]@{ status = "throttled"; generation = $generation; pending_nodes = $pendingNodes; attempted = $false }
         }
       } catch { }
@@ -167,81 +169,6 @@ function Write-HyperVInventorySnapshot {
     } | ConvertTo-Json -Depth 8) + [Environment]::NewLine)
   } catch {
     Write-SelfHealEvent -Event "hyperv_inventory_failed" -Data @{ error = $_.Exception.Message }
-  }
-}
-
-function Sync-HyperVGuestSubagentProfiles {
-  param([hashtable]$BridgeEnv)
-
-  if (-not $BridgeEnv.ContainsKey("HEADROOM_HYPERV_STAGE_QWEN_PROFILE") -or
-      $BridgeEnv["HEADROOM_HYPERV_STAGE_QWEN_PROFILE"] -notmatch "^(1|true|yes|on)$") {
-    return
-  }
-
-  $sourceScript = Join-Path $ScriptDir "sync-claude-subagent-profile.ps1"
-  if (-not (Test-Path -LiteralPath $sourceScript)) {
-    Write-SelfHealEvent -Event "hyperv_subagent_profile_failed" -Data @{ error = "profile sync script is missing"; source = $sourceScript }
-    return
-  }
-
-  $model = if ($BridgeEnv.ContainsKey("HEADROOM_HYPERV_SUBAGENT_MODEL") -and $BridgeEnv["HEADROOM_HYPERV_SUBAGENT_MODEL"].Trim()) {
-    $BridgeEnv["HEADROOM_HYPERV_SUBAGENT_MODEL"].Trim()
-  } else {
-    "qwen3.8-max-preview"
-  }
-  $effort = if ($BridgeEnv.ContainsKey("HEADROOM_HYPERV_SUBAGENT_EFFORT") -and $BridgeEnv["HEADROOM_HYPERV_SUBAGENT_EFFORT"].Trim()) {
-    $BridgeEnv["HEADROOM_HYPERV_SUBAGENT_EFFORT"].Trim()
-  } else {
-    "high"
-  }
-  $targetNames = @()
-  if ($BridgeEnv.ContainsKey("HEADROOM_HYPERV_QWEN_VM_NAMES")) {
-    $targetNames = @($BridgeEnv["HEADROOM_HYPERV_QWEN_VM_NAMES"].Split(",") | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-  }
-  if ($targetNames.Count -eq 0 -and $HyperVVmName.Trim()) {
-    $targetNames = @($HyperVVmName.Trim())
-  }
-  if ($targetNames.Count -eq 0) { return }
-
-  $sourceHash = (Get-FileHash -LiteralPath $sourceScript -Algorithm SHA256).Hash.ToLowerInvariant()
-  $profileVersion = "$sourceHash-$model-$effort"
-  $launcherPath = Join-Path $LogDir "apply-hyperv-qwen-profile.cmd"
-  $launcher = @"
-@echo off
-setlocal
-powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "C:\ProgramData\sub2api\sync-claude-subagent-profile.ps1" -Model "$model" -Effort "$effort" > "C:\ProgramData\sub2api\sync-claude-subagent-profile.log" 2>&1
-if errorlevel 1 exit /b %errorlevel%
-del "%~f0"
-"@
-  Write-Utf8NoBom -Path $launcherPath -Content ($launcher.Trim() + [Environment]::NewLine)
-
-  foreach ($vmName in $targetNames) {
-    $safeName = $vmName -replace '[^A-Za-z0-9._-]', '_'
-    $markerPath = Join-Path $LogDir "hyperv-qwen-$safeName-$($profileVersion.Substring(0, 16)).staged"
-    if (Test-Path -LiteralPath $markerPath) { continue }
-    try {
-      $vm = Get-VM -Name $vmName -ErrorAction Stop
-      if ([string]$vm.State -ne "Running") {
-        throw "VM is not running (state=$($vm.State))"
-      }
-      $guestService = Get-VMIntegrationService -VMName $vmName -Name "Guest Service Interface" -ErrorAction Stop
-      if (-not $guestService.Enabled) {
-        Enable-VMIntegrationService -VMName $vmName -Name "Guest Service Interface" -ErrorAction Stop
-        Start-Sleep -Milliseconds 500
-      }
-      Copy-VMFile -VMName $vmName -FileSource Host -SourcePath $sourceScript -DestinationPath "C:\ProgramData\sub2api\sync-claude-subagent-profile.ps1" -CreateFullPath -Force -ErrorAction Stop
-      Copy-VMFile -VMName $vmName -FileSource Host -SourcePath $launcherPath -DestinationPath "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp\apply-sub2api-qwen-profile.cmd" -CreateFullPath -Force -ErrorAction Stop
-      Write-Utf8NoBom -Path $markerPath -Content (([ordered]@{
-        vm = $vmName
-        model = $model
-        effort = $effort
-        profile_version = $profileVersion
-        staged_at = (Get-Date).ToUniversalTime().ToString("o")
-      } | ConvertTo-Json -Compress) + [Environment]::NewLine)
-      Write-SelfHealEvent -Event "hyperv_subagent_profile_staged" -Data @{ vm = $vmName; model = $model; effort = $effort }
-    } catch {
-      Write-SelfHealEvent -Event "hyperv_subagent_profile_failed" -Data @{ vm = $vmName; model = $model; effort = $effort; error = $_.Exception.Message }
-    }
   }
 }
 
@@ -474,12 +401,9 @@ if (-not $RequireHyperVBridge -and $bridgeEnv.ContainsKey("HEADROOM_HYPERV_REQUI
   $RequireHyperVBridge = $bridgeEnv["HEADROOM_HYPERV_REQUIRE_BRIDGE"] -match "^(1|true|yes|on)$"
 }
 
-$hyperVConfigured = $HyperVVmName.Trim().Length -gt 0 -or
-  $bridgeEnv.ContainsKey("HEADROOM_HYPERV_QWEN_VM_NAMES") -or
-  ($bridgeEnv.ContainsKey("HEADROOM_HYPERV_STAGE_QWEN_PROFILE") -and $bridgeEnv["HEADROOM_HYPERV_STAGE_QWEN_PROFILE"] -match "^(1|true|yes|on)$")
+$hyperVConfigured = $HyperVVmName.Trim().Length -gt 0
 if ($hyperVConfigured) {
   Write-HyperVInventorySnapshot
-  Sync-HyperVGuestSubagentProfiles -BridgeEnv $bridgeEnv
 }
 
 $startScript = Join-Path $ScriptDir "start-sub2api-proxy-stack.ps1"

@@ -34,6 +34,7 @@ if (-not (Test-Path -LiteralPath $statePath)) { throw "Provider route state is n
 $state = Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json
 $profileFile = switch ($state.active_profile) {
   "anthropic-only" { "anthropic-only.v4.json" }
+  "qwen-only" { "qwen-only.v1.json" }
   "chatgpt-only" { "chatgpt-only.v4.json" }
   "hybrid-current" { "hybrid-current.v2.json" }
   default { throw "Unknown active provider profile: $($state.active_profile)" }
@@ -61,6 +62,23 @@ WHERE name = '$groupNameSql'
   if ($contractRows.Count -ne 1) {
     throw "ChatGPT-only v4 Sol/Terra-medium zero-fallback contract is not active"
   }
+} elseif ($state.active_profile -eq "qwen-only") {
+  $groupNameSql = ([string]$profile.group_name).Replace("'", "''")
+  $contractRows = @(Invoke-Sql @"
+SELECT id::text
+FROM groups
+WHERE name = '$groupNameSql'
+  AND platform = 'anthropic'
+  AND messages_dispatch_model_config->>'plan_mapped_model' = 'qwen3.8-max-preview'
+  AND messages_dispatch_model_config->>'plan_reasoning_effort' = 'high'
+  AND messages_dispatch_model_config->>'compact_mapped_model' = 'qwen3.8-max-preview'
+  AND messages_dispatch_model_config->>'compact_reasoning_effort' = 'high'
+  AND messages_dispatch_model_config->>'sdk_cli_mapped_model' = 'qwen3.8-max-preview'
+  AND messages_dispatch_model_config->>'sdk_cli_reasoning_effort' = 'high'
+  AND COALESCE(messages_dispatch_model_config->'model_fallbacks', '{}'::jsonb) = '{}'::jsonb
+  AND COALESCE(messages_dispatch_model_config->'automatic_model_fallbacks', '{}'::jsonb) = '{}'::jsonb;
+"@)
+  if ($contractRows.Count -ne 1) { throw "Qwen-only v1 all-Qwen zero-fallback contract is not active" }
 }
 $keyNameSql = $StableKeyName.Replace("'", "''")
 $keyRows = @(Invoke-Sql "SELECT id || chr(9) || key FROM api_keys WHERE name='$keyNameSql' AND status='active' AND deleted_at IS NULL;")
@@ -68,6 +86,14 @@ if ($keyRows.Count -ne 1) { throw "Stable key lookup failed" }
 $keyParts = $keyRows[0] -split "`t", 2
 $keyId = [int64]$keyParts[0]
 $key = $keyParts[1]
+$managedKeyIds = @($state.managed_key_ids | ForEach-Object { [int64]$_ })
+if ($managedKeyIds.Count -gt 0) {
+  $managedIdSql = $managedKeyIds -join ','
+  $managedBindingRows = @(Invoke-Sql "SELECT count(*)::text FROM api_keys WHERE id IN ($managedIdSql) AND group_id = $($state.active_group_id) AND status='active' AND deleted_at IS NULL;")
+  if ($managedBindingRows.Count -ne 1 -or [int]$managedBindingRows[0] -ne $managedKeyIds.Count) {
+    throw "One or more managed fleet keys bypass the active provider group"
+  }
+}
 $baseUrl = Resolve-HeadroomUrl
 $started = [DateTimeOffset]::UtcNow
 $runId = [guid]::NewGuid().ToString("N")
@@ -142,6 +168,15 @@ if ($state.active_profile -eq "anthropic-only") {
   if ([string]$usageProof[4].reasoning_effort -ne "high") {
     throw "Plan probe expected reasoning effort 'high', got '$($usageProof[4].reasoning_effort)'"
   }
+} elseif ($state.active_profile -eq "qwen-only") {
+  $forbidden = @($usageProof | Where-Object { $_.platform -ne "anthropic" -or $_.type -ne "apikey" -or $_.account_name -ne $profile.expected_account_name })
+  if ($forbidden.Count -gt 0) { throw "Qwen-only verification observed a forbidden provider account" }
+  foreach ($row in $usageProof) {
+    if ([string]$row.model -ne "qwen3.8-max-preview") { throw "Qwen-only verification observed non-Qwen model '$($row.model)'" }
+  }
+  foreach ($index in 2,3,4) {
+    if ([string]$usageProof[$index].reasoning_effort -ne "high") { throw "Qwen-only '$($probes[$index].name)' expected high effort" }
+  }
 } elseif ($state.active_profile -eq "chatgpt-only") {
   $forbidden = @($usageProof | Where-Object { $_.platform -ne "openai" -or $_.type -ne "oauth" -or $_.account_name -ne $profile.expected_account_name })
   if ($forbidden.Count -gt 0) { throw "ChatGPT-only verification observed a forbidden provider account" }
@@ -168,6 +203,22 @@ if ($state.active_profile -eq "anthropic-only") {
   }
   if ([string]$usageProof[4].reasoning_effort -ne "high") {
     throw "Plan probe expected reasoning effort 'high', got '$($usageProof[4].reasoning_effort)'"
+  }
+} elseif ($state.active_profile -eq "hybrid-current") {
+  $expected = @(
+    @{ platform = "openai"; model = "gpt-5.6-sol"; effort = $null },
+    @{ platform = "anthropic"; model = "qwen3.8-max-preview"; effort = $null },
+    @{ platform = "anthropic"; model = "qwen3.8-max-preview"; effort = "high" },
+    @{ platform = "anthropic"; model = "qwen3.8-max-preview"; effort = "high" },
+    @{ platform = "openai"; model = "gpt-5.6-sol"; effort = "high" }
+  )
+  for ($i = 0; $i -lt $expected.Count; $i++) {
+    if ([string]$usageProof[$i].platform -ne $expected[$i].platform -or [string]$usageProof[$i].model -ne $expected[$i].model) {
+      throw "Hybrid probe '$($probes[$i].name)' violated its provider/model route"
+    }
+    if ($expected[$i].effort -and [string]$usageProof[$i].reasoning_effort -ne $expected[$i].effort) {
+      throw "Hybrid probe '$($probes[$i].name)' expected effort '$($expected[$i].effort)'"
+    }
   }
 }
 

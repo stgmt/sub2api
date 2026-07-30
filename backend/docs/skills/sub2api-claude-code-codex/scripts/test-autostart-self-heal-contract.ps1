@@ -13,6 +13,11 @@ function Assert-Contains {
   if (-not $Text.Contains($Needle)) { throw $Message }
 }
 
+function Assert-NotContains {
+  param([string]$Text, [string]$Needle, [string]$Message)
+  if ($Text.Contains($Needle)) { throw $Message }
+}
+
 $installer = Get-Content -Raw -LiteralPath $InstallerPath
 $hiddenLauncher = Get-Content -Raw -LiteralPath $HiddenLauncherPath
 $ensure = Get-Content -Raw -LiteralPath $EnsurePath
@@ -43,10 +48,8 @@ Assert-Contains $ensure 'HEADROOM_HYPERV_REMOTE_CONFIG_MODE' "Self-heal must sup
 Assert-Contains $ensure '$bridgeEnv["HEADROOM_HYPERV_VM_NAME"]' "Profile env must override a stale VM name embedded in the scheduled task"
 Assert-Contains $ensure 'HEADROOM_HYPERV_VM_SSH_USER' "Self-heal must read the canonical VM SSH user key"
 Assert-Contains $ensure 'Write-HyperVInventorySnapshot' "Elevated self-heal must publish an exact Hyper-V VM inventory"
-Assert-Contains $ensure 'Sync-HyperVGuestSubagentProfiles' "Self-heal must support staging the Qwen profile into Windows guests"
-Assert-Contains $ensure 'HEADROOM_HYPERV_STAGE_QWEN_PROFILE' "Hyper-V guest profile staging must be explicitly profile-controlled"
-Assert-Contains $ensure 'Copy-VMFile' "Hyper-V Windows guest profile staging must use Guest Service Interface file copy"
-Assert-Contains $ensure 'sync-claude-subagent-profile.ps1' "Hyper-V guest staging must use the canonical portable profile sync"
+Assert-NotContains $ensure 'Sync-HyperVGuestSubagentProfiles' "Self-heal must not bypass claude-route with a hidden Qwen-only guest profile"
+Assert-NotContains $ensure 'HEADROOM_HYPERV_STAGE_QWEN_PROFILE' "Legacy Qwen-only Hyper-V staging must stay retired"
 Assert-Contains $ensure 'Sync-CodexAuthFile' "Self-heal must sync fresh host Codex OAuth auth into the sub2api bind mount"
 Assert-Contains $ensure 'codex_auth_synced' "Self-heal must emit proof when it refreshes the Codex auth bind file"
 Assert-Contains $ensure 'codex-auth.json' "Self-heal must write the canonical sub2api Codex auth file"

@@ -235,16 +235,7 @@ bash ./scripts/sync-claude-subagent-profile.sh --check
 
 Both paths pin small-fast, Opus/Fable/Sonnet/Haiku picker slots, and `CLAUDE_CODE_SUBAGENT_MODEL` to `qwen3.8-max-preview`, while the five global delegated-agent files use `effort: high`. They preserve existing hooks, unknown settings, custom agent prompt bodies, and the main `ANTHROPIC_MODEL` choice.
 
-For Windows Hyper-V guests that expose no SSH/WinRM, add this opt-in sidecar configuration:
-
-```dotenv
-HEADROOM_HYPERV_STAGE_QWEN_PROFILE=1
-HEADROOM_HYPERV_QWEN_VM_NAMES=guest-one,guest-two
-HEADROOM_HYPERV_SUBAGENT_MODEL=qwen3.8-max-preview
-HEADROOM_HYPERV_SUBAGENT_EFFORT=high
-```
-
-The elevated watchdog enables Guest Service Interface, copies the portable sync to `C:\ProgramData\sub2api`, and puts a one-shot launcher in the all-users Startup folder. Host `hyperv-qwen-*.staged` files and `hyperv_subagent_profile_staged` events prove delivery, not execution. The guest applies the profile on its next interactive logon and writes `C:\ProgramData\sub2api\sync-claude-subagent-profile.log`; restart already-open Claude processes before the live `Agent(...)` verification.
+Do not configure the retired `HEADROOM_HYPERV_STAGE_QWEN_PROFILE` sidecar for Windows Hyper-V guests. It owned only the Qwen subagent fields and could silently undo `chatgpt-only` or `anthropic-only` after the global switch. Use `claude-route reconcile`; the versioned profile controller owns the guest model, effort, stable API key, and generation as one operation. An unreachable guest stays `pending-reconcile` until the canonical watchdog can apply that same generation.
 
 The Linux VM still needs the full Claude profile, not only `ANTHROPIC_BASE_URL`: keep `CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK=1`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`, the current context/compact targets, small-fast model, and subagent model in its settings. Native `/compact` is intentionally non-streaming and is identified by `source=compact` plus `x-sub2api-claude-compact`; that is different from Claude Code's emergency non-streaming fallback. If the disable knob is missing, a failed streaming turn can be replayed as a much larger non-stream request and loop for many minutes.
 

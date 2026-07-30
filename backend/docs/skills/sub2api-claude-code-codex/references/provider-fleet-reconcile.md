@@ -35,6 +35,8 @@ Each adapter supports apply and check-only modes and returns `synced`, `pending-
 
 The existing elevated `Sub2API Codex Proxy Stack Autostart` task is the only Windows autostart owner. Its health-first ensure script compares the stored route generation with the host marker, retries pending guests no more often than the configured reconcile interval, and records provider-reconcile failures without restarting a healthy proxy stack. Do not create a second provider-switcher Scheduled Task.
 
+The watchdog must never stage a separate Qwen-only subagent script. That legacy path ignored the active profile and could silently revert a VM after `chatgpt-only` or `anthropic-only` was selected. `claude-route` is the only owner of provider, model, effort, key, and generation fields on every node.
+
 ## Offline Nodes
 
 The proxy route is authoritative. If a guest is offline after a successful proxy switch:

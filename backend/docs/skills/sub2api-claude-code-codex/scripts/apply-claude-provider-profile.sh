@@ -4,11 +4,13 @@ set -euo pipefail
 PROFILE_PATH=""
 GENERATION="0"
 CHECK_ONLY=0
+AUTH_TOKEN_FILE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --profile-path) PROFILE_PATH="$2"; shift 2 ;;
     --generation) GENERATION="$2"; shift 2 ;;
+    --auth-token-file) AUTH_TOKEN_FILE="$2"; shift 2 ;;
     --check) CHECK_ONLY=1; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -16,10 +18,10 @@ done
 
 [[ -n "$PROFILE_PATH" ]] || { echo "--profile-path is required" >&2; exit 2; }
 
-python3 - "$PROFILE_PATH" "$GENERATION" "$CHECK_ONLY" <<'PY'
+python3 - "$PROFILE_PATH" "$GENERATION" "$CHECK_ONLY" "$AUTH_TOKEN_FILE" <<'PY'
 import json, os, pathlib, re, sys
 
-profile_path, generation, check_raw = sys.argv[1:]
+profile_path, generation, check_raw, auth_token_file = sys.argv[1:]
 check_only = check_raw == "1"
 profile = json.loads(pathlib.Path(profile_path).read_text(encoding="utf-8"))
 home = pathlib.Path.home()
@@ -34,6 +36,8 @@ else:
 env = settings.setdefault("env", {})
 unset_client_env = [str(key) for key in profile.get("unset_client_env", [])]
 desired = {k: str(v) for k, v in profile["client_env"].items()}
+if auth_token_file:
+    desired["ANTHROPIC_AUTH_TOKEN"] = pathlib.Path(auth_token_file).read_text(encoding="utf-8").strip()
 desired["CLAUDE_PROVIDER_PROFILE_GENERATION"] = str(generation)
 drift = []
 for key in unset_client_env:
@@ -79,6 +83,7 @@ if current_environment != environment_text:
     if not check_only:
         environment_path.parent.mkdir(parents=True, exist_ok=True)
         environment_path.write_text(environment_text, encoding="utf-8")
+        environment_path.chmod(0o600)
 
 print(json.dumps({
     "profile": profile["name"],

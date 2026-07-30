@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Position = 0)]
-  [ValidateSet("status", "anthropic", "chatgpt", "hybrid", "reconcile", "verify")]
+  [ValidateSet("status", "anthropic", "qwen", "chatgpt", "hybrid", "reconcile", "verify")]
   [string]$Command = "status",
   [string]$RuntimeRoot = "C:\Users\stigm\Documents\Codex\2026-07-07\new-chat\work\sub2api-runtime",
   [string]$AdminBaseUrl = "http://127.0.0.1:18081",
@@ -15,6 +15,7 @@ param(
   [string]$LinuxGuestKey = "C:\Migration\devcontainer-vm-key",
   [string]$WindowsGuestName = "win10-ltsc-docker",
   [string]$WindowsGuestCredentialBlob = "C:\Migration\native-windows-port\secrets\win10-ltsc-docker-admin.dpapi",
+  [string[]]$ManagedFleetKeyNames = @("claude-win10-chatgpt-only"),
   [switch]$ForceCredentialRefresh,
   [switch]$SkipFleet
 )
@@ -95,6 +96,7 @@ function Read-DotEnv([string]$Path) {
 function Read-Profile([string]$Name) {
   $fileName = switch ($Name) {
     "anthropic-only" { "anthropic-only.v4.json" }
+    "qwen-only" { "qwen-only.v1.json" }
     "chatgpt-only" { "chatgpt-only.v4.json" }
     "hybrid-current" { "hybrid-current.v2.json" }
     default { throw "Unknown provider profile: $Name" }
@@ -129,6 +131,27 @@ function Get-StableKey {
   if ($rows.Count -ne 1) { throw "Expected one active stable API key named '$StableKeyName', got $($rows.Count)" }
   $parts = $rows[0] -split "`t", 3
   return [pscustomobject]@{ Id = [int64]$parts[0]; Secret = $parts[1]; GroupId = if ($parts[2]) { [int64]$parts[2] } else { $null } }
+}
+
+function Get-OptionalApiKeyByName([string]$Name) {
+  $nameSql = ConvertTo-SqlLiteral $Name
+  $rows = @(Invoke-PostgresSql "SELECT id || chr(9) || key || chr(9) || COALESCE(group_id::text, '') FROM api_keys WHERE name = '$nameSql' AND deleted_at IS NULL AND status = 'active';")
+  if ($rows.Count -eq 0) { return $null }
+  if ($rows.Count -ne 1) { throw "Expected at most one active API key named '$Name', got $($rows.Count)" }
+  $parts = $rows[0] -split "`t", 3
+  return [pscustomobject]@{ Id = [int64]$parts[0]; Secret = $parts[1]; GroupId = if ($parts[2]) { [int64]$parts[2] } else { $null } }
+}
+
+function Get-ManagedFleetKeys {
+  $stable = Get-StableKey
+  $result = [Collections.Generic.List[object]]::new()
+  $result.Add($stable)
+  foreach ($name in @($ManagedFleetKeyNames | Where-Object { $_ } | Select-Object -Unique)) {
+    if ($name -eq $StableKeyName) { continue }
+    $legacy = Get-OptionalApiKeyByName $name
+    if ($null -ne $legacy) { $result.Add($legacy) }
+  }
+  return @($result)
 }
 
 function Get-AdminSession {
@@ -360,6 +383,31 @@ function Ensure-ChatGPTAccount($Profile, [int64]$GroupId) {
   return [pscustomobject]@{ account = $account; auth = $authProof }
 }
 
+function Ensure-QwenAccount($Profile, [int64]$GroupId) {
+  $account = Get-AccountByName $Profile.account_name
+  if ($null -eq $account) { throw "Alibaba Token Plan account '$($Profile.account_name)' does not exist" }
+  if ([string]$account.platform -ne "anthropic" -or [string]$account.type -ne "apikey") {
+    throw "Alibaba Token Plan account '$($Profile.account_name)' must be an Anthropic-compatible API-key account"
+  }
+  $accountId = [int64]$account.id
+  Invoke-PostgresSql "INSERT INTO account_groups (account_id, group_id) VALUES ($accountId, $GroupId) ON CONFLICT (account_id, group_id) DO NOTHING; DELETE FROM account_groups WHERE group_id = $GroupId AND account_id <> $accountId;" | Out-Null
+  return $account
+}
+
+function Ensure-HybridAccounts($Profile, [int64]$GroupId) {
+  $openAI = Get-AccountByName $Profile.expected_account_name
+  $alibaba = Get-AccountByName $Profile.secondary_account_name
+  if ($null -eq $openAI -or [string]$openAI.platform -ne "openai" -or [string]$openAI.type -ne "oauth") {
+    throw "Hybrid OpenAI OAuth account '$($Profile.expected_account_name)' is unavailable or invalid"
+  }
+  if ($null -eq $alibaba -or [string]$alibaba.platform -ne "anthropic" -or [string]$alibaba.type -ne "apikey") {
+    throw "Hybrid Alibaba account '$($Profile.secondary_account_name)' is unavailable or invalid"
+  }
+  $openAIId = [int64]$openAI.id
+  $alibabaId = [int64]$alibaba.id
+  Invoke-PostgresSql "INSERT INTO account_groups (account_id, group_id) VALUES ($openAIId, $GroupId), ($alibabaId, $GroupId) ON CONFLICT (account_id, group_id) DO NOTHING; DELETE FROM account_groups WHERE group_id = $GroupId AND account_id NOT IN ($openAIId, $alibabaId);" | Out-Null
+}
+
 function Set-StableKeyGroup([int64]$KeyId, [int64]$GroupId) {
   Invoke-AdminApi "Put" "/api/v1/admin/api-keys/$KeyId" @{ group_id = $GroupId } | Out-Null
 }
@@ -447,21 +495,21 @@ function Write-State($State) {
   Write-Utf8NoBom $statePath $content
 }
 
-function Apply-HostProfile($ProfileRecord, [string]$Generation) {
-  $json = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $profileApplier -ProfilePath $ProfileRecord.Path -Generation $Generation 2>&1
+function Apply-HostProfile($ProfileRecord, [string]$Generation, [string]$AuthToken) {
+  $json = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $profileApplier -ProfilePath $ProfileRecord.Path -Generation $Generation -AuthToken $AuthToken 2>&1
   if ($LASTEXITCODE -ne 0) { throw "Host profile apply failed: $($json -join [Environment]::NewLine)" }
   return ($json -join [Environment]::NewLine | ConvertFrom-Json)
 }
 
-function Test-HostProfile($ProfileRecord, [string]$Generation) {
-  $json = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $profileApplier -ProfilePath $ProfileRecord.Path -Generation $Generation -CheckOnly 2>&1
+function Test-HostProfile($ProfileRecord, [string]$Generation, [string]$AuthToken) {
+  $json = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $profileApplier -ProfilePath $ProfileRecord.Path -Generation $Generation -AuthToken $AuthToken -CheckOnly 2>&1
   $exitCode = $LASTEXITCODE
   $parsed = $null
   try { $parsed = $json -join [Environment]::NewLine | ConvertFrom-Json } catch { }
   return [pscustomobject]@{ status = if ($exitCode -eq 0) { "synced" } else { "drifted" }; exit_code = $exitCode; detail = $parsed }
 }
 
-function Reconcile-LinuxGuest($ProfileRecord, [string]$Generation) {
+function Reconcile-LinuxGuest($ProfileRecord, [string]$Generation, [string]$AuthToken = "") {
   $ErrorActionPreference = "Continue"
   $result = [ordered]@{ name = $LinuxGuestVmName; status = "pending-reconcile"; generation = $Generation; checked_at = [DateTimeOffset]::UtcNow.ToString("o"); detail = "offline or unreachable" }
   if (-not (Get-Command ssh.exe -ErrorAction SilentlyContinue)) { $result.detail = "ssh.exe unavailable"; return [pscustomobject]$result }
@@ -492,7 +540,18 @@ function Reconcile-LinuxGuest($ProfileRecord, [string]$Generation) {
   if ($LASTEXITCODE -ne 0) { $result.detail = "failed to stage profile"; return [pscustomobject]$result }
   & scp.exe @sshArgs $linuxProfileApplier "${activeTarget}:${remoteRoot}/apply-profile.sh" | Out-Null
   if ($LASTEXITCODE -ne 0) { $result.detail = "failed to stage Linux applier"; return [pscustomobject]$result }
-  $remote = @(& ssh.exe @sshArgs $activeTarget "chmod 700 $remoteRoot/apply-profile.sh && bash $remoteRoot/apply-profile.sh --profile-path $remoteRoot/profile.json --generation '$Generation'" 2>&1)
+  $localTokenPath = $null
+  $authTokenArgument = ""
+  if ($AuthToken) {
+    $localTokenPath = Join-Path ([IO.Path]::GetTempPath()) ("sub2api-fleet-key-" + [guid]::NewGuid().ToString("N"))
+    Write-Utf8NoBom $localTokenPath $AuthToken
+    & scp.exe @sshArgs $localTokenPath "${activeTarget}:${remoteRoot}/auth-token" | Out-Null
+    Remove-Item -LiteralPath $localTokenPath -Force -ErrorAction SilentlyContinue
+    if ($LASTEXITCODE -ne 0) { $result.detail = "failed to stage fleet API key"; return [pscustomobject]$result }
+    $authTokenArgument = " --auth-token-file $remoteRoot/auth-token"
+  }
+  $remoteCommand = "chmod 700 $remoteRoot/apply-profile.sh; chmod 600 $remoteRoot/auth-token 2>/dev/null || true; trap 'rm -f $remoteRoot/auth-token' EXIT; bash $remoteRoot/apply-profile.sh --profile-path $remoteRoot/profile.json --generation '$Generation'$authTokenArgument"
+  $remote = @(& ssh.exe @sshArgs $activeTarget $remoteCommand 2>&1)
   $remoteText = ($remote -join " ").Trim()
   if ($LASTEXITCODE -eq 0) {
     $result.status = "synced"
@@ -501,7 +560,7 @@ function Reconcile-LinuxGuest($ProfileRecord, [string]$Generation) {
   return [pscustomobject]$result
 }
 
-function Reconcile-WindowsGuest($ProfileRecord, [string]$Generation) {
+function Reconcile-WindowsGuest($ProfileRecord, [string]$Generation, [string]$AuthToken = "") {
   $result = [ordered]@{ name = $WindowsGuestName; status = "pending-reconcile"; generation = $Generation; checked_at = [DateTimeOffset]::UtcNow.ToString("o"); detail = "offline, unavailable, or host is not elevated" }
   if (-not (Get-Command New-PSSession -ErrorAction SilentlyContinue)) { $result.detail = "PowerShell remoting unavailable"; return [pscustomobject]$result }
   if (-not (Test-Path -LiteralPath $WindowsGuestCredentialBlob)) { $result.detail = "DPAPI credential blob unavailable"; return [pscustomobject]$result }
@@ -526,10 +585,21 @@ function Reconcile-WindowsGuest($ProfileRecord, [string]$Generation) {
     }
     Copy-Item -LiteralPath $ProfileRecord.Path -Destination (Join-Path $remoteRoot "profile.json") -ToSession $session -Force
     Copy-Item -LiteralPath $profileApplier -Destination (Join-Path $remoteRoot "apply-profile.ps1") -ToSession $session -Force
-    $remote = Invoke-Command -Session $session -ArgumentList $remoteRoot,$Generation -ScriptBlock {
-      param($Root,$Gen)
-      & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root "apply-profile.ps1") -ProfilePath (Join-Path $Root "profile.json") -Generation $Gen
-      if ($LASTEXITCODE -ne 0) { throw "Guest profile applier failed with exit code $LASTEXITCODE" }
+    $remote = Invoke-Command -Session $session -ArgumentList $remoteRoot,$Generation,$AuthToken -ScriptBlock {
+      param($Root,$Gen,$Token)
+      $applyOutput = @(& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root "apply-profile.ps1") -ProfilePath (Join-Path $Root "profile.json") -Generation $Gen -AuthToken $Token 2>&1)
+      $applyExitCode = $LASTEXITCODE
+      if ($applyExitCode -ne 0) { throw "Guest profile applier failed with exit code ${applyExitCode}: $($applyOutput -join ' ')" }
+      $legacyPaths = @(
+        "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp\apply-sub2api-qwen-profile.cmd",
+        "C:\ProgramData\sub2api\sync-claude-subagent-profile.ps1"
+      )
+      $legacyPaths | ForEach-Object { Remove-Item -LiteralPath $_ -Force -ErrorAction SilentlyContinue }
+      $remainingLegacyPaths = @($legacyPaths | Where-Object { Test-Path -LiteralPath $_ })
+      if ($remainingLegacyPaths.Count -gt 0) { throw "Legacy Qwen-only startup override remains: $($remainingLegacyPaths -join ', ')" }
+      $applyDetail = $applyOutput -join [Environment]::NewLine | ConvertFrom-Json
+      $applyDetail | Add-Member -NotePropertyName legacy_qwen_override_removed -NotePropertyValue $true -Force
+      $applyDetail | ConvertTo-Json -Depth 20 -Compress
     }
     $result.status = "synced"
     $remoteText = ($remote -join " ").Trim()
@@ -547,20 +617,21 @@ function Reconcile-WindowsGuest($ProfileRecord, [string]$Generation) {
 
 function Reconcile-Fleet($ProfileRecord, [string]$Generation) {
   $nodes = [ordered]@{}
+  $stableKey = Get-StableKey
   try {
-    $hostResult = Apply-HostProfile $ProfileRecord $Generation
+    $hostResult = Apply-HostProfile $ProfileRecord $Generation $stableKey.Secret
     $nodes.windows_host = [pscustomobject]@{ name = [Environment]::MachineName; status = "synced"; generation = $Generation; checked_at = [DateTimeOffset]::UtcNow.ToString("o"); detail = $hostResult }
   } catch {
     $nodes.windows_host = [pscustomobject]@{ name = [Environment]::MachineName; status = "drifted"; generation = $Generation; checked_at = [DateTimeOffset]::UtcNow.ToString("o"); detail = $_.Exception.Message }
   }
   if ($SkipFleet) { return [pscustomobject]$nodes }
-  $nodes.ubuntu_hyperv = Reconcile-LinuxGuest $ProfileRecord $Generation
-  $nodes.windows_hyperv = Reconcile-WindowsGuest $ProfileRecord $Generation
+  $nodes.ubuntu_hyperv = Reconcile-LinuxGuest $ProfileRecord $Generation $stableKey.Secret
+  $nodes.windows_hyperv = Reconcile-WindowsGuest $ProfileRecord $Generation $stableKey.Secret
   return [pscustomobject]$nodes
 }
 
 function Get-ProfileForGroup([string]$GroupName) {
-  foreach ($name in @("anthropic-only", "chatgpt-only", "hybrid-current")) {
+  foreach ($name in @("anthropic-only", "qwen-only", "chatgpt-only", "hybrid-current")) {
     $record = Read-Profile $name
     if ($record.Data.group_name -eq $GroupName) { return $record }
   }
@@ -569,17 +640,19 @@ function Get-ProfileForGroup([string]$GroupName) {
 
 function Show-Status {
   $key = Get-StableKey
+  $managedKeys = @(Get-ManagedFleetKeys)
   $groups = Get-Groups
   $activeGroup = @($groups | Where-Object { [int64]$_.id -eq [int64]$key.GroupId }) | Select-Object -First 1
   $state = Read-State
   $profileRecord = if ($activeGroup) { Get-ProfileForGroup $activeGroup.name } else { $null }
   $generation = if ($state -and $state.generation) { [string]$state.generation } else { "0" }
-  $hostStatus = if ($profileRecord) { Test-HostProfile $profileRecord $generation } else { [pscustomobject]@{status="unknown";exit_code=$null;detail=$null} }
+  $hostStatus = if ($profileRecord) { Test-HostProfile $profileRecord $generation $key.Secret } else { [pscustomobject]@{status="unknown";exit_code=$null;detail=$null} }
   [pscustomobject]@{
     command = "status"
     active_profile = if ($profileRecord) { $profileRecord.Data.name } else { "unknown" }
     active_group_id = $key.GroupId
     active_group_name = if ($activeGroup) { $activeGroup.name } else { $null }
+    managed_keys = @($managedKeys | ForEach-Object { [pscustomobject]@{ id = [int64]$_.Id; group_id = $_.GroupId; synced = ([int64]$_.GroupId -eq [int64]$key.GroupId) } })
     generation = $generation
     proxy_verified_at = if ($state) { $state.proxy_verified_at } else { $null }
     host = $hostStatus
@@ -590,7 +663,8 @@ function Show-Status {
 function Invoke-Switch([string]$ProfileName) {
   $profileRecord = Read-Profile $ProfileName
   $profile = $profileRecord.Data
-  $stableKey = Get-StableKey
+  $managedKeys = @(Get-ManagedFleetKeys)
+  $stableKey = $managedKeys[0]
   $oldGroupId = $stableKey.GroupId
   $oldGroups = Get-Groups
   $oldGroup = @($oldGroups | Where-Object { [int64]$_.id -eq [int64]$oldGroupId }) | Select-Object -First 1
@@ -603,34 +677,41 @@ function Invoke-Switch([string]$ProfileName) {
   }
   if ($ProfileName -eq "anthropic-only") {
     Ensure-AnthropicAccount $profile ([int64]$targetGroup.id) | Out-Null
+  } elseif ($ProfileName -eq "qwen-only") {
+    Ensure-QwenAccount $profile ([int64]$targetGroup.id) | Out-Null
   } elseif ($ProfileName -eq "chatgpt-only") {
     Ensure-ChatGPTAccount $profile ([int64]$targetGroup.id) | Out-Null
+  } elseif ($ProfileName -eq "hybrid-current") {
+    Ensure-HybridAccounts $profile ([int64]$targetGroup.id)
   }
 
   $targetGroupId = [int64]$targetGroup.id
   $oldState = Read-State
   $generation = if ($oldState -and $oldState.generation) { [int64]$oldState.generation + 1 } else { 1 }
   $switchedAt = [DateTimeOffset]::UtcNow.ToString("o")
+  $previousBindings = @($managedKeys | ForEach-Object { [pscustomobject]@{ Id = [int64]$_.Id; GroupId = $_.GroupId } })
   try {
-    Set-StableKeyGroup $stableKey.Id $targetGroupId
-    $stableKey.GroupId = $targetGroupId
+    foreach ($key in $managedKeys) {
+      Set-StableKeyGroup ([int64]$key.Id) $targetGroupId
+      $key.GroupId = $targetGroupId
+    }
     $proof = Invoke-HeadroomProbe $profile $stableKey
   } catch {
     $failure = $_.Exception.Message
-    if ($null -ne $oldGroupId) {
-      try {
-        Set-StableKeyGroup $stableKey.Id ([int64]$oldGroupId)
-        $stableKey.GroupId = [int64]$oldGroupId
-        if ($oldGroup) {
-          $oldProfileRecord = Get-ProfileForGroup $oldGroup.name
-          if ($oldProfileRecord) {
-            $rollbackProof = Invoke-HeadroomProbe $oldProfileRecord.Data $stableKey
-            $failure += "; rollback verified on $($rollbackProof.account_name)"
-          }
-        }
-      } catch {
-        $failure += "; rollback failed: $($_.Exception.Message)"
+    try {
+      foreach ($binding in $previousBindings) {
+        if ($null -ne $binding.GroupId) { Set-StableKeyGroup $binding.Id ([int64]$binding.GroupId) }
       }
+      $stableKey.GroupId = $oldGroupId
+      if ($oldGroup) {
+        $oldProfileRecord = Get-ProfileForGroup $oldGroup.name
+        if ($oldProfileRecord) {
+          $rollbackProof = Invoke-HeadroomProbe $oldProfileRecord.Data $stableKey
+          $failure += "; rollback verified on $($rollbackProof.account_name)"
+        }
+      }
+    } catch {
+      $failure += "; rollback failed: $($_.Exception.Message)"
     }
     throw "Switch to '$ProfileName' failed and the stable key was restored: $failure"
   }
@@ -640,6 +721,7 @@ function Invoke-Switch([string]$ProfileName) {
     profile_version = $profile.version
     generation = $generation
     stable_key_id = $stableKey.Id
+    managed_key_ids = @($managedKeys | ForEach-Object { [int64]$_.Id })
     active_group_id = $targetGroupId
     active_group_name = $targetGroup.name
     previous_group_id = $oldGroupId
@@ -657,6 +739,10 @@ function Invoke-Switch([string]$ProfileName) {
 
 function Invoke-Reconcile {
   $stableKey = Get-StableKey
+  $managedKeys = @(Get-ManagedFleetKeys)
+  foreach ($key in $managedKeys) {
+    if ([int64]$key.GroupId -ne [int64]$stableKey.GroupId) { Set-StableKeyGroup ([int64]$key.Id) ([int64]$stableKey.GroupId) }
+  }
   $group = @(Get-Groups | Where-Object { [int64]$_.id -eq [int64]$stableKey.GroupId }) | Select-Object -First 1
   if ($null -eq $group) { throw "Stable key is not bound to a known group" }
   $profileRecord = Get-ProfileForGroup $group.name
@@ -668,11 +754,17 @@ function Invoke-Reconcile {
     $state = [pscustomobject]@{
       active_profile = $profileRecord.Data.name; profile_version = $profileRecord.Data.version; generation = [int64]$generation
       stable_key_id = $stableKey.Id; active_group_id = $stableKey.GroupId; active_group_name = $group.name
+      managed_key_ids = @($managedKeys | ForEach-Object { [int64]$_.Id })
       previous_group_id = $null; previous_group_name = $null; switched_at = $null; proxy_verified_at = $null
       proxy_proof = $null; nodes = $nodes
     }
   } else {
     $state.nodes = $nodes
+    if ($state.PSObject.Properties.Name -contains "managed_key_ids") {
+      $state.managed_key_ids = @($managedKeys | ForEach-Object { [int64]$_.Id })
+    } else {
+      $state | Add-Member -NotePropertyName managed_key_ids -NotePropertyValue @($managedKeys | ForEach-Object { [int64]$_.Id })
+    }
   }
   Write-State $state
   $state | ConvertTo-Json -Depth 30
@@ -691,6 +783,7 @@ $script:adminHeaders = Get-AdminSession
 switch ($Command) {
   "status" { Show-Status }
   "anthropic" { Invoke-Switch "anthropic-only" }
+  "qwen" { Invoke-Switch "qwen-only" }
   "chatgpt" { Invoke-Switch "chatgpt-only" }
   "hybrid" { Invoke-Switch "hybrid-current" }
   "reconcile" { Invoke-Reconcile }

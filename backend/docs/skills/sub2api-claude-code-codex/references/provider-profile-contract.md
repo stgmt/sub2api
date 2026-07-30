@@ -2,7 +2,7 @@
 
 ## Control Plane
 
-Use one stable client-facing sub2api API key and separate provider groups. Switching means atomically changing that key's group binding, then invalidating the key/group routing cache. Do not rotate the client token and do not rewrite Headroom's upstream URL.
+Use one stable client-facing sub2api API key and separate provider groups. Switching means atomically changing that key plus any known legacy fleet key to one group, then invalidating the key/group routing cache. The Windows host and both Hyper-V guests receive the same profile, generation, and stable key. Do not retain per-node provider overrides or rewrite Headroom's upstream URL.
 
 Persist this state outside the container filesystem:
 
@@ -41,6 +41,7 @@ The local `~/.claude/.credentials.json` is an import source, not the long-term r
 The profile is a versioned snapshot, not an informal restoration guess. Version 2 is a managed group snapshot whose contract is:
 
 - main: `gpt-5.6-sol`, user-selected effort preserved;
+- built-in Plan: `gpt-5.6-sol`, effort `high`;
 - picker Opus/Fable/Sonnet/Haiku: `qwen3.8-max-preview`, effort high;
 - compact/small-fast/subagents/SDK CLI: `qwen3.8-max-preview`, effort high. This includes built-in `Explore` children: they enter through the SDK CLI route and may ignore user-level `Explore.md` plus `CLAUDE_CODE_SUBAGENT_MODEL`;
 - provider membership: OpenAI/Codex OAuth plus Alibaba Token Plan;
@@ -49,13 +50,22 @@ The profile is a versioned snapshot, not an informal restoration guess. Version 
 
 Before modifying the hybrid profile, save a new version. A switch back must restore the recorded profile version exactly.
 
+## qwen-only
+
+- account membership: only `alibaba-token-plan-anthropic`;
+- main, all picker aliases, compact, Plan, small-fast, SDK CLI, and every global/delegated agent: `qwen3.8-max-preview`, effort `high`;
+- stale GPT, Claude, GLM, DeepSeek, and older Qwen identifiers: exact-map to `qwen3.8-max-preview` before provider classification;
+- model and provider fallbacks: empty;
+- explicit model catalog: only `qwen3.8-max-preview`.
+
 ## chatgpt-only
 
-Version 1 is a separate managed group, not a mutation of `hybrid-current`:
+Version 4 is a separate managed group, not a mutation of `hybrid-current`:
 
 - account membership: only `codex-chatgpt-subscription` (`openai`, `oauth`);
 - main/Opus: `gpt-5.6-sol`; Fable/Sonnet: `gpt-5.6-terra`; Haiku/small-fast: `gpt-5.6-terra-medium`;
 - every global agent and structurally verified Agent SDK child: `gpt-5.6-terra-medium`, effort `medium`;
+- built-in Plan: `gpt-5.6-sol`, effort `high`;
 - compact: `gpt-5.6-terra-medium`, effort `medium`, selected only by Headroom's trusted compact header;
 - model fallbacks and fallback groups: empty;
 - explicit model catalog: GPT/Codex only;
@@ -69,7 +79,7 @@ Before preparing this group, atomically synchronize a validated host `~/.codex/a
 
 1. Prepare and validate the inactive group.
 2. Save previous binding.
-3. Rebind the stable key in one database/API transaction.
+3. Rebind the stable key and every known legacy fleet key to the same group.
 4. Invalidate routing cache.
 5. Probe through Headroom.
 6. Commit profile generation on success; restore the previous binding on failure.

@@ -6,6 +6,7 @@ param(
   [string]$AgentsPath,
   [string]$WrapperPath,
   [string]$Generation = "0",
+  [string]$AuthToken,
   [ValidateSet("User", "Process", "None")]
   [string]$EnvironmentTarget = "User",
   [switch]$CheckOnly
@@ -68,6 +69,13 @@ foreach ($property in $profile.client_env.PSObject.Properties) {
     if (-not $CheckOnly) { Set-ObjectProperty $settings.env $property.Name ([string]$property.Value) }
   }
 }
+if ($AuthToken) {
+  $currentAuthToken = if ($settings.env.PSObject.Properties.Name -contains "ANTHROPIC_AUTH_TOKEN") { [string]$settings.env.ANTHROPIC_AUTH_TOKEN } else { $null }
+  if ($currentAuthToken -ne $AuthToken) {
+    $drift.Add("settings.env.ANTHROPIC_AUTH_TOKEN")
+    if (-not $CheckOnly) { Set-ObjectProperty $settings.env "ANTHROPIC_AUTH_TOKEN" $AuthToken }
+  }
+}
 
 $markerName = "CLAUDE_PROVIDER_PROFILE_GENERATION"
 if ([string]$settings.env.$markerName -ne [string]$Generation) {
@@ -88,6 +96,7 @@ if ($EnvironmentTarget -ne "None") {
   foreach ($property in $profile.client_env.PSObject.Properties) {
     $desiredUserEnvironment[$property.Name] = [string]$property.Value
   }
+  if ($AuthToken) { $desiredUserEnvironment["ANTHROPIC_AUTH_TOKEN"] = $AuthToken }
   $desiredUserEnvironment[$markerName] = [string]$Generation
   foreach ($entry in $desiredUserEnvironment.GetEnumerator()) {
     $current = [Environment]::GetEnvironmentVariable([string]$entry.Key, $target)
@@ -152,6 +161,15 @@ if (Test-Path -LiteralPath $WrapperPath) {
     if ($updatedWrapper -match $pattern) {
       $replacement = "set `"$($property.Name)=$($property.Value)`""
       $updatedWrapper = [regex]::Replace($updatedWrapper, $pattern, $replacement)
+    }
+  }
+  if ($AuthToken) {
+    $authPattern = '(?im)^set\s+"ANTHROPIC_AUTH_TOKEN=.*?"\s*$'
+    $authLine = "set `"ANTHROPIC_AUTH_TOKEN=$AuthToken`""
+    if ($updatedWrapper -match $authPattern) {
+      $updatedWrapper = [regex]::Replace($updatedWrapper, $authPattern, $authLine)
+    } elseif ($updatedWrapper -match '(?im)^setlocal\s*$') {
+      $updatedWrapper = [regex]::Replace($updatedWrapper, '(?im)^setlocal\s*$', "setlocal`r`n$authLine", 1)
     }
   }
   $nativeClaudePath = Join-Path (Split-Path -Parent $WrapperPath) "claude.exe"
