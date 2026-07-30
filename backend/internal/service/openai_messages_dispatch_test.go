@@ -32,7 +32,7 @@ func TestNormalizeOpenAIMessagesDispatchModelConfig(t *testing.T) {
 		},
 	})
 
-	require.Equal(t, "gpt-5.4", cfg.OpusMappedModel)
+	require.Equal(t, "gpt-5.4-high", cfg.OpusMappedModel)
 	require.Equal(t, "gpt-5.3-codex", cfg.SonnetMappedModel)
 	require.Equal(t, "gpt-5.3-codex-spark", cfg.HaikuMappedModel)
 	require.Equal(t, "claude-sonnet-5", cfg.CompactMappedModel)
@@ -42,7 +42,7 @@ func TestNormalizeOpenAIMessagesDispatchModelConfig(t *testing.T) {
 	require.Equal(t, "qwen3.8-max-preview", cfg.SDKCLIMappedModel)
 	require.Equal(t, "high", cfg.SDKCLIReasoningEffort)
 	require.Equal(t, map[string]string{
-		"claude-sonnet-4-5-20250929": "gpt-5.2",
+		"claude-sonnet-4-5-20250929": "gpt-5.2-high",
 	}, cfg.ExactModelMappings)
 	require.Equal(t, map[string][]string{
 		"gpt-5.3-codex-spark":  []string{"gpt-5.6-luna"},
@@ -51,6 +51,20 @@ func TestNormalizeOpenAIMessagesDispatchModelConfig(t *testing.T) {
 	require.Equal(t, map[string][]string{
 		"gpt-5.6-luna": []string{"gpt-5.6-sol"},
 	}, cfg.AutomaticModelFallbacks)
+}
+
+func TestNormalizeOpenAIMessagesDispatchModelConfig_PreservesDelegatedEffortAlias(t *testing.T) {
+	t.Parallel()
+
+	cfg := normalizeOpenAIMessagesDispatchModelConfig(OpenAIMessagesDispatchModelConfig{
+		SonnetMappedModel: " gpt-5.6-terra-medium ",
+		ExactModelMappings: map[string]string{
+			"gpt-5.6-terra": " gpt-5.6-terra-medium ",
+		},
+	})
+
+	require.Equal(t, "gpt-5.6-terra-medium", cfg.SonnetMappedModel)
+	require.Equal(t, "gpt-5.6-terra-medium", cfg.ExactModelMappings["gpt-5.6-terra"])
 }
 
 func TestResolveMessagesDispatchExplicitModel(t *testing.T) {

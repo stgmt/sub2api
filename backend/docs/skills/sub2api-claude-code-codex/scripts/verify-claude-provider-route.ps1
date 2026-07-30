@@ -56,6 +56,9 @@ WHERE name = '$groupNameSql'
   AND messages_dispatch_model_config->>'compact_reasoning_effort' = 'medium'
   AND messages_dispatch_model_config->>'sdk_cli_mapped_model' = 'gpt-5.6-terra-medium'
   AND messages_dispatch_model_config->>'sdk_cli_reasoning_effort' = 'medium'
+  AND messages_dispatch_model_config->>'sonnet_mapped_model' = 'gpt-5.6-terra-medium'
+  AND messages_dispatch_model_config->'exact_model_mappings'->>'gpt-5.6-terra' = 'gpt-5.6-terra-medium'
+  AND NOT (COALESCE(models_list_config->'models', '[]'::jsonb) ? 'gpt-5.6-terra')
   AND COALESCE(messages_dispatch_model_config->'model_fallbacks', '{}'::jsonb) = '{}'::jsonb
   AND COALESCE(messages_dispatch_model_config->'automatic_model_fallbacks', '{}'::jsonb) = '{}'::jsonb;
 "@)
@@ -105,6 +108,9 @@ $probes = @(
   @{ name = "sdk-cli"; model = [string]$profile.main_model; system = "x-anthropic-billing-header: cc_entrypoint=sdk-cli; cc_is_subagent=true;`nYou are a Claude Code delegated worker."; user_agent = "claude-cli/2.1.219 (external, sdk-cli)" },
   @{ name = "plan"; model = [string]$profile.main_model; system = "x-anthropic-billing-header: cc_entrypoint=sdk-cli; cc_is_subagent=true;`nYou are a software architect and planning specialist for Claude Code.`n=== CRITICAL: READ-ONLY MODE - NO FILE MODIFICATIONS ===`nThis is a READ-ONLY planning task."; user_agent = "claude-cli/2.1.219 (external, sdk-cli)"; tools = @("Bash", "Glob", "Grep", "Read") }
 )
+if ($state.active_profile -eq "chatgpt-only") {
+  $probes += @{ name = "stale-terra"; model = "gpt-5.6-terra"; system = "You are Claude Code, Anthropic's official CLI for Claude."; effort = "xhigh" }
+}
 
 $httpProof = @()
 foreach ($probe in $probes) {
@@ -180,10 +186,9 @@ if ($state.active_profile -eq "anthropic-only") {
 } elseif ($state.active_profile -eq "chatgpt-only") {
   $forbidden = @($usageProof | Where-Object { $_.platform -ne "openai" -or $_.type -ne "oauth" -or $_.account_name -ne $profile.expected_account_name })
   if ($forbidden.Count -gt 0) { throw "ChatGPT-only verification observed a forbidden provider account" }
-  # Terra-medium is a client/request alias. The OpenAI bridge normalizes the
-  # provider-facing model column to Terra while requested_model preserves the
-  # alias for compact and Agent SDK routes.
-  $expectedModels = @($profile.main_model, "gpt-5.6-terra", "gpt-5.6-terra", "gpt-5.6-terra", "gpt-5.6-sol")
+  # Terra-medium stays visible in requested/model usage fields so its effort
+  # clamp is auditable; upstream_model records the raw provider Terra ID.
+  $expectedModels = @($profile.main_model, "gpt-5.6-terra-medium", "gpt-5.6-terra-medium", "gpt-5.6-terra-medium", "gpt-5.6-sol", "gpt-5.6-terra-medium")
   for ($i = 0; $i -lt $expectedModels.Count; $i++) {
     if ([string]$usageProof[$i].model -ne [string]$expectedModels[$i]) {
       throw "Probe '$($probes[$i].name)' expected model '$($expectedModels[$i])', got '$($usageProof[$i].model)'"
@@ -203,6 +208,9 @@ if ($state.active_profile -eq "anthropic-only") {
   }
   if ([string]$usageProof[4].reasoning_effort -ne "high") {
     throw "Plan probe expected reasoning effort 'high', got '$($usageProof[4].reasoning_effort)'"
+  }
+  if ([string]$usageProof[5].reasoning_effort -ne "medium" -or [string]$usageProof[5].requested_model -ne "gpt-5.6-terra-medium") {
+    throw "Stale raw Terra probe was not clamped to Terra-medium/medium"
   }
 } elseif ($state.active_profile -eq "hybrid-current") {
   $expected = @(

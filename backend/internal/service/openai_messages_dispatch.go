@@ -13,7 +13,8 @@ const (
 )
 
 func normalizeOpenAIMessagesDispatchMappedModel(model string) string {
-	model = NormalizeOpenAICompatRequestedModel(strings.TrimSpace(model))
+	// Preserve reasoning aliases such as gpt-5.6-terra-medium until request
+	// normalization, where the suffix also clamps output_config.effort.
 	return strings.TrimSpace(model)
 }
 
