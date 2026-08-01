@@ -401,7 +401,17 @@ func rewriteExplicitClaudeCodeModelForMultiprovider(
 	if mappedModel == "" {
 		return body, requestedModel, nil
 	}
-	return rewriteClaudeCodeCompactModelForMultiprovider(body, mappedModel)
+	nextBody, model, err := rewriteClaudeCodeCompactModelForMultiprovider(body, mappedModel)
+	if err != nil {
+		return nil, "", err
+	}
+	if effort := group.ResolveMessagesDispatchExplicitReasoningEffort(requestedModel, mappedModel); effort != "" {
+		nextBody, err = rewriteClaudeCodeSDKCLIEffortForMultiprovider(nextBody, effort)
+		if err != nil {
+			return nil, "", err
+		}
+	}
+	return nextBody, model, nil
 }
 
 func classifyClaudeCodeMessagesRoute(model, groupPlatform string) claudeCodeMessagesRoute {

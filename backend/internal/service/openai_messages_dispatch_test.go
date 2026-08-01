@@ -22,6 +22,11 @@ func TestNormalizeOpenAIMessagesDispatchModelConfig(t *testing.T) {
 			"":                             "gpt-5.4",
 			"claude-opus-4-6":              " ",
 		},
+		ExactModelReasoningEfforts: map[string]string{
+			" gpt-5.6-terra-medium ": " MAX ",
+			"gpt-5.6-luna":           "x-high",
+			"":                       "high",
+		},
 		ModelFallbacks: map[string][]string{
 			" gpt-5.3-codex-spark ":  []string{" gpt-5.6-luna ", " "},
 			" gpt-5.6-terra-medium ": []string{" gpt-5.6-sol-medium "},
@@ -44,6 +49,10 @@ func TestNormalizeOpenAIMessagesDispatchModelConfig(t *testing.T) {
 	require.Equal(t, map[string]string{
 		"claude-sonnet-4-5-20250929": "gpt-5.2-high",
 	}, cfg.ExactModelMappings)
+	require.Equal(t, map[string]string{
+		"gpt-5.6-terra-medium": "max",
+		"gpt-5.6-luna":         "xhigh",
+	}, cfg.ExactModelReasoningEfforts)
 	require.Equal(t, map[string][]string{
 		"gpt-5.3-codex-spark":  []string{"gpt-5.6-luna"},
 		"gpt-5.6-terra-medium": []string{"gpt-5.6-sol-medium"},
@@ -83,6 +92,21 @@ func TestResolveMessagesDispatchExplicitModel(t *testing.T) {
 	require.Equal(t, "qwen3.8-max-preview", group.ResolveMessagesDispatchExplicitModel("fable"))
 	require.Empty(t, group.ResolveMessagesDispatchExplicitModel("claude-sonnet-4-6"))
 	require.Empty(t, (&Group{}).ResolveMessagesDispatchExplicitModel("claude-haiku-4-5-20251001"))
+}
+
+func TestResolveMessagesDispatchExplicitReasoningEffort(t *testing.T) {
+	t.Parallel()
+
+	group := &Group{MessagesDispatchModelConfig: OpenAIMessagesDispatchModelConfig{
+		ExactModelReasoningEfforts: map[string]string{
+			"gpt-5.6-terra-medium": "max",
+			"gpt-5.6-luna":         "max",
+		},
+	}}
+
+	require.Equal(t, "max", group.ResolveMessagesDispatchExplicitReasoningEffort("gpt-5.6-terra", "gpt-5.6-terra-medium"))
+	require.Equal(t, "max", group.ResolveMessagesDispatchExplicitReasoningEffort("GPT-5.6-LUNA", "gpt-5.6-luna"))
+	require.Empty(t, group.ResolveMessagesDispatchExplicitReasoningEffort("gpt-5.6-sol", "gpt-5.6-sol"))
 }
 
 func TestGroupResolveMessagesDispatchModel_GrokMapsClaudeFamilyToGrok(t *testing.T) {

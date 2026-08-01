@@ -15,7 +15,10 @@ built-in Plan agent on `gpt-5.6-sol/high`. Every route that previously used
 
 Interactive `/effort` remains selectable for the main session. Do not persist
 `CLAUDE_CODE_EFFORT_LEVEL`; the server-side Plan classifier is the only
-exception to the generic Luna route.
+exception to the generic Luna route. The server also owns the compatibility
+redirect for already-running clients: an explicit Luna/Terra request is
+rewritten at `/v1/messages` to Luna/max even if Claude Code sent `medium` or
+`xhigh`. This does not require restarting Claude Code.
 
 ## Exact Contract
 
@@ -27,6 +30,11 @@ exception to the generic Luna route.
   "compact_reasoning_effort": "max",
   "sdk_cli_mapped_model": "gpt-5.6-luna",
   "sdk_cli_reasoning_effort": "max",
+  "exact_model_reasoning_efforts": {
+    "gpt-5.6-terra": "max",
+    "gpt-5.6-terra-medium": "max",
+    "gpt-5.6-luna": "max"
+  },
   "plan_mapped_model": "gpt-5.6-sol",
   "plan_reasoning_effort": "high",
   "model_fallbacks": {},
@@ -49,7 +57,10 @@ correlated `usage_logs` plus the role-route log:
 2. Plan: `gpt-5.6-sol/high`, `agent_role=plan`.
 3. Generic Agent SDK child: `gpt-5.6-luna/max`.
 4. Native compact: `gpt-5.6-luna/max` with the trusted compact header.
-5. Legacy Terra probe: requested/model `gpt-5.6-luna`, effort `max`.
+5. Legacy Terra probe: send `gpt-5.6-terra` with `effort=medium`; usage must
+   show requested/model `gpt-5.6-luna`, effort `max`.
+6. Direct Luna probe: send `gpt-5.6-luna` with `effort=xhigh`; usage must show
+   requested/model `gpt-5.6-luna`, effort `max`.
 
 After the cutover, no new request may record
 `requested_model=gpt-5.6-terra-medium` or a non-Plan Luna route with

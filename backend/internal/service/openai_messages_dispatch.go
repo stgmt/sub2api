@@ -61,6 +61,21 @@ func normalizeOpenAIMessagesDispatchModelConfig(cfg OpenAIMessagesDispatchModelC
 		}
 	}
 
+	if len(cfg.ExactModelReasoningEfforts) > 0 {
+		out.ExactModelReasoningEfforts = make(map[string]string, len(cfg.ExactModelReasoningEfforts))
+		for requestedModel, effort := range cfg.ExactModelReasoningEfforts {
+			requestedModel = strings.TrimSpace(requestedModel)
+			effort = normalizeOpenAIMessagesDispatchReasoningEffort(effort)
+			if requestedModel == "" || effort == "" {
+				continue
+			}
+			out.ExactModelReasoningEfforts[requestedModel] = effort
+		}
+		if len(out.ExactModelReasoningEfforts) == 0 {
+			out.ExactModelReasoningEfforts = nil
+		}
+	}
+
 	out.ModelFallbacks = normalizeOpenAIMessagesDispatchFallbacks(cfg.ModelFallbacks)
 	out.AutomaticModelFallbacks = normalizeOpenAIMessagesDispatchFallbacks(cfg.AutomaticModelFallbacks)
 
@@ -186,6 +201,29 @@ func (g *Group) ResolveMessagesDispatchExplicitModel(requestedModel string) stri
 	default:
 		return ""
 	}
+}
+
+// ResolveMessagesDispatchExplicitReasoningEffort returns a model-specific
+// effort override for explicit compatibility routes. The requested model is
+// checked before the mapped model so legacy aliases can be forced to the
+// target effort without changing the interactive Sol/Plan route.
+func (g *Group) ResolveMessagesDispatchExplicitReasoningEffort(requestedModel, mappedModel string) string {
+	if g == nil {
+		return ""
+	}
+	cfg := normalizeOpenAIMessagesDispatchModelConfig(g.MessagesDispatchModelConfig)
+	for _, candidate := range []string{requestedModel, mappedModel} {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		for configuredModel, effort := range cfg.ExactModelReasoningEfforts {
+			if strings.EqualFold(strings.TrimSpace(configuredModel), candidate) {
+				return effort
+			}
+		}
+	}
+	return ""
 }
 
 func (g *Group) ResolveMessagesDispatchFallbackModels(requestedModel, mappedModel string) []string {

@@ -110,7 +110,8 @@ $probes = @(
   @{ name = "plan"; model = [string]$profile.main_model; system = "x-anthropic-billing-header: cc_entrypoint=sdk-cli; cc_is_subagent=true;`nYou are a software architect and planning specialist for Claude Code.`n=== CRITICAL: READ-ONLY MODE - NO FILE MODIFICATIONS ===`nThis is a READ-ONLY planning task."; user_agent = "claude-cli/2.1.219 (external, sdk-cli)"; tools = @("Bash", "Glob", "Grep", "Read") }
 )
 if ($state.active_profile -eq "chatgpt-only") {
-  $probes += @{ name = "stale-terra"; model = "gpt-5.6-terra"; system = "You are Claude Code, Anthropic's official CLI for Claude."; effort = "max" }
+  $probes += @{ name = "stale-terra"; model = "gpt-5.6-terra"; system = "You are Claude Code, Anthropic's official CLI for Claude."; effort = "medium" }
+  $probes += @{ name = "luna-explicit"; model = "gpt-5.6-luna"; system = "You are Claude Code, Anthropic's official CLI for Claude."; effort = "xhigh" }
 }
 
 $httpProof = @()
@@ -189,7 +190,7 @@ if ($state.active_profile -eq "anthropic-only") {
   if ($forbidden.Count -gt 0) { throw "ChatGPT-only verification observed a forbidden provider account" }
   # A stale Terra request stays visible in requested/model usage fields so the
   # compatibility rewrite to Luna and max effort is auditable.
-  $expectedModels = @($profile.main_model, "gpt-5.6-luna", "gpt-5.6-luna", "gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-luna")
+  $expectedModels = @($profile.main_model, "gpt-5.6-luna", "gpt-5.6-luna", "gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.6-luna")
   for ($i = 0; $i -lt $expectedModels.Count; $i++) {
     if ([string]$usageProof[$i].model -ne [string]$expectedModels[$i]) {
       throw "Probe '$($probes[$i].name)' expected model '$($expectedModels[$i])', got '$($usageProof[$i].model)'"
@@ -212,6 +213,9 @@ if ($state.active_profile -eq "anthropic-only") {
   }
   if ([string]$usageProof[5].reasoning_effort -ne "max" -or [string]$usageProof[5].requested_model -ne "gpt-5.6-luna") {
     throw "Stale raw Terra probe was not routed to Luna/max"
+  }
+  if ([string]$usageProof[6].reasoning_effort -ne "max" -or [string]$usageProof[6].requested_model -ne "gpt-5.6-luna") {
+    throw "Explicit Luna probe was not forced to max effort"
   }
 } elseif ($state.active_profile -eq "hybrid-current") {
   $expected = @(
