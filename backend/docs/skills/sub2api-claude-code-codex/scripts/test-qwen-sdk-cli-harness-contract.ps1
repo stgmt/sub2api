@@ -149,11 +149,11 @@ Assert-Contains `
   '"id"\s*:\s*28' `
   "standalone print-mode skill eval"
 Assert-Contains `
-  "backend/docs/skills/sub2api-claude-code-codex/profiles/chatgpt-only.v4.json" `
+  "backend/docs/skills/sub2api-claude-code-codex/profiles/chatgpt-only.v5.json" `
   '"CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"\s*:\s*"10"' `
   "provider-profile concurrent subagent hard cap"
 Assert-Contains `
-  "backend/docs/skills/sub2api-claude-code-codex/profiles/chatgpt-only.v4.json" `
+  "backend/docs/skills/sub2api-claude-code-codex/profiles/chatgpt-only.v5.json" `
   '"CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH"\s*:\s*"1"' `
   "provider-profile nested subagent hard cap"
 Assert-Contains `

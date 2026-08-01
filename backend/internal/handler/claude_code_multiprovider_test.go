@@ -317,7 +317,7 @@ func TestRewriteExplicitClaudeCodeModelForMultiprovider_RoutesConfiguredAliasBef
 	require.Equal(t, claudeCodeMessagesRouteAnthropic, classifyClaudeCodeMessagesRoute(model, service.PlatformOpenAI))
 }
 
-func TestRewriteExplicitClaudeCodeModelForMultiprovider_PreservesTerraMediumEffortAlias(t *testing.T) {
+func TestRewriteExplicitClaudeCodeModelForMultiprovider_RoutesLegacyTerraToLuna(t *testing.T) {
 	t.Parallel()
 
 	body := []byte(`{"model":"gpt-5.6-terra","output_config":{"effort":"max"},"messages":[{"role":"user","content":"hi"}]}`)
@@ -325,15 +325,15 @@ func TestRewriteExplicitClaudeCodeModelForMultiprovider_PreservesTerraMediumEffo
 		Platform: service.PlatformOpenAI,
 		MessagesDispatchModelConfig: service.OpenAIMessagesDispatchModelConfig{
 			ExactModelMappings: map[string]string{
-				"gpt-5.6-terra": "gpt-5.6-terra-medium",
+				"gpt-5.6-terra": "gpt-5.6-luna",
 			},
 		},
 	}
 
 	rewritten, model, err := rewriteExplicitClaudeCodeModelForMultiprovider(body, "gpt-5.6-terra", service.PlatformOpenAI, group)
 	require.NoError(t, err)
-	require.Equal(t, "gpt-5.6-terra-medium", model)
-	require.JSONEq(t, `{"model":"gpt-5.6-terra-medium","output_config":{"effort":"max"},"messages":[{"role":"user","content":"hi"}]}`, string(rewritten))
+	require.Equal(t, "gpt-5.6-luna", model)
+	require.JSONEq(t, `{"model":"gpt-5.6-luna","output_config":{"effort":"max"},"messages":[{"role":"user","content":"hi"}]}`, string(rewritten))
 	require.Equal(t, claudeCodeMessagesRouteOpenAI, classifyClaudeCodeMessagesRoute(model, service.PlatformOpenAI))
 }
 

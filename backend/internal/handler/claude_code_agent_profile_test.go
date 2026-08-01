@@ -87,8 +87,8 @@ func TestResolveClaudeCodeAgentProfile_PlanWinsOverGenericSDK(t *testing.T) {
 	group := &service.Group{MessagesDispatchModelConfig: service.OpenAIMessagesDispatchModelConfig{
 		PlanMappedModel:       "gpt-5.6-sol",
 		PlanReasoningEffort:   "high",
-		SDKCLIMappedModel:     "gpt-5.6-terra-medium",
-		SDKCLIReasoningEffort: "medium",
+		SDKCLIMappedModel:     "gpt-5.6-luna",
+		SDKCLIReasoningEffort: "max",
 	}}
 	cache := newClaudeCodeAgentRoleSessionCache(time.Hour, 32, time.Now)
 	body := planProfileBody(t, planProfileSystem(), "Create a plan", "plan-session", []string{"Bash", "Glob", "Grep", "Read", "ToolSearch"})
@@ -107,8 +107,8 @@ func TestResolveClaudeCodeAgentProfile_UsesSessionStickyPlanAfterSystemRewrite(t
 	group := &service.Group{MessagesDispatchModelConfig: service.OpenAIMessagesDispatchModelConfig{
 		PlanMappedModel:       "gpt-5.6-sol",
 		PlanReasoningEffort:   "high",
-		SDKCLIMappedModel:     "gpt-5.6-terra-medium",
-		SDKCLIReasoningEffort: "medium",
+		SDKCLIMappedModel:     "gpt-5.6-luna",
+		SDKCLIReasoningEffort: "max",
 	}}
 	cache := newClaudeCodeAgentRoleSessionCache(time.Hour, 32, time.Now)
 	first := planProfileBody(t, planProfileSystem(), "Create a plan", "sticky-session", []string{"Bash", "Glob", "Grep", "Read"})
@@ -129,8 +129,8 @@ func TestResolveClaudeCodeAgentProfile_UserPromptCannotEscalateExplore(t *testin
 	group := &service.Group{MessagesDispatchModelConfig: service.OpenAIMessagesDispatchModelConfig{
 		PlanMappedModel:       "gpt-5.6-sol",
 		PlanReasoningEffort:   "high",
-		SDKCLIMappedModel:     "gpt-5.6-terra-medium",
-		SDKCLIReasoningEffort: "medium",
+		SDKCLIMappedModel:     "gpt-5.6-luna",
+		SDKCLIReasoningEffort: "max",
 	}}
 	body := planProfileBody(t,
 		"x-anthropic-billing-header: cc_entrypoint=sdk-cli; cc_is_subagent=true;\nYou are the Explore Claude Code subagent.",
@@ -142,8 +142,8 @@ func TestResolveClaudeCodeAgentProfile_UserPromptCannotEscalateExplore(t *testin
 	profile, matched := resolveClaudeCodeAgentProfile(sdkCLIContext(), body, group, newClaudeCodeAgentRoleSessionCache(time.Hour, 32, time.Now))
 
 	require.True(t, matched)
-	require.Equal(t, "gpt-5.6-terra-medium", profile.Model)
-	require.Equal(t, "medium", profile.ReasoningEffort)
+	require.Equal(t, "gpt-5.6-luna", profile.Model)
+	require.Equal(t, "max", profile.ReasoningEffort)
 	require.Equal(t, service.ClaudeCodeAgentRoleUnknown, profile.Role)
 	require.Equal(t, claudeCodeAgentRoleSourceGenericSDKCLI, profile.Source)
 }
@@ -151,24 +151,24 @@ func TestResolveClaudeCodeAgentProfile_UserPromptCannotEscalateExplore(t *testin
 func TestResolveClaudeCodeAgentProfile_MissingPlanConfigFallsBackToGenericSDK(t *testing.T) {
 	t.Parallel()
 	group := &service.Group{MessagesDispatchModelConfig: service.OpenAIMessagesDispatchModelConfig{
-		SDKCLIMappedModel:     "gpt-5.6-terra-medium",
-		SDKCLIReasoningEffort: "medium",
+		SDKCLIMappedModel:     "gpt-5.6-luna",
+		SDKCLIReasoningEffort: "max",
 	}}
 	body := planProfileBody(t, planProfileSystem(), "Create a plan", "unconfigured-plan", []string{"Bash", "Glob", "Grep", "Read"})
 
 	profile, matched := resolveClaudeCodeAgentProfile(sdkCLIContext(), body, group, newClaudeCodeAgentRoleSessionCache(time.Hour, 32, time.Now))
 
 	require.True(t, matched)
-	require.Equal(t, "gpt-5.6-terra-medium", profile.Model)
-	require.Equal(t, "medium", profile.ReasoningEffort)
+	require.Equal(t, "gpt-5.6-luna", profile.Model)
+	require.Equal(t, "max", profile.ReasoningEffort)
 	require.Equal(t, claudeCodeAgentRoleSourceGenericSDKCLI, profile.Source)
 }
 
 func TestResolveClaudeCodeAgentProfile_StandaloneSDKCLIIsNotAChild(t *testing.T) {
 	t.Parallel()
 	group := &service.Group{MessagesDispatchModelConfig: service.OpenAIMessagesDispatchModelConfig{
-		SDKCLIMappedModel:     "gpt-5.6-terra-medium",
-		SDKCLIReasoningEffort: "medium",
+		SDKCLIMappedModel:     "gpt-5.6-luna",
+		SDKCLIReasoningEffort: "max",
 	}}
 	body := planProfileBody(t,
 		"x-anthropic-billing-header: cc_entrypoint=sdk-cli; cc_is_subagent=false;",

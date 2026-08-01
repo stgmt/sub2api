@@ -60,16 +60,16 @@ Before modifying the hybrid profile, save a new version. A switch back must rest
 
 ## chatgpt-only
 
-Version 4 is a separate managed group, not a mutation of `hybrid-current`:
+Version 5 is a separate managed group, not a mutation of `hybrid-current`:
 
 - account membership: only `codex-chatgpt-subscription` (`openai`, `oauth`);
-- main/Opus: `gpt-5.6-sol`; Fable/Sonnet/Haiku/small-fast: `gpt-5.6-terra-medium`;
-- every global agent and structurally verified Agent SDK child: `gpt-5.6-terra-medium`, effort `medium`;
+- main/Opus: `gpt-5.6-sol`; Fable/Sonnet/Haiku/small-fast: `gpt-5.6-luna`;
+- every global agent and structurally verified Agent SDK child: `gpt-5.6-luna`, effort `max`;
 - built-in Plan: `gpt-5.6-sol`, effort `high`;
-- compact: `gpt-5.6-terra-medium`, effort `medium`, selected only by Headroom's trusted compact header;
+- compact: `gpt-5.6-luna`, effort `max`, selected only by Headroom's trusted compact header;
 - model fallbacks and fallback groups: empty;
-- explicit model catalog: GPT/Codex only;
-- stale Luna, Claude, Qwen, GLM, and DeepSeek IDs plus direct raw `gpt-5.6-terra`: exact-map to Terra-medium or the matching GPT role before provider classification; raw Terra is not published;
+- explicit model catalog: GPT/Codex with `gpt-5.6-luna` as the delegated target and no Terra-medium;
+- stale Claude, Qwen, GLM, DeepSeek, and legacy Terra IDs: exact-map to Luna before provider classification; raw Terra-medium is not published;
 - client context target: `370000`; auto-compact threshold: `340000`;
 - remove persistent `CLAUDE_CODE_EFFORT_LEVEL`; preserve the user's interactive `effortLevel` and `/effort` selection.
 

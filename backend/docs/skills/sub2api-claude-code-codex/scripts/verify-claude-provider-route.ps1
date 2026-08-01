@@ -35,7 +35,7 @@ $state = Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json
 $profileFile = switch ($state.active_profile) {
   "anthropic-only" { "anthropic-only.v4.json" }
   "qwen-only" { "qwen-only.v1.json" }
-  "chatgpt-only" { "chatgpt-only.v4.json" }
+  "chatgpt-only" { "chatgpt-only.v5.json" }
   "hybrid-current" { "hybrid-current.v2.json" }
   default { throw "Unknown active provider profile: $($state.active_profile)" }
 }
@@ -52,18 +52,19 @@ WHERE name = '$groupNameSql'
   AND platform = 'openai'
   AND messages_dispatch_model_config->>'plan_mapped_model' = 'gpt-5.6-sol'
   AND messages_dispatch_model_config->>'plan_reasoning_effort' = 'high'
-  AND messages_dispatch_model_config->>'compact_mapped_model' = 'gpt-5.6-terra-medium'
-  AND messages_dispatch_model_config->>'compact_reasoning_effort' = 'medium'
-  AND messages_dispatch_model_config->>'sdk_cli_mapped_model' = 'gpt-5.6-terra-medium'
-  AND messages_dispatch_model_config->>'sdk_cli_reasoning_effort' = 'medium'
-  AND messages_dispatch_model_config->>'sonnet_mapped_model' = 'gpt-5.6-terra-medium'
-  AND messages_dispatch_model_config->'exact_model_mappings'->>'gpt-5.6-terra' = 'gpt-5.6-terra-medium'
-  AND NOT (COALESCE(models_list_config->'models', '[]'::jsonb) ? 'gpt-5.6-terra')
+  AND messages_dispatch_model_config->>'compact_mapped_model' = 'gpt-5.6-luna'
+  AND messages_dispatch_model_config->>'compact_reasoning_effort' = 'max'
+  AND messages_dispatch_model_config->>'sdk_cli_mapped_model' = 'gpt-5.6-luna'
+  AND messages_dispatch_model_config->>'sdk_cli_reasoning_effort' = 'max'
+  AND messages_dispatch_model_config->>'sonnet_mapped_model' = 'gpt-5.6-luna'
+  AND messages_dispatch_model_config->'exact_model_mappings'->>'gpt-5.6-terra' = 'gpt-5.6-luna'
+  AND (COALESCE(models_list_config->'models', '[]'::jsonb) ? 'gpt-5.6-luna')
+  AND NOT (COALESCE(models_list_config->'models', '[]'::jsonb) ? 'gpt-5.6-terra-medium')
   AND COALESCE(messages_dispatch_model_config->'model_fallbacks', '{}'::jsonb) = '{}'::jsonb
   AND COALESCE(messages_dispatch_model_config->'automatic_model_fallbacks', '{}'::jsonb) = '{}'::jsonb;
 "@)
   if ($contractRows.Count -ne 1) {
-    throw "ChatGPT-only v4 Sol/Terra-medium zero-fallback contract is not active"
+    throw "ChatGPT-only v5 Sol/Luna-max zero-fallback contract is not active"
   }
 } elseif ($state.active_profile -eq "qwen-only") {
   $groupNameSql = ([string]$profile.group_name).Replace("'", "''")
@@ -109,7 +110,7 @@ $probes = @(
   @{ name = "plan"; model = [string]$profile.main_model; system = "x-anthropic-billing-header: cc_entrypoint=sdk-cli; cc_is_subagent=true;`nYou are a software architect and planning specialist for Claude Code.`n=== CRITICAL: READ-ONLY MODE - NO FILE MODIFICATIONS ===`nThis is a READ-ONLY planning task."; user_agent = "claude-cli/2.1.219 (external, sdk-cli)"; tools = @("Bash", "Glob", "Grep", "Read") }
 )
 if ($state.active_profile -eq "chatgpt-only") {
-  $probes += @{ name = "stale-terra"; model = "gpt-5.6-terra"; system = "You are Claude Code, Anthropic's official CLI for Claude."; effort = "xhigh" }
+  $probes += @{ name = "stale-terra"; model = "gpt-5.6-terra"; system = "You are Claude Code, Anthropic's official CLI for Claude."; effort = "max" }
 }
 
 $httpProof = @()
@@ -186,31 +187,31 @@ if ($state.active_profile -eq "anthropic-only") {
 } elseif ($state.active_profile -eq "chatgpt-only") {
   $forbidden = @($usageProof | Where-Object { $_.platform -ne "openai" -or $_.type -ne "oauth" -or $_.account_name -ne $profile.expected_account_name })
   if ($forbidden.Count -gt 0) { throw "ChatGPT-only verification observed a forbidden provider account" }
-  # Terra-medium stays visible in requested/model usage fields so its effort
-  # clamp is auditable; upstream_model records the raw provider Terra ID.
-  $expectedModels = @($profile.main_model, "gpt-5.6-terra-medium", "gpt-5.6-terra-medium", "gpt-5.6-terra-medium", "gpt-5.6-sol", "gpt-5.6-terra-medium")
+  # A stale Terra request stays visible in requested/model usage fields so the
+  # compatibility rewrite to Luna and max effort is auditable.
+  $expectedModels = @($profile.main_model, "gpt-5.6-luna", "gpt-5.6-luna", "gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-luna")
   for ($i = 0; $i -lt $expectedModels.Count; $i++) {
     if ([string]$usageProof[$i].model -ne [string]$expectedModels[$i]) {
       throw "Probe '$($probes[$i].name)' expected model '$($expectedModels[$i])', got '$($usageProof[$i].model)'"
     }
   }
-  if ([string]$usageProof[2].reasoning_effort -ne "medium") {
-    throw "Compact probe expected reasoning effort 'medium', got '$($usageProof[2].reasoning_effort)'"
+  if ([string]$usageProof[2].reasoning_effort -ne "max") {
+    throw "Compact probe expected reasoning effort 'max', got '$($usageProof[2].reasoning_effort)'"
   }
-  if ([string]$usageProof[2].requested_model -ne "gpt-5.6-terra-medium") {
-    throw "Compact probe expected requested Terra-medium alias, got '$($usageProof[2].requested_model)'"
+  if ([string]$usageProof[2].requested_model -ne "gpt-5.6-luna") {
+    throw "Compact probe expected requested Luna alias, got '$($usageProof[2].requested_model)'"
   }
-  if ([string]$usageProof[3].reasoning_effort -ne "medium") {
-    throw "SDK CLI probe expected reasoning effort 'medium', got '$($usageProof[3].reasoning_effort)'"
+  if ([string]$usageProof[3].reasoning_effort -ne "max") {
+    throw "SDK CLI probe expected reasoning effort 'max', got '$($usageProof[3].reasoning_effort)'"
   }
-  if ([string]$usageProof[3].requested_model -ne "gpt-5.6-terra-medium") {
-    throw "SDK CLI probe expected requested Terra-medium alias, got '$($usageProof[3].requested_model)'"
+  if ([string]$usageProof[3].requested_model -ne "gpt-5.6-luna") {
+    throw "SDK CLI probe expected requested Luna alias, got '$($usageProof[3].requested_model)'"
   }
   if ([string]$usageProof[4].reasoning_effort -ne "high") {
     throw "Plan probe expected reasoning effort 'high', got '$($usageProof[4].reasoning_effort)'"
   }
-  if ([string]$usageProof[5].reasoning_effort -ne "medium" -or [string]$usageProof[5].requested_model -ne "gpt-5.6-terra-medium") {
-    throw "Stale raw Terra probe was not clamped to Terra-medium/medium"
+  if ([string]$usageProof[5].reasoning_effort -ne "max" -or [string]$usageProof[5].requested_model -ne "gpt-5.6-luna") {
+    throw "Stale raw Terra probe was not routed to Luna/max"
   }
 } elseif ($state.active_profile -eq "hybrid-current") {
   $expected = @(

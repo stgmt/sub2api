@@ -97,7 +97,7 @@ function Read-Profile([string]$Name) {
   $fileName = switch ($Name) {
     "anthropic-only" { "anthropic-only.v4.json" }
     "qwen-only" { "qwen-only.v1.json" }
-    "chatgpt-only" { "chatgpt-only.v4.json" }
+    "chatgpt-only" { "chatgpt-only.v5.json" }
     "hybrid-current" { "hybrid-current.v2.json" }
     default { throw "Unknown provider profile: $Name" }
   }
