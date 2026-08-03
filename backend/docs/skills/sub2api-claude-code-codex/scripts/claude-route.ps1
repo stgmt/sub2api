@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Position = 0)]
-  [ValidateSet("status", "anthropic", "qwen", "chatgpt", "hybrid", "reconcile", "verify")]
+  [ValidateSet("status", "anthropic", "qwen", "alibaba", "chatgpt", "hybrid", "reconcile", "verify")]
   [string]$Command = "status",
   [string]$RuntimeRoot = "C:\Users\stigm\Documents\Codex\2026-07-07\new-chat\work\sub2api-runtime",
   [string]$AdminBaseUrl = "http://127.0.0.1:18081",
@@ -97,6 +97,7 @@ function Read-Profile([string]$Name) {
   $fileName = switch ($Name) {
     "anthropic-only" { "anthropic-only.v4.json" }
     "qwen-only" { "qwen-only.v1.json" }
+    "alibaba" { "alibaba-qwen-deepseek-flash.v1.json" }
     "chatgpt-only" { "chatgpt-only.v5.json" }
     "hybrid-current" { "hybrid-current.v2.json" }
     default { throw "Unknown provider profile: $Name" }
@@ -201,6 +202,32 @@ function Get-AccountByName([string]$Name) {
   return @(Get-Accounts | Where-Object { $_.name -eq $Name }) | Select-Object -First 1
 }
 
+function Set-ManagedGroupDispatchConfig($Profile, [int64]$GroupId) {
+  if ($null -eq $Profile.group) { return }
+  $group = $Profile.group
+  $defaultModel = ConvertTo-SqlLiteral ([string]$group.default_mapped_model)
+  $dispatchJson = ConvertTo-SqlLiteral (($group.messages_dispatch_model_config | ConvertTo-Json -Depth 100 -Compress))
+  $modelsJson = ConvertTo-SqlLiteral (($group.models_list_config | ConvertTo-Json -Depth 100 -Compress))
+  $platform = ConvertTo-SqlLiteral ([string]$group.platform)
+  $subscriptionType = ConvertTo-SqlLiteral ([string]$group.subscription_type)
+  $claudeCodeOnly = if ([bool]$group.claude_code_only) { "TRUE" } else { "FALSE" }
+  $allowMessagesDispatch = if ([bool]$group.allow_messages_dispatch) { "TRUE" } else { "FALSE" }
+  Invoke-PostgresSql @"
+UPDATE groups
+SET status = 'active',
+    platform = '$platform',
+    subscription_type = '$subscriptionType',
+    claude_code_only = $claudeCodeOnly,
+    allow_messages_dispatch = $allowMessagesDispatch,
+    default_mapped_model = '$defaultModel',
+    messages_dispatch_model_config = '$dispatchJson'::jsonb,
+    models_list_config = '$modelsJson'::jsonb,
+    fallback_group_id = NULL,
+    fallback_group_id_on_invalid_request = NULL
+WHERE id = $GroupId;
+"@ | Out-Null
+}
+
 function Ensure-ManagedGroup($Profile) {
   $group = Get-GroupByName $Profile.group_name
   $body = $Profile.group
@@ -214,7 +241,7 @@ function Ensure-ManagedGroup($Profile) {
   if ($null -eq $group) { throw "Managed provider group was not created" }
 
   $groupId = [int64]$group.id
-  Invoke-PostgresSql "UPDATE groups SET fallback_group_id = NULL, fallback_group_id_on_invalid_request = NULL WHERE id = $groupId;" | Out-Null
+  Set-ManagedGroupDispatchConfig $Profile $groupId
   return $group
 }
 
@@ -390,6 +417,20 @@ function Ensure-QwenAccount($Profile, [int64]$GroupId) {
     throw "Alibaba Token Plan account '$($Profile.account_name)' must be an Anthropic-compatible API-key account"
   }
   $accountId = [int64]$account.id
+  if ($Profile.account_model_mapping) {
+    $mappingJson = ($Profile.account_model_mapping | ConvertTo-Json -Compress)
+    $mappingSql = ConvertTo-SqlLiteral $mappingJson
+    Invoke-PostgresSql @"
+UPDATE accounts
+SET credentials = jsonb_set(
+  COALESCE(credentials, '{}'::jsonb),
+  '{model_mapping}',
+  COALESCE(credentials->'model_mapping', '{}'::jsonb) || '$mappingSql'::jsonb,
+  true
+)
+WHERE id = $accountId;
+"@ | Out-Null
+  }
   Invoke-PostgresSql "INSERT INTO account_groups (account_id, group_id) VALUES ($accountId, $GroupId) ON CONFLICT (account_id, group_id) DO NOTHING; DELETE FROM account_groups WHERE group_id = $GroupId AND account_id <> $accountId;" | Out-Null
   return $account
 }
@@ -631,7 +672,7 @@ function Reconcile-Fleet($ProfileRecord, [string]$Generation) {
 }
 
 function Get-ProfileForGroup([string]$GroupName) {
-  foreach ($name in @("anthropic-only", "qwen-only", "chatgpt-only", "hybrid-current")) {
+  foreach ($name in @("anthropic-only", "qwen-only", "alibaba", "chatgpt-only", "hybrid-current")) {
     $record = Read-Profile $name
     if ($record.Data.group_name -eq $GroupName) { return $record }
   }
@@ -678,6 +719,8 @@ function Invoke-Switch([string]$ProfileName) {
   if ($ProfileName -eq "anthropic-only") {
     Ensure-AnthropicAccount $profile ([int64]$targetGroup.id) | Out-Null
   } elseif ($ProfileName -eq "qwen-only") {
+    Ensure-QwenAccount $profile ([int64]$targetGroup.id) | Out-Null
+  } elseif ($ProfileName -eq "alibaba") {
     Ensure-QwenAccount $profile ([int64]$targetGroup.id) | Out-Null
   } elseif ($ProfileName -eq "chatgpt-only") {
     Ensure-ChatGPTAccount $profile ([int64]$targetGroup.id) | Out-Null
@@ -784,6 +827,7 @@ switch ($Command) {
   "status" { Show-Status }
   "anthropic" { Invoke-Switch "anthropic-only" }
   "qwen" { Invoke-Switch "qwen-only" }
+  "alibaba" { Invoke-Switch "alibaba" }
   "chatgpt" { Invoke-Switch "chatgpt-only" }
   "hybrid" { Invoke-Switch "hybrid-current" }
   "reconcile" { Invoke-Reconcile }

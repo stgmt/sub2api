@@ -444,6 +444,13 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 			expectedCacheRead: floatPtr(2.8e-9),
 		},
 		{
+			name:              "Alibaba dated deepseek v4 flash",
+			model:             "deepseek-v4-flash-0731",
+			expectedInput:     1.4e-7,
+			expectedOutput:    floatPtr(2.8e-7),
+			expectedCacheRead: floatPtr(2.8e-9),
+		},
+		{
 			name:              "deepseek chat alias → flash",
 			model:             "deepseek-chat",
 			expectedInput:     1.4e-7,

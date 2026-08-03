@@ -160,6 +160,26 @@ func (h *Handlers) MultiproviderMessages(c *gin.Context) {
 				return
 			}
 		}
+		if !compactRequest {
+			planRequest := agentProfileMatched && agentProfile.Role == service.ClaudeCodeAgentRolePlan
+			specializedRequest := agentProfileMatched && agentProfile.Role != service.ClaudeCodeAgentRolePlan
+			scheduledModel, scheduledEffort, scheduled := apiKey.Group.ResolveAlibabaTimeWindowProfile(time.Now(), planRequest, specializedRequest)
+			if scheduled {
+				var rewriteErr error
+				body, model, rewriteErr = rewriteClaudeCodeSDKCLIProfileForMultiprovider(body, scheduledModel, scheduledEffort)
+				if rewriteErr != nil {
+					c.JSON(http.StatusBadRequest, gin.H{
+						"type": "error",
+						"error": gin.H{
+							"type":    "invalid_request_error",
+							"message": "Failed to rewrite Alibaba time-window profile: " + rewriteErr.Error(),
+						},
+					})
+					return
+				}
+				modelRewritten = true
+			}
+		}
 		if automaticRoute {
 			markClaudeCodeMessagesRoute(c, "", true)
 			automaticFallbackModel = resolveClaudeCodeAutomaticFallbackModel(apiKey.Group, model, groupPlatform)

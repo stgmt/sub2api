@@ -2,6 +2,7 @@ package service
 
 import (
 	"strings"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
@@ -44,6 +45,7 @@ func normalizeOpenAIMessagesDispatchModelConfig(cfg OpenAIMessagesDispatchModelC
 		PlanReasoningEffort:    normalizeOpenAIMessagesDispatchReasoningEffort(cfg.PlanReasoningEffort),
 		SDKCLIMappedModel:      normalizeOpenAIMessagesDispatchFallbackModel(cfg.SDKCLIMappedModel),
 		SDKCLIReasoningEffort:  normalizeOpenAIMessagesDispatchReasoningEffort(cfg.SDKCLIReasoningEffort),
+		AlibabaTimeWindow:      cfg.AlibabaTimeWindow,
 	}
 
 	if len(cfg.ExactModelMappings) > 0 {
@@ -284,6 +286,17 @@ func (g *Group) ResolveMessagesDispatchPlanProfile() (model, reasoningEffort str
 	}
 	cfg := normalizeOpenAIMessagesDispatchModelConfig(g.MessagesDispatchModelConfig)
 	return strings.TrimSpace(cfg.PlanMappedModel), strings.TrimSpace(cfg.PlanReasoningEffort)
+}
+
+// ResolveAlibabaTimeWindowProfile returns the model selected by the active
+// Alibaba toggle. A disabled or malformed schedule fails closed and leaves
+// the normal mapping path in control.
+func (g *Group) ResolveAlibabaTimeWindowProfile(now time.Time, plan, specialized bool) (model, reasoningEffort string, active bool) {
+	if g == nil {
+		return "", "", false
+	}
+	cfg := normalizeOpenAIMessagesDispatchModelConfig(g.MessagesDispatchModelConfig)
+	return cfg.AlibabaTimeWindow.Resolve(now, plan, specialized)
 }
 
 func sanitizeGroupMessagesDispatchFields(g *Group) {

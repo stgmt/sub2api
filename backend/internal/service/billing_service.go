@@ -335,12 +335,15 @@ func (s *BillingService) initFallbackPricing() {
 		CacheReadPricePerToken: 3.625e-9, // $0.003625 per MTok (cache hit)
 		SupportsCacheBreakdown: false,
 	}
-	s.fallbackPrices["deepseek-v4-flash"] = &ModelPricing{
+	deepseekV4FlashPricing := &ModelPricing{
 		InputPricePerToken:     1.4e-7, // $0.14 per MTok (cache miss)
 		OutputPricePerToken:    2.8e-7, // $0.28 per MTok
 		CacheReadPricePerToken: 2.8e-9, // $0.0028 per MTok (cache hit)
 		SupportsCacheBreakdown: false,
 	}
+	s.fallbackPrices["deepseek-v4-flash"] = deepseekV4FlashPricing
+	// Alibaba Token Plan currently exposes the dated live model ID.
+	s.fallbackPrices["deepseek-v4-flash-0731"] = deepseekV4FlashPricing
 
 	// ---- 智谱 GLM（Z.AI）----
 	// Source: https://docs.z.ai/guides/overview/pricing (USD per 1M tokens)

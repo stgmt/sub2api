@@ -1,6 +1,9 @@
 package service
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 import "github.com/stretchr/testify/require"
 
@@ -224,4 +227,43 @@ func TestNormalizeOpenAIMessagesDispatchReasoningEffortRejectsUnknownValue(t *te
 
 	require.Equal(t, "xhigh", normalizeOpenAIMessagesDispatchReasoningEffort("x-high"))
 	require.Empty(t, normalizeOpenAIMessagesDispatchReasoningEffort("turbo"))
+}
+
+func TestAlibabaTimeWindowConfig_CrossMidnightBoundaries(t *testing.T) {
+	t.Parallel()
+
+	cfg := AlibabaTimeWindowConfig{
+		Enabled:          true,
+		Timezone:         "Europe/Moscow",
+		Start:            "17:00",
+		End:              "03:00",
+		MainModel:        "qwen3.8-max-preview",
+		PlanModel:        "qwen3.8-max-preview",
+		SubagentModel:    "deepseek-v4-flash-0731",
+		OutOfWindowModel: "deepseek-v4-flash-0731",
+		ReasoningEffort:  "high",
+	}
+
+	tests := []struct {
+		name                  string
+		now                   time.Time
+		plan, specialized     bool
+		wantModel, wantEffort string
+		wantActive            bool
+	}{
+		{"before start", time.Date(2026, time.August, 3, 13, 59, 0, 0, time.UTC), false, false, "deepseek-v4-flash-0731", "high", true},
+		{"start inclusive", time.Date(2026, time.August, 3, 14, 0, 0, 0, time.UTC), false, false, "qwen3.8-max-preview", "high", true},
+		{"plan in window", time.Date(2026, time.August, 3, 14, 0, 0, 0, time.UTC), true, false, "qwen3.8-max-preview", "high", true},
+		{"subagent in window", time.Date(2026, time.August, 3, 14, 0, 0, 0, time.UTC), false, true, "deepseek-v4-flash-0731", "high", true},
+		{"end exclusive", time.Date(2026, time.August, 4, 0, 0, 0, 0, time.UTC), false, false, "deepseek-v4-flash-0731", "high", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model, effort, active := cfg.Resolve(tt.now, tt.plan, tt.specialized)
+			require.Equal(t, tt.wantModel, model)
+			require.Equal(t, tt.wantEffort, effort)
+			require.Equal(t, tt.wantActive, active)
+		})
+	}
 }

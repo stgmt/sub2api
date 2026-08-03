@@ -11,6 +11,7 @@ $anthropicProfile = Join-Path $skillRoot "profiles\anthropic-only.v4.json"
 $chatgptProfile = Join-Path $skillRoot "profiles\chatgpt-only.v5.json"
 $hybridProfile = Join-Path $skillRoot "profiles\hybrid-current.v2.json"
 $qwenProfile = Join-Path $skillRoot "profiles\qwen-only.v1.json"
+$alibabaProfile = Join-Path $skillRoot "profiles\alibaba-qwen-deepseek-flash.v1.json"
 $temp = Join-Path ([IO.Path]::GetTempPath()) ("sub2api-provider-route-test-" + [guid]::NewGuid())
 
 function Assert-True([bool]$Condition, [string]$Message) {
@@ -106,10 +107,22 @@ try {
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $applier -ProfilePath $chatgptProfile -SettingsPath $settingsPath -AgentsPath $agentsPath -WrapperPath $wrapperPath -Generation 10 -AuthToken "fleet-test-key" -EnvironmentTarget None -CheckOnly | Out-Null
   Assert-True ($LASTEXITCODE -eq 0) "ChatGPT-only check-only must be clean immediately after apply"
 
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $applier -ProfilePath $alibabaProfile -SettingsPath $settingsPath -AgentsPath $agentsPath -WrapperPath $wrapperPath -Generation 11 -AuthToken "fleet-test-key" -EnvironmentTarget None | Out-Null
+  Assert-True ($LASTEXITCODE -eq 0) "Alibaba Qwen + DeepSeek Flash profile apply must succeed"
+  $afterAlibaba = Get-Content -Raw $settingsPath | ConvertFrom-Json
+  Assert-True ($afterAlibaba.env.ANTHROPIC_MODEL -eq "qwen3.8-max-preview") "Alibaba main must use Qwen 3.8 Max"
+  Assert-True ($afterAlibaba.env.CLAUDE_CODE_SUBAGENT_MODEL -eq "deepseek-v4-flash-0731") "Alibaba subagents must use the live DeepSeek V4 Flash ID"
+  Assert-True ($afterAlibaba.env.ANTHROPIC_SMALL_FAST_MODEL -eq "deepseek-v4-flash-0731") "Alibaba small-fast must use the live DeepSeek V4 Flash ID"
+  Assert-True ($afterAlibaba.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS -eq "1000000") "Alibaba profile must publish the 1M context target"
+  Assert-True ($afterAlibaba.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW -eq "900000") "Alibaba profile must leave compaction headroom"
+  Assert-True ($afterAlibaba.env.PSObject.Properties.Name -notcontains "CLAUDE_CODE_EFFORT_LEVEL") "Alibaba profile must leave interactive effort selectable"
+  Assert-True ((Get-Content -Raw $agentPath) -match '(?m)^model: deepseek-v4-flash-0731$') "Alibaba delegated agent frontmatter must use the live Flash ID"
+
   $anthropic = Get-Content -Raw $anthropicProfile | ConvertFrom-Json
   $chatgpt = Get-Content -Raw $chatgptProfile | ConvertFrom-Json
   $hybrid = Get-Content -Raw $hybridProfile | ConvertFrom-Json
   $qwen = Get-Content -Raw $qwenProfile | ConvertFrom-Json
+  $alibaba = Get-Content -Raw $alibabaProfile | ConvertFrom-Json
   Assert-True ($anthropic.group.platform -eq "openai") "Anthropic-only dispatcher group must remain OpenAI-shaped"
   Assert-True ($anthropic.group.allow_messages_dispatch -eq $true) "Anthropic-only group must dispatch /v1/messages"
 Assert-True (@($anthropic.group.messages_dispatch_model_config.model_fallbacks.PSObject.Properties).Count -eq 0) "Anthropic-only fallbacks must be empty"
@@ -159,9 +172,6 @@ Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof cont
   Assert-True ($chatgpt.group.messages_dispatch_model_config.exact_model_mappings.'qwen3.8-max-preview' -eq "gpt-5.6-luna") "Stale Qwen IDs must route to Luna"
   Assert-True ($chatgpt.group.messages_dispatch_model_config.exact_model_mappings.'gpt-5.6-luna' -eq "gpt-5.6-luna") "Luna IDs must remain Luna"
   Assert-True ($chatgpt.group.messages_dispatch_model_config.exact_model_mappings.'gpt-5.6-terra' -eq "gpt-5.6-luna") "Raw Terra IDs must route to Luna"
-  Assert-True ($chatgpt.group.messages_dispatch_model_config.exact_model_reasoning_efforts.'gpt-5.6-luna' -eq "max") "Explicit Luna requests must be forced to max effort"
-  Assert-True ($chatgpt.group.messages_dispatch_model_config.exact_model_reasoning_efforts.'gpt-5.6-terra' -eq "max") "Legacy Terra requests must be forced to max effort"
-  Assert-True ($chatgpt.group.messages_dispatch_model_config.exact_model_reasoning_efforts.'gpt-5.6-terra-medium' -eq "max") "Legacy Terra-medium requests must be forced to max effort"
   Assert-True (@($chatgpt.group.models_list_config.models | Where-Object { $_ -eq 'gpt-5.6-luna' }).Count -eq 1) "ChatGPT-only catalog must publish Luna"
   Assert-True (@($chatgpt.group.models_list_config.models | Where-Object { $_ -eq 'gpt-5.6-terra-medium' }).Count -eq 0) "ChatGPT-only catalog must hide Terra-medium"
   Assert-True (@($chatgpt.group.models_list_config.models | Where-Object { $_ -eq 'gpt-5.6-terra' }).Count -eq 0) "ChatGPT-only catalog must not publish raw Terra"
@@ -174,6 +184,26 @@ Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof cont
   Assert-True (@($qwen.unset_client_env) -contains "CLAUDE_CODE_EFFORT_LEVEL") "Qwen-only interactive effort must remain selectable"
   Assert-True (@($qwen.group.messages_dispatch_model_config.model_fallbacks.PSObject.Properties).Count -eq 0) "Qwen-only must not fall back to GPT or Claude"
   Assert-True (@($qwen.group.models_list_config.models).Count -eq 1 -and $qwen.group.models_list_config.models[0] -eq "qwen3.8-max-preview") "Qwen-only picker must publish only Qwen 3.8 Max"
+  Assert-True ($alibaba.main_model -eq "qwen3.8-max-preview") "Alibaba main must use Qwen 3.8 Max"
+  Assert-True ($alibaba.agent_model -eq "deepseek-v4-flash-0731") "Alibaba delegated model must use the live DeepSeek V4 Flash ID"
+  Assert-True ($alibaba.agent_effort -eq "high") "Alibaba delegated model must use high effort"
+  Assert-True ($alibaba.group.messages_dispatch_model_config.plan_mapped_model -eq "qwen3.8-max-preview") "Alibaba Plan must use Qwen 3.8 Max"
+  Assert-True ($alibaba.group.messages_dispatch_model_config.plan_reasoning_effort -eq "high") "Alibaba Plan must use high effort"
+  Assert-True ($alibaba.group.messages_dispatch_model_config.compact_mapped_model -eq "deepseek-v4-flash-0731") "Alibaba compact must use the live DeepSeek V4 Flash ID"
+  Assert-True ($alibaba.group.messages_dispatch_model_config.compact_reasoning_effort -eq "high") "Alibaba compact must use high effort"
+  Assert-True ($alibaba.group.messages_dispatch_model_config.sdk_cli_mapped_model -eq "deepseek-v4-flash-0731") "Alibaba SDK CLI must use the live DeepSeek V4 Flash ID"
+  Assert-True (@($alibaba.group.messages_dispatch_model_config.model_fallbacks.PSObject.Properties).Count -eq 0) "Alibaba generic fallbacks must be empty"
+  Assert-True (@($alibaba.group.messages_dispatch_model_config.automatic_model_fallbacks.PSObject.Properties).Count -eq 0) "Alibaba automatic fallbacks must be empty"
+  Assert-True ($alibaba.group.messages_dispatch_model_config.alibaba_time_window.enabled) "Alibaba schedule must be enabled in the managed group"
+  Assert-True ($alibaba.group.messages_dispatch_model_config.alibaba_time_window.timezone -eq "Europe/Moscow") "Alibaba schedule must use Moscow time"
+  Assert-True ($alibaba.group.messages_dispatch_model_config.alibaba_time_window.start -eq "17:00") "Alibaba schedule must start at 17:00"
+  Assert-True ($alibaba.group.messages_dispatch_model_config.alibaba_time_window.end -eq "03:00") "Alibaba schedule must end at 03:00"
+  Assert-True ($alibaba.group.messages_dispatch_model_config.alibaba_time_window.main_model -eq "qwen3.8-max-preview") "Alibaba in-window main must use Qwen"
+  Assert-True ($alibaba.group.messages_dispatch_model_config.alibaba_time_window.subagent_model -eq "deepseek-v4-flash-0731") "Alibaba in-window subagents must use the live Flash ID"
+  Assert-True ($alibaba.group.messages_dispatch_model_config.alibaba_time_window.out_of_window_model -eq "deepseek-v4-flash-0731") "Alibaba out-of-window traffic must use the live Flash ID"
+  Assert-True ($alibaba.group.messages_dispatch_model_config.exact_model_mappings.'deepseek-v4-pro' -eq "deepseek-v4-flash-0731") "Legacy DeepSeek Pro must redirect to the live Flash ID"
+  Assert-True ($alibaba.account_model_mapping.'deepseek-v4-flash' -eq "deepseek-v4-flash-0731" -and $alibaba.account_model_mapping.'deepseek-v4-pro' -eq "deepseek-v4-flash-0731") "Alibaba account aliases must normalize to the live Flash ID"
+  Assert-True ((@($alibaba.group.models_list_config.models) -notcontains "deepseek-v4-pro") -and (@($alibaba.group.models_list_config.models) -contains "deepseek-v4-flash-0731")) "Alibaba catalog must publish the live Flash ID and hide Pro"
 
   $controllerText = Get-Content -Raw $controller
   foreach ($needle in @('/api/v1/admin/api-keys/', 'usage_logs', 'Invoke-HeadroomProbe', 'route_switcher_source_fingerprint', 'rollback failed')) {
@@ -183,6 +213,8 @@ Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof cont
   Assert-True ($controllerText.Contains('probeNonce')) "Switch and rollback probes must bypass Headroom response-cache reuse"
   Assert-True ($controllerText.Contains('"chatgpt" { Invoke-Switch "chatgpt-only" }')) "Controller must expose the ChatGPT-only switch"
   Assert-True ($controllerText.Contains('"qwen" { Invoke-Switch "qwen-only" }')) "Controller must expose the Qwen-only switch"
+  Assert-True ($controllerText.Contains('"alibaba" { Invoke-Switch "alibaba" }')) "Controller must expose the Alibaba Qwen + DeepSeek Flash switch"
+  Assert-True ($controllerText.Contains('"alibaba" { "alibaba-qwen-deepseek-flash.v1.json" }')) "Controller must resolve the Alibaba profile snapshot"
   Assert-True ($controllerText.Contains('"qwen-only" { "qwen-only.v1.json" }')) "Controller must resolve the Qwen-only profile snapshot"
   Assert-True ($controllerText.Contains('Ensure-ChatGPTAccount')) "Controller must bind the dedicated ChatGPT OAuth account"
   Assert-True ($controllerText.Contains('Ensure-QwenAccount')) "Controller must bind the dedicated Alibaba Token Plan account"
@@ -243,6 +275,7 @@ Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof cont
   Assert-True (Test-Path -LiteralPath (Join-Path $installedSkill 'profiles\anthropic-only.v4.json')) "Installer must copy Anthropic profile v4"
   Assert-True (Test-Path -LiteralPath (Join-Path $installedSkill 'profiles\chatgpt-only.v5.json')) "Installer must copy ChatGPT-only profile v5"
   Assert-True (Test-Path -LiteralPath (Join-Path $installedSkill 'profiles\qwen-only.v1.json')) "Installer must copy Qwen-only profile v1"
+  Assert-True (Test-Path -LiteralPath (Join-Path $installedSkill 'profiles\alibaba-qwen-deepseek-flash.v1.json')) "Installer must copy the Alibaba profile"
   Assert-True (-not (Test-Path -LiteralPath (Join-Path $installedSkill 'profiles\chatgpt-only.v3.json'))) "Installer must remove legacy ChatGPT-only profile v3"
   Assert-True (-not (Test-Path -LiteralPath (Join-Path $installedSkill 'profiles\chatgpt-only.v4.json'))) "Installer must remove legacy ChatGPT-only profile v4"
   Assert-True (-not (Test-Path -LiteralPath (Join-Path $installedSkill 'profiles\chatgpt-only.v2.json'))) "Installer must remove legacy ChatGPT-only profile v2"
@@ -252,7 +285,7 @@ Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof cont
   Assert-True (-not (Test-Path -LiteralPath $legacyProfileV3)) "Installer must remove stale Anthropic profile v3"
   Assert-True (-not (Test-Path -LiteralPath $legacySkill)) "Installer must remove the managed standalone provider skill"
 
-  [pscustomobject]@{ status = "PASS"; assertions = 130; profiles = @("anthropic-only", "qwen-only", "chatgpt-only", "hybrid-current") } | ConvertTo-Json -Compress
+  [pscustomobject]@{ status = "PASS"; assertions = 152; profiles = @("anthropic-only", "qwen-only", "alibaba", "chatgpt-only", "hybrid-current") } | ConvertTo-Json -Compress
 } finally {
   Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
 }

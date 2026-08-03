@@ -8,7 +8,7 @@ Primary entrypoint:
 
 Included support material:
 
-- `profiles/` - versioned `anthropic-only` and `hybrid-current` provider snapshots
+- `profiles/` - versioned provider snapshots, including the strict Alibaba Qwen + DeepSeek Flash route
 - `references/` - setup notes, provider switching, fleet reconciliation, routing policy, compact behavior, verification, troubleshooting, and the cross-session failure registry
 - `scripts/` - Windows and Linux setup, provider controller, verification, host-profile, autostart, RTK, compact-recovery, routing, and contract-test helpers
 - `evals/` - lightweight eval prompts for the skill behavior
@@ -35,6 +35,6 @@ Claude Code -> http://127.0.0.1:8787 -> Headroom -> http://sub2api:8080 -> sub2a
 
 The direct sub2api port `http://127.0.0.1:18081` is kept for the admin UI, diagnostics, and non-Claude clients. Claude Code should use Headroom on `8787`.
 
-Install the bundled route controller with `scripts/install-claude-route.ps1`, then use `claude-route status|anthropic|hybrid|reconcile|verify`. No separate provider-switcher skill is required.
+Install the bundled route controller with `scripts/install-claude-route.ps1`, then use `claude-route status|anthropic|qwen|alibaba|chatgpt|hybrid|reconcile|verify`. The `alibaba` toggle routes main/Plan to Qwen 3.8 Max high and compact/delegated work to DeepSeek V4 Flash high, with DeepSeek Pro and cross-provider fallback blocked. No separate provider-switcher skill is required.
 
 Every provider profile also enforces the provider-independent Claude Code worker policy: at most 10 concurrent subagents and spawn depth 1. See `references/subagent-concurrency-policy.md` for incident evidence, fleet scope, and verification.

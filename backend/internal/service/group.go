@@ -11,6 +11,7 @@ import (
 )
 
 type OpenAIMessagesDispatchModelConfig = domain.OpenAIMessagesDispatchModelConfig
+type AlibabaTimeWindowConfig = domain.AlibabaTimeWindowConfig
 type GroupModelsListConfig = domain.GroupModelsListConfig
 
 type Group struct {
