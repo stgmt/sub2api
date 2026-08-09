@@ -45,6 +45,17 @@ The VPS proxy must bind only to its private tunnel address. The router must have
 an explicit host route to that address through `awg0` when the tunnel interface
 uses `/32`, `nohostroute=1`, or `route_allowed_ips=0`.
 
+## HTTP/3 trap
+
+A green TCP proxy trace does not prove the browser OAuth route. Chromium can
+send `/api/accounts/session/select` over HTTP/3. Mihomo continues matching lower
+rules when UDP selects a proxy with `udp: false`, so QUIC can skip an
+OpenAI-specific TCP SOCKS outbound and fall through to the normal VPN.
+
+Place domain-scoped `UDP/443` reject guards before the OpenAI TCP routes. The
+browser then retries over TCP through the supported-country egress. Do not
+block UDP globally: games and unrelated HTTP/3 traffic are outside this scope.
+
 ## Required proof order
 
 1. VPS container is restart-safe and `healthy`.
@@ -52,7 +63,9 @@ uses `/32`, `nohostroute=1`, or `route_allowed_ips=0`.
 3. Router-side SOCKS trace reports `warp=on` and an expected supported country.
 4. The routing profile passes its own syntax check and safe apply.
 5. `auth.openai.com/cdn-cgi/trace` through the router shows the new egress.
-6. Real browser OAuth succeeds without `unsupported_country`.
+6. Live connections show no OpenAI QUIC flow through the ordinary outbound.
+7. Account selection reaches consent and the OAuth callback is issued without
+   `unsupported_country`.
 
 Do not apply domain rules before steps 2 and 3. A dead private proxy makes
 ChatGPT and Codex appear broadly offline because all OpenAI domains select the

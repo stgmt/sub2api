@@ -730,6 +730,12 @@ route and country. The reusable workflow, health checks, restart proof, and
 rollback are documented in
 [`23-openai-country-egress`](https://github.com/stgmt/claude-skill-router-vpn/tree/master/skills/23-openai-country-egress).
 
+Do not treat a successful TCP `cdn-cgi/trace` as OAuth proof. Chromium browsers
+can reuse HTTP/3 while a TCP-only SOCKS route is configured; Mihomo then skips
+that UDP-incompatible outbound and may fall through to the normal VPN. The
+canonical profile rejects `UDP/443` only for OpenAI domain families before the
+TCP WARP rules, forcing a safe browser retry without affecting game UDP.
+
 See also the local operator reference:
 [`openai-unsupported-country.md`](backend/docs/skills/sub2api-claude-code-codex/references/openai-unsupported-country.md).
 
