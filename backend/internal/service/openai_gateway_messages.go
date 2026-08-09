@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
@@ -153,10 +152,14 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	responsesReq.Stream = true
 	isStream := true
 
-	// 3b. Handle BetaFastMode → service_tier: "priority"
-	if containsBetaToken(c.GetHeader("anthropic-beta"), claude.BetaFastMode) {
-		responsesReq.ServiceTier = "priority"
-	}
+	// 3b. Preserve Claude Code /fast across the Anthropic → Responses bridge.
+	// Both the legacy beta header and the newer body-level speed:"fast" form
+	// are accepted; ordinary requests remain on the upstream default tier.
+	fastModeRequested, fastModeSource := applyAnthropicFastModeToResponses(
+		responsesReq,
+		c.GetHeader("anthropic-beta"),
+		anthropicReq.Speed,
+	)
 
 	responsesReq.Model = upstreamModel
 	omittedReasoningEffort := omitCodexSparkResponsesReasoningEffort(responsesReq, upstreamModel)
@@ -282,6 +285,17 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 			return nil, err
 		}
 		ensureCodexOAuthInstructionsField(reqBody)
+		// Claude Code gates /fast on the client-side model identity, while the
+		// actual upstream model is selected by sub2api. Keep the Messages bridge
+		// request-shaped like the native Codex Responses path by carrying the
+		// account's real installation id when one is available. Do not fabricate
+		// metadata and do not add it to compact requests.
+		if !anthropicCompactRequest && applyCodexClientMetadata(reqBody, account) {
+			logger.L().Debug("openai messages: added Codex client metadata",
+				zap.Int64("account_id", account.ID),
+				zap.Bool("installation_id_present", true),
+			)
+		}
 		if shouldAutoInjectPromptCacheKeyForCompat(upstreamModel) {
 			appendOpenAICompatClaudeCodeTodoGuardToRequestBody(reqBody)
 		}
@@ -339,6 +353,23 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		return nil, policyErr
 	}
 	responsesBody = updatedBody
+	if fastModeRequested {
+		finalTier := extractOpenAIServiceTierFromBody(responsesBody)
+		forwarded := finalTier != nil && *finalTier == OpenAIFastTierPriority
+		logger.L().Info("openai_messages.fast_mode_forwarded",
+			zap.Int64("account_id", account.ID),
+			zap.String("original_model", originalModel),
+			zap.String("upstream_model", upstreamModel),
+			zap.String("source", fastModeSource),
+			zap.Bool("forwarded", forwarded),
+			zap.String("final_service_tier", func() string {
+				if finalTier == nil {
+					return ""
+				}
+				return *finalTier
+			}()),
+		)
+	}
 	if account.Platform == PlatformGrok {
 		patchedBody, patchErr := patchGrokResponsesBody(responsesBody, upstreamModel)
 		if patchErr != nil {
@@ -543,6 +574,12 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 			re := responsesReq.Reasoning.Effort
 			result.ReasoningEffort = &re
 		}
+	}
+	if fastModeRequested {
+		logAnthropicFastModeProviderConfirmation(account, originalModel, upstreamModel, fastModeSource, result)
+	}
+	if handleErr == nil && result != nil {
+		reconcileOpenAIServiceTierWithProvider(result)
 	}
 
 	// Extract and save Codex usage snapshot from response headers (for OAuth accounts).
@@ -787,14 +824,15 @@ func (s *OpenAIGatewayService) writeAnthropicBufferedFinalResponse(
 	anthropicResp := apicompat.ResponsesToAnthropic(finalResponse, originalModel)
 	if !anthropicResponseHasVisibleOutput(anthropicResp) {
 		result := &OpenAIForwardResult{
-			RequestID:     requestID,
-			ResponseID:    finalResponse.ID,
-			Usage:         usage,
-			Model:         originalModel,
-			BillingModel:  billingModel,
-			UpstreamModel: upstreamModel,
-			Stream:        clientStream,
-			Duration:      time.Since(startTime),
+			RequestID:           requestID,
+			ResponseID:          finalResponse.ID,
+			Usage:               usage,
+			Model:               originalModel,
+			BillingModel:        billingModel,
+			UpstreamModel:       upstreamModel,
+			ProviderServiceTier: optionalTrimmedStringPtr(finalResponse.ServiceTier),
+			Stream:              clientStream,
+			Duration:            time.Since(startTime),
 		}
 		message := "OpenAI messages buffered response completed without assistant content or tool output"
 		return result, s.newOpenAIStreamFailoverError(c, account, false, requestID, nil, message)
@@ -812,14 +850,15 @@ func (s *OpenAIGatewayService) writeAnthropicBufferedFinalResponse(
 	}
 
 	return &OpenAIForwardResult{
-		RequestID:     requestID,
-		ResponseID:    finalResponse.ID,
-		Usage:         usage,
-		Model:         originalModel,
-		BillingModel:  billingModel,
-		UpstreamModel: upstreamModel,
-		Stream:        clientStream,
-		Duration:      time.Since(startTime),
+		RequestID:           requestID,
+		ResponseID:          finalResponse.ID,
+		Usage:               usage,
+		Model:               originalModel,
+		BillingModel:        billingModel,
+		UpstreamModel:       upstreamModel,
+		ProviderServiceTier: optionalTrimmedStringPtr(finalResponse.ServiceTier),
+		Stream:              clientStream,
+		Duration:            time.Since(startTime),
 	}, nil
 }
 
@@ -2086,6 +2125,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 	}
 	var usage OpenAIUsage
 	responseID := ""
+	var providerServiceTier *string
 	var firstTokenMs *int
 	firstChunk := true
 	clientDisconnected := false
@@ -2126,6 +2166,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 			Model:               originalModel,
 			BillingModel:        billingModel,
 			UpstreamModel:       upstreamModel,
+			ProviderServiceTier: providerServiceTier,
 			Stream:              true,
 			Duration:            time.Since(startTime),
 			FirstTokenMs:        firstTokenMs,
@@ -2178,6 +2219,9 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 			if event.Response != nil {
 				if id := strings.TrimSpace(event.Response.ID); id != "" {
 					responseID = id
+				}
+				if tier := optionalTrimmedStringPtr(event.Response.ServiceTier); tier != nil {
+					providerServiceTier = tier
 				}
 				if event.Response.Usage != nil {
 					usage = copyOpenAIUsageFromResponsesUsage(event.Response.Usage)

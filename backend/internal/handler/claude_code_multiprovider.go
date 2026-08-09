@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -93,7 +94,9 @@ func (h *Handlers) MultiproviderMessages(c *gin.Context) {
 		groupPlatform = apiKey.Group.Platform
 		sdkCLIRequest := isClaudeCodeSDKCLIRequest(c)
 		compactRequest := isClaudeCodeCompactRequestForMultiprovider(c, body)
+		fastModeRequest := isClaudeCodeFastModeRequest(c, body)
 		compactModel, compactEffort := apiKey.Group.ResolveMessagesDispatchCompactProfile()
+		fastModel := apiKey.Group.ResolveMessagesDispatchFastModel()
 		agentProfile, agentProfileMatched := claudeCodeAgentProfile{}, false
 		if !compactRequest {
 			agentProfile, agentProfileMatched = resolveClaudeCodeAgentProfile(c, body, apiKey.Group, defaultClaudeCodeAgentRoleSessionCache)
@@ -114,6 +117,21 @@ func (h *Handlers) MultiproviderMessages(c *gin.Context) {
 			}
 			modelRewritten = true
 			automaticRoute = true
+		}
+		if !modelRewritten && shouldRewriteClaudeCodeFastModeRequest(fastModeRequest, compactRequest, fastModel, groupPlatform) {
+			var rewriteErr error
+			body, model, rewriteErr = rewriteClaudeCodeCompactModelForMultiprovider(body, fastModel)
+			if rewriteErr != nil {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"type": "error",
+					"error": gin.H{
+						"type":    "invalid_request_error",
+						"message": "Failed to rewrite Fast mode request model: " + rewriteErr.Error(),
+					},
+				})
+				return
+			}
+			modelRewritten = true
 		}
 		if !modelRewritten && sdkCLIRequest && agentProfileMatched && agentProfile.Model != "" {
 			var rewriteErr error
@@ -373,6 +391,22 @@ func isClaudeCodeSDKCLIRequest(c *gin.Context) bool {
 	userAgent := strings.ToLower(strings.TrimSpace(c.GetHeader("User-Agent")))
 	return strings.HasPrefix(userAgent, "claude-cli/") &&
 		strings.Contains(userAgent, "external, sdk-cli")
+}
+
+func isClaudeCodeFastModeRequest(c *gin.Context, body []byte) bool {
+	if c != nil {
+		for _, token := range strings.Split(c.GetHeader("anthropic-beta"), ",") {
+			if strings.EqualFold(strings.TrimSpace(token), claude.BetaFastMode) {
+				return true
+			}
+		}
+	}
+	return strings.EqualFold(strings.TrimSpace(gjson.GetBytes(body, "speed").String()), "fast")
+}
+
+func shouldRewriteClaudeCodeFastModeRequest(fastModeRequest, compactRequest bool, fastModel, groupPlatform string) bool {
+	return fastModeRequest && !compactRequest && strings.TrimSpace(fastModel) != "" &&
+		strings.EqualFold(strings.TrimSpace(groupPlatform), service.PlatformOpenAI)
 }
 
 func rewriteClaudeCodeCompactModelForMultiprovider(body []byte, compactMappedModel string) ([]byte, string, error) {

@@ -75,6 +75,7 @@ type OpenAIMessagesDispatchModelConfig struct {
 	OpusMappedModel            string                  `json:"opus_mapped_model,omitempty"`
 	SonnetMappedModel          string                  `json:"sonnet_mapped_model,omitempty"`
 	HaikuMappedModel           string                  `json:"haiku_mapped_model,omitempty"`
+	FastMappedModel            string                  `json:"fast_mapped_model,omitempty"`
 	CompactMappedModel         string                  `json:"compact_mapped_model,omitempty"`
 	CompactReasoningEffort     string                  `json:"compact_reasoning_effort,omitempty"`
 	PlanMappedModel            string                  `json:"plan_mapped_model,omitempty"`

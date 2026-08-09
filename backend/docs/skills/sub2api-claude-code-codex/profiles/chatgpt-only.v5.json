@@ -13,8 +13,8 @@
     "CLAUDE_CODE_EFFORT_LEVEL"
   ],
   "client_env": {
-    "ANTHROPIC_MODEL": "gpt-5.6-sol",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "gpt-5.6-sol",
+    "ANTHROPIC_MODEL": "claude-opus-5",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5",
     "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME": "GPT-5.6 Sol",
     "ANTHROPIC_DEFAULT_FABLE_MODEL": "gpt-5.6-luna",
     "ANTHROPIC_DEFAULT_FABLE_MODEL_NAME": "GPT-5.6 Luna",
@@ -24,6 +24,8 @@
     "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME": "GPT-5.6 Luna",
     "ANTHROPIC_SMALL_FAST_MODEL": "gpt-5.6-luna",
     "CLAUDE_CODE_SUBAGENT_MODEL": "gpt-5.6-luna",
+    "CLAUDE_CODE_SKIP_FAST_MODE_NETWORK_ERRORS": "1",
+    "CLAUDE_CODE_SKIP_FAST_MODE_ORG_CHECK": "1",
     "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "10",
     "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "1",
     "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "370000",
@@ -51,6 +53,7 @@
       "opus_mapped_model": "gpt-5.6-sol",
       "sonnet_mapped_model": "gpt-5.6-luna",
       "haiku_mapped_model": "gpt-5.6-luna",
+      "fast_mapped_model": "gpt-5.6-luna",
       "compact_mapped_model": "gpt-5.6-luna",
       "compact_reasoning_effort": "max",
       "plan_mapped_model": "gpt-5.6-sol",

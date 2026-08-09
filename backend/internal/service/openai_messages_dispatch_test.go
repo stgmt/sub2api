@@ -14,6 +14,7 @@ func TestNormalizeOpenAIMessagesDispatchModelConfig(t *testing.T) {
 		OpusMappedModel:        " gpt-5.4-high ",
 		SonnetMappedModel:      "gpt-5.3-codex",
 		HaikuMappedModel:       " gpt-5.3-codex-spark ",
+		FastMappedModel:        " gpt-5.6-luna ",
 		CompactMappedModel:     " claude-sonnet-5 ",
 		CompactReasoningEffort: " LOW ",
 		PlanMappedModel:        " gpt-5.6-sol ",
@@ -43,6 +44,7 @@ func TestNormalizeOpenAIMessagesDispatchModelConfig(t *testing.T) {
 	require.Equal(t, "gpt-5.4-high", cfg.OpusMappedModel)
 	require.Equal(t, "gpt-5.3-codex", cfg.SonnetMappedModel)
 	require.Equal(t, "gpt-5.3-codex-spark", cfg.HaikuMappedModel)
+	require.Equal(t, "gpt-5.6-luna", cfg.FastMappedModel)
 	require.Equal(t, "claude-sonnet-5", cfg.CompactMappedModel)
 	require.Equal(t, "low", cfg.CompactReasoningEffort)
 	require.Equal(t, "gpt-5.6-sol", cfg.PlanMappedModel)
@@ -63,6 +65,21 @@ func TestNormalizeOpenAIMessagesDispatchModelConfig(t *testing.T) {
 	require.Equal(t, map[string][]string{
 		"gpt-5.6-luna": []string{"gpt-5.6-sol"},
 	}, cfg.AutomaticModelFallbacks)
+}
+
+func TestGroupResolveMessagesDispatchFastModel(t *testing.T) {
+	t.Parallel()
+
+	group := &Group{
+		Platform: PlatformOpenAI,
+		MessagesDispatchModelConfig: OpenAIMessagesDispatchModelConfig{
+			OpusMappedModel: "gpt-5.6-sol",
+			FastMappedModel: " gpt-5.6-luna ",
+		},
+	}
+
+	require.Equal(t, "gpt-5.6-luna", group.ResolveMessagesDispatchFastModel())
+	require.Empty(t, (&Group{}).ResolveMessagesDispatchFastModel())
 }
 
 func TestNormalizeOpenAIMessagesDispatchModelConfig_PreservesDelegatedEffortAlias(t *testing.T) {

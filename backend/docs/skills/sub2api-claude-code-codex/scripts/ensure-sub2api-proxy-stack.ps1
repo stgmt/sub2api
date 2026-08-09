@@ -218,8 +218,13 @@ function Sync-CodexAuthFile {
   $sourceHash = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant()
   if ($stateRoot.StartsWith("/")) {
     $sourcePortable = $source -replace '\\', '/'
-    $sourceWsl = @(& wsl.exe -d $Distro -- wslpath -a -u -- $sourcePortable 2>$null)
-    if ($LASTEXITCODE -ne 0 -or $sourceWsl.Count -ne 1 -or -not $sourceWsl[0].Trim()) {
+    # WSL may emit a harmless localhost-proxy warning alongside wslpath's
+    # result. Keep only the absolute POSIX path instead of treating warning
+    # text as a second path and failing the whole watchdog tick.
+    $sourceWslRaw = @(& wsl.exe -d $Distro -- wslpath -a -u -- $sourcePortable 2>$null)
+    $sourceWslExit = $LASTEXITCODE
+    $sourceWsl = @($sourceWslRaw | Where-Object { ([string]$_).Trim() -match '^/' } | Select-Object -First 1)
+    if ($sourceWslExit -ne 0 -or $sourceWsl.Count -ne 1 -or -not $sourceWsl[0].Trim()) {
       throw "Could not translate Codex auth path into WSL: $source"
     }
     $target = $stateRoot.TrimEnd('/') + "/sub2api/codex-auth.json"
@@ -288,6 +293,124 @@ function Invoke-HealthProbe {
   }
 }
 
+function Invoke-HeadroomStatsProbe {
+  param([string]$Url)
+
+  try {
+    $payload = Invoke-RestMethod -UseBasicParsing -Uri "$Url/stats" -TimeoutSec $HealthTimeoutSeconds
+    $proxyInbound = $payload.proxy_inbound
+    if ($null -eq $proxyInbound -or $null -eq $proxyInbound.active) {
+      return [ordered]@{
+        url = "$Url/stats"
+        ok = $false
+        active_known = $false
+        active = $null
+        error = "proxy_inbound.active is missing"
+      }
+    }
+    return [ordered]@{
+      url = "$Url/stats"
+      ok = $true
+      active_known = $true
+      active = [int]$proxyInbound.active
+    }
+  } catch {
+    return [ordered]@{
+      url = "$Url/stats"
+      ok = $false
+      active_known = $false
+      active = $null
+      error = $_.Exception.Message
+    }
+  }
+}
+
+function Get-ActiveHeadroomState {
+  $candidates = @("http://127.0.0.1:$HeadroomPort")
+  $wslIp = Get-WslIpv4
+  if ($wslIp) { $candidates += "http://${wslIp}:$HeadroomPort" }
+
+  foreach ($candidate in $candidates) {
+    $probe = Invoke-HeadroomStatsProbe -Url $candidate
+    if ($probe.ok) { return $probe }
+  }
+
+  return [ordered]@{
+    url = $null
+    ok = $false
+    active_known = $false
+    active = $null
+    error = "Headroom /stats was unavailable on all local candidates"
+  }
+}
+
+function Get-StackLifecycleState {
+  $names = @("headroom-sub2api", "sub2api-codex")
+  $records = @{}
+  try {
+    $lines = @(& wsl.exe -d $Distro -- docker inspect -f '{{.Name}}|{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' @names 2>$null)
+    foreach ($line in $lines) {
+      $parts = (($line -as [string]) -split '\|', 3)
+      if ($parts.Count -ge 3) {
+        $name = $parts[0].TrimStart('/')
+        $records[$name] = [ordered]@{ status = $parts[1]; health = $parts[2] }
+      }
+    }
+  } catch { }
+
+  $headroom = if ($records.ContainsKey('headroom-sub2api')) { $records['headroom-sub2api'] } else { $null }
+  $sub2api = if ($records.ContainsKey('sub2api-codex')) { $records['sub2api-codex'] } else { $null }
+  return [ordered]@{
+    headroom = $headroom
+    sub2api = $sub2api
+    both_running = ($null -ne $headroom -and $headroom.status -eq 'running' -and $null -ne $sub2api -and $sub2api.status -eq 'running')
+    missing_or_stopped = ($null -eq $headroom -or $headroom.status -ne 'running' -or $null -eq $sub2api -or $sub2api.status -ne 'running')
+  }
+}
+
+function Get-HeadroomImageState {
+  try {
+    $configured = ((@(& wsl.exe -d $Distro -- docker inspect -f '{{.Config.Image}}' headroom-sub2api 2>$null)) -join "").Trim()
+    $runningId = ((@(& wsl.exe -d $Distro -- docker inspect -f '{{.Image}}' headroom-sub2api 2>$null)) -join "").Trim()
+    if (-not $configured -or -not $runningId) {
+      return [ordered]@{ ok = $false; drift = $false; target_available = $false; error = "Headroom container image metadata is unavailable" }
+    }
+    $targetId = ((@(& wsl.exe -d $Distro -- docker image inspect -f '{{.Id}}' $configured 2>$null)) -join "").Trim()
+    return [ordered]@{
+      ok = ($targetId.Length -gt 0)
+      configured_image = $configured
+      running_id = $runningId
+      target_id = $targetId
+      target_available = ($targetId.Length -gt 0)
+      drift = ($targetId.Length -gt 0 -and $runningId.Length -gt 0 -and $targetId -ne $runningId)
+    }
+  } catch {
+    return [ordered]@{ ok = $false; drift = $false; target_available = $false; error = $_.Exception.Message }
+  }
+}
+
+function Invoke-HeadroomIdleRollout {
+  param([System.Collections.IDictionary]$ImageState)
+
+  $rootPortable = $Root -replace '\\', '/'
+  $rootWslRaw = @(& wsl.exe -d $Distro -- wslpath -a -u -- $rootPortable 2>$null)
+  $rootWslExit = $LASTEXITCODE
+  $rootWsl = @($rootWslRaw | Where-Object { ([string]$_).Trim() -match '^/' } | Select-Object -First 1)
+  if ($rootWslExit -ne 0 -or $rootWsl.Count -ne 1 -or -not $rootWsl[0].Trim()) {
+    throw "Could not translate Headroom profile path into WSL: $Root"
+  }
+
+  $compose = "cd '$($rootWsl[0].Trim())' && docker compose --env-file .env -p '$ProjectName' -f docker-compose.yml"
+  $requiresCuda = ($null -ne $envMap -and $envMap.ContainsKey('HEADROOM_REQUIRE_CUDA') -and $envMap['HEADROOM_REQUIRE_CUDA'].Trim() -eq '1')
+  if ($requiresCuda) { $compose += " -f docker-compose.gpu.yml" }
+  $compose += " up -d --no-deps --force-recreate headroom"
+  $output = @(& wsl.exe -d $Distro -- bash -lc $compose 2>&1)
+  $exitCode = $LASTEXITCODE
+  if ($exitCode -ne 0) { throw "Headroom idle image rollout failed: $($output -join ' ')" }
+  Write-SelfHealEvent -Event "headroom_image_rolled" -Data @{ image = $ImageState; service = "headroom"; compose_policy = "--no-deps --force-recreate" }
+  return [ordered]@{ status = "rolled"; service = "headroom"; output = (($output -join " ").Trim()) }
+}
+
 function Get-WslIpv4 {
   $oldErrorActionPreference = $ErrorActionPreference
   $ErrorActionPreference = "Continue"
@@ -306,6 +429,25 @@ function Get-HyperVSwitchIpv4 {
   return (Get-NetIPAddress -InterfaceAlias $alias -AddressFamily IPv4 -ErrorAction SilentlyContinue |
     Where-Object { $_.IPAddress -notlike "169.254.*" } |
     Select-Object -First 1 -ExpandProperty IPAddress)
+}
+
+function Test-HeadroomGpuRoute {
+  $required = $true
+  if ($null -ne $envMap -and $envMap.ContainsKey('HEADROOM_REQUIRE_CUDA')) {
+    $required = $envMap['HEADROOM_REQUIRE_CUDA'].Trim() -eq '1'
+  }
+  if (-not $required) {
+    return [ordered]@{ required = $false; ok = $true; device_requests = 'not-required' }
+  }
+
+  try {
+    $probe = @(& wsl.exe -d $Distro -- docker inspect headroom-sub2api --format '{{json .HostConfig.DeviceRequests}}' 2>$null)
+    $raw = (($probe -join ' ') -replace '\s+', '').Trim()
+    $ok = -not [string]::IsNullOrWhiteSpace($raw) -and $raw -ne 'null' -and $raw -ne '[]'
+    return [ordered]@{ required = $true; ok = $ok; device_requests = if ($ok) { 'present' } else { $raw } }
+  } catch {
+    return [ordered]@{ required = $true; ok = $false; device_requests = 'probe-failed'; error = $_.Exception.Message }
+  }
 }
 
 function Get-RequiredRouteState {
@@ -340,13 +482,15 @@ function Get-RequiredRouteState {
   if ($RequireHyperVBridge) {
     $bridgeOk = ($null -ne $bridge -and $bridge.ok)
   }
+  $gpu = Test-HeadroomGpuRoute
 
   return [ordered]@{
-    ok = ($sameHost.ok -and $bridgeOk)
+    ok = ($sameHost.ok -and $bridgeOk -and $gpu.ok)
     same_host = $sameHost
     bridge = $bridge
     bridge_required = $RequireHyperVBridge
     wsl_ip = $wslIp
+    gpu = $gpu
   }
 }
 
@@ -424,6 +568,22 @@ try {
   $codexAuthSync = Sync-CodexAuthFile -ProfileRoot $Root -EnvMap $envMap
   $before = Get-RequiredRouteState
   if ($before.ok) {
+    $imageState = Get-HeadroomImageState
+    $imageRollout = $null
+    if ($imageState.drift) {
+      $activeState = Get-ActiveHeadroomState
+      if ($activeState.ok -and $activeState.active_known -and $activeState.active -eq 0) {
+        $imageRollout = Invoke-HeadroomIdleRollout -ImageState $imageState
+        $afterRollout = Get-RequiredRouteState
+        if (-not $afterRollout.ok) {
+          throw "Headroom image rollout did not restore required routes"
+        }
+        $before = $afterRollout
+      } else {
+        $imageRollout = [ordered]@{ status = "deferred"; reason = if ($activeState.ok) { "active_proxy_requests" } else { "active_state_unproven" }; active = $activeState }
+        Write-SelfHealEvent -Event "headroom_image_rollout_deferred" -Data @{ image = $imageState; rollout = $imageRollout }
+      }
+    }
     $writeHeartbeat = $true
     $lastEventAt = ""
     if (Test-Path -LiteralPath $StatePath) {
@@ -442,12 +602,28 @@ try {
     }
     $providerRoute = Invoke-ProviderRouteReconcile -ProfileRoot $Root
     Save-State -Status "healthy" -LastEventAt $lastEventAt
-    [pscustomobject]@{ status = "healthy"; recovered = $false; routes = $before; codex_auth = $codexAuthSync; provider_route = $providerRoute } | ConvertTo-Json -Compress -Depth 8
+    [pscustomobject]@{ status = "healthy"; recovered = $false; routes = $before; codex_auth = $codexAuthSync; provider_route = $providerRoute; headroom_image = $imageState; headroom_image_rollout = $imageRollout } | ConvertTo-Json -Compress -Depth 10
     exit 0
   }
 
   Save-State -Status "recovering" -LastEventAt (Get-Date).ToUniversalTime().ToString("o")
   Write-SelfHealEvent -Event "recovery_started" -Data @{ routes = $before; codex_auth = $codexAuthSync }
+
+  # A failed health probe is not proof that a compose recreate is safe. The
+  # compose project contains both proxies, so recreating it can terminate a
+  # live Claude SSE/tool turn even when Docker restart counters stay at zero.
+  # Recreate only when active traffic is proven absent, or Docker proves that
+  # one of the required containers is actually stopped/missing.
+  $activeState = Get-ActiveHeadroomState
+  $lifecycle = Get-StackLifecycleState
+  $recreateAllowed = (($activeState.ok -and $activeState.active_known -and $activeState.active -eq 0) -or $lifecycle.missing_or_stopped)
+  if (-not $recreateAllowed) {
+    $reason = if ($activeState.ok -and $activeState.active_known -and $activeState.active -gt 0) { "active_proxy_requests" } else { "active_state_unproven" }
+    Save-State -Status "deferred" -LastEventAt (Get-Date).ToUniversalTime().ToString("o")
+    Write-SelfHealEvent -Event "recovery_deferred" -Data @{ reason = $reason; active = $activeState; lifecycle = $lifecycle; routes = $before }
+    [pscustomobject]@{ status = "deferred"; recovered = $false; reason = $reason; active = $activeState; lifecycle = $lifecycle; routes = $before } | ConvertTo-Json -Compress -Depth 10
+    exit 0
+  }
 
   $startParams = @{
     ProfileDir = $Root
@@ -460,6 +636,7 @@ try {
     HyperVVmSshKey = $HyperVVmSshKey
     HyperVSwitchName = $HyperVSwitchName
     HyperVRemoteConfigMode = $HyperVRemoteConfigMode
+    ForceRecreate = $true
   }
   if ($RepoRoot.Trim()) { $startParams.RepoRoot = $RepoRoot }
 

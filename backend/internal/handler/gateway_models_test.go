@@ -25,11 +25,14 @@ type gatewayModelsResponseForTest struct {
 }
 
 type gatewayModelItemForTest struct {
-	ID        string `json:"id"`
-	Object    string `json:"object"`
-	Created   int64  `json:"created"`
-	OwnedBy   string `json:"owned_by"`
-	CreatedAt string `json:"created_at"`
+	ID              string `json:"id"`
+	Object          string `json:"object"`
+	Created         int64  `json:"created"`
+	OwnedBy         string `json:"owned_by"`
+	CreatedAt       string `json:"created_at"`
+	ContextLength   int    `json:"context_length"`
+	MaxInputTokens  int    `json:"max_input_tokens"`
+	MaxOutputTokens int    `json:"max_output_tokens"`
 }
 
 func (s *gatewayModelsAccountRepoStub) ListSchedulableByGroupID(ctx context.Context, groupID int64) ([]service.Account, error) {
@@ -581,6 +584,48 @@ func TestGatewayModels_OpenAICustomModelsListKeepsOpenAIResponseShapeForDefaultF
 	require.NotZero(t, got.Data[0].Created)
 	require.Equal(t, "openai", got.Data[0].OwnedBy)
 	require.Empty(t, got.Data[0].CreatedAt)
+}
+
+func TestGatewayModels_PublishesContextMetadataForKnownOpenAIModels(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	groupID := int64(32)
+	h := newGatewayModelsHandlerForTest(
+		&gatewayModelsAccountRepoStub{
+			byGroup: map[int64][]service.Account{
+				groupID: {
+					{ID: 1, Platform: service.PlatformOpenAI},
+				},
+			},
+		},
+	)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+		Group: &service.Group{
+			ID:       groupID,
+			Platform: service.PlatformOpenAI,
+			ModelsListConfig: service.GroupModelsListConfig{
+				Enabled: true,
+				Models:  []string{"gpt-5.6-luna", "gpt-5.3-codex-spark"},
+			},
+		},
+	})
+
+	h.Models(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var got gatewayModelsResponseForTest
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Equal(t, []string{"gpt-5.6-luna", "gpt-5.3-codex-spark"}, modelIDsForTest(got.Data))
+	require.Equal(t, 1_050_000, got.Data[0].ContextLength)
+	require.Equal(t, 1_050_000, got.Data[0].MaxInputTokens)
+	require.Equal(t, 128_000, got.Data[0].MaxOutputTokens)
+	require.Equal(t, 272_000, got.Data[1].ContextLength)
+	require.Equal(t, 272_000, got.Data[1].MaxInputTokens)
+	require.Equal(t, 128_000, got.Data[1].MaxOutputTokens)
 }
 
 func modelIDsForTest(models []gatewayModelItemForTest) []string {

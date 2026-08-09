@@ -92,7 +92,10 @@ try {
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $applier -ProfilePath $chatgptProfile -SettingsPath $settingsPath -AgentsPath $agentsPath -WrapperPath $wrapperPath -Generation 10 -AuthToken "fleet-test-key" -EnvironmentTarget None | Out-Null
   Assert-True ($LASTEXITCODE -eq 0) "ChatGPT-only profile apply must succeed"
   $afterChatGPT = Get-Content -Raw $settingsPath | ConvertFrom-Json
-  Assert-True ($afterChatGPT.env.ANTHROPIC_MODEL -eq "gpt-5.6-sol") "ChatGPT-only main must use Sol"
+   Assert-True ($afterChatGPT.env.ANTHROPIC_MODEL -eq "claude-opus-5") "ChatGPT-only main must expose the Claude-supported Opus identity"
+   Assert-True ($afterChatGPT.env.ANTHROPIC_DEFAULT_OPUS_MODEL -eq "claude-opus-5") "ChatGPT-only Opus picker must expose the Claude-supported identity"
+   Assert-True ($afterChatGPT.env.CLAUDE_CODE_SKIP_FAST_MODE_NETWORK_ERRORS -eq "1") "ChatGPT-only must bypass the gateway network probe"
+   Assert-True ($afterChatGPT.env.CLAUDE_CODE_SKIP_FAST_MODE_ORG_CHECK -eq "1") "ChatGPT-only must bypass the gateway organization probe"
   Assert-True ($afterChatGPT.env.CLAUDE_CODE_SUBAGENT_MODEL -eq "gpt-5.6-luna") "ChatGPT-only subagents must use Luna"
   Assert-True ($afterChatGPT.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS -eq "370000") "ChatGPT-only client context target must be 370k"
   Assert-True ($afterChatGPT.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW -eq "340000") "ChatGPT-only compact threshold must be 340k"
@@ -166,7 +169,9 @@ Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof cont
   Assert-True ($chatgpt.group.messages_dispatch_model_config.plan_reasoning_effort -eq "high") "ChatGPT-only Plan agent must use high effort"
   Assert-True ($chatgpt.group.messages_dispatch_model_config.sdk_cli_mapped_model -eq "gpt-5.6-luna") "ChatGPT-only SDK CLI must use Luna"
   Assert-True ($chatgpt.group.messages_dispatch_model_config.sdk_cli_reasoning_effort -eq "max") "ChatGPT-only SDK CLI must use max"
-  Assert-True ($chatgpt.group.messages_dispatch_model_config.sonnet_mapped_model -eq "gpt-5.6-luna") "ChatGPT-only Sonnet dispatch must use Luna"
+   Assert-True ($chatgpt.group.messages_dispatch_model_config.sonnet_mapped_model -eq "gpt-5.6-luna") "ChatGPT-only Sonnet dispatch must use Luna"
+   Assert-True ($chatgpt.group.messages_dispatch_model_config.fast_mapped_model -eq "gpt-5.6-luna") "ChatGPT-only Fast requests must use Luna"
+   Assert-True ($chatgpt.group.messages_dispatch_model_config.exact_model_mappings.'claude-opus-5' -eq "gpt-5.6-sol") "Normal Opus identity must stay on Sol"
   Assert-True (@($chatgpt.group.messages_dispatch_model_config.model_fallbacks.PSObject.Properties).Count -eq 0) "ChatGPT-only generic fallbacks must remain empty"
   Assert-True (@($chatgpt.group.messages_dispatch_model_config.automatic_model_fallbacks.PSObject.Properties).Count -eq 0) "ChatGPT-only automatic fallbacks must be empty"
   Assert-True ($chatgpt.group.messages_dispatch_model_config.exact_model_mappings.'qwen3.8-max-preview' -eq "gpt-5.6-luna") "Stale Qwen IDs must route to Luna"
@@ -285,7 +290,7 @@ Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof cont
   Assert-True (-not (Test-Path -LiteralPath $legacyProfileV3)) "Installer must remove stale Anthropic profile v3"
   Assert-True (-not (Test-Path -LiteralPath $legacySkill)) "Installer must remove the managed standalone provider skill"
 
-  [pscustomobject]@{ status = "PASS"; assertions = 152; profiles = @("anthropic-only", "qwen-only", "alibaba", "chatgpt-only", "hybrid-current") } | ConvertTo-Json -Compress
+  [pscustomobject]@{ status = "PASS"; assertions = 197; profiles = @("anthropic-only", "qwen-only", "alibaba", "chatgpt-only", "hybrid-current") } | ConvertTo-Json -Compress
 } finally {
   Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
 }

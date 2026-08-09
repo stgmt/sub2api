@@ -161,6 +161,11 @@ if (Test-Path -LiteralPath $WrapperPath) {
     if ($updatedWrapper -match $pattern) {
       $replacement = "set `"$($property.Name)=$($property.Value)`""
       $updatedWrapper = [regex]::Replace($updatedWrapper, $pattern, $replacement)
+    } elseif ($updatedWrapper -match '(?im)^setlocal\s*$') {
+      $replacement = "set `"$($property.Name)=$($property.Value)`""
+      $updatedWrapper = [regex]::Replace($updatedWrapper, '(?im)^setlocal\s*$', "setlocal`r`n$replacement", 1)
+    } else {
+      $updatedWrapper = "set `"$($property.Name)=$($property.Value)`"`r`n$updatedWrapper"
     }
   }
   if ($AuthToken) {

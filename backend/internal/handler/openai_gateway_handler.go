@@ -44,8 +44,30 @@ type OpenAIGatewayHandler struct {
 const (
 	openAIOAuth403AutohealRetryLimit      = 1
 	openAIOAuth403AutohealRetryDelay      = 2250 * time.Millisecond
+	openAIMessagesPreOutputRetryLimit     = 1
 	openAIMessagesStreamRequestContextKey = "sub2api.openai_messages_stream_request"
 )
+
+// openAIMessagesRetryLimit keeps the transparent retry bounded to one attempt
+// while no assistant text or tool call has reached Claude Code. Once visible
+// output exists, the caller must not replay the request because tool effects
+// may already have happened.
+func openAIMessagesRetryLimit(account *service.Account, result *service.OpenAIForwardResult, oauth403Autoheal bool) int {
+	if result != nil && result.ClientOutputStarted {
+		return 0
+	}
+	if oauth403Autoheal {
+		return openAIOAuth403AutohealRetryLimit
+	}
+
+	retryLimit := account.GetPoolModeRetryCount()
+	if result == nil || !result.ClientOutputStarted {
+		if retryLimit > openAIMessagesPreOutputRetryLimit {
+			return openAIMessagesPreOutputRetryLimit
+		}
+	}
+	return retryLimit
+}
 
 func isOpenAIMessagesStreamRequest(c *gin.Context) bool {
 	if c == nil {
@@ -1085,7 +1107,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 					// Pool mode retries transient failures. OAuth 403 gets one bounded
 					// retry after its first adaptive scheduling cooldown expires.
 					if (failoverErr.RetryableOnSameAccount || oauth403Autoheal) && !fastFallbackBeforeRetry {
-						retryLimit := account.GetPoolModeRetryCount()
+						retryLimit := openAIMessagesRetryLimit(account, result, oauth403Autoheal)
 						retryDelay := sameAccountRetryDelay
 						logEvent := "openai_messages.pool_mode_same_account_retry"
 						if oauth403Autoheal {

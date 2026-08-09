@@ -53,6 +53,16 @@ MUTATIONS = [
         replacement="if False and STREAMING_ACTIVE_COUNT_SENTINEL not in text:",
     ),
     Mutation(
+        name="reintroduce_unbound_finalizer_tags",
+        target="'                    final_tags = dict(tags or {})\\n'",
+        replacement="'                    tags = dict(tags or {})\\n'",
+    ),
+    Mutation(
+        name="disable_nonfatal_telemetry_finalizer",
+        target="+ '                except Exception as finalize_error:\\n'",
+        replacement="+ '                except KeyError as finalize_error:\\n'",
+    ),
+    Mutation(
         name="do_not_fail_closed_on_unknown_shape",
         target='raise RuntimeError(f"Could not find Anthropic mid-turn overlap branch in {path}")',
         replacement="return",

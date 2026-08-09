@@ -8,12 +8,90 @@ import (
 
 // Model represents an OpenAI model
 type Model struct {
-	ID          string `json:"id"`
-	Object      string `json:"object"`
-	Created     int64  `json:"created"`
-	OwnedBy     string `json:"owned_by"`
-	Type        string `json:"type"`
-	DisplayName string `json:"display_name"`
+	ID              string `json:"id"`
+	Object          string `json:"object"`
+	Created         int64  `json:"created"`
+	OwnedBy         string `json:"owned_by"`
+	Type            string `json:"type"`
+	DisplayName     string `json:"display_name"`
+	ContextLength   int    `json:"context_length,omitempty"`
+	MaxInputTokens  int    `json:"max_input_tokens,omitempty"`
+	MaxOutputTokens int    `json:"max_output_tokens,omitempty"`
+}
+
+// ModelContextLimits is the context contract exposed to OpenAI-compatible
+// clients. The canonical source uses max_input_tokens; context_length is
+// emitted as the de facto OpenAI-compatible alias used by proxy clients.
+type ModelContextLimits struct {
+	ContextLength   int
+	MaxInputTokens  int
+	MaxOutputTokens int
+}
+
+const (
+	gpt56ContextWindow = 1_050_000
+	gpt55ContextWindow = 1_050_000
+	gpt54ContextWindow = 1_050_000
+	codexContextWindow = 272_000
+	maxOutputTokens    = 128_000
+)
+
+// ContextLimitsForModel returns the known limits for a published model ID.
+// Fast IDs are service-tier aliases and therefore share the base model
+// context window. Unknown IDs deliberately return false instead of inventing
+// a limit that could make a client send an oversized request.
+func ContextLimitsForModel(modelID string) (ModelContextLimits, bool) {
+	id := strings.ToLower(strings.TrimSpace(modelID))
+	id = strings.TrimSuffix(id, "-fast")
+
+	var contextWindow int
+	switch {
+	case strings.HasPrefix(id, "gpt-5.6"):
+		contextWindow = gpt56ContextWindow
+	case id == "gpt-5.5":
+		contextWindow = gpt55ContextWindow
+	case id == "gpt-5.4":
+		contextWindow = gpt54ContextWindow
+	case id == "gpt-5.4-mini":
+		contextWindow = codexContextWindow
+	case strings.HasPrefix(id, "gpt-5.3-codex"):
+		contextWindow = codexContextWindow
+	case id == "gpt-5.2":
+		contextWindow = codexContextWindow
+	default:
+		return ModelContextLimits{}, false
+	}
+
+	return ModelContextLimits{
+		ContextLength:   contextWindow,
+		MaxInputTokens:  contextWindow,
+		MaxOutputTokens: maxOutputTokens,
+	}, true
+}
+
+// ApplyContextLimits enriches a model without changing the standard fields.
+func ApplyContextLimits(model *Model) {
+	if model == nil {
+		return
+	}
+	limits, ok := ContextLimitsForModel(model.ID)
+	if !ok {
+		return
+	}
+	model.ContextLength = limits.ContextLength
+	model.MaxInputTokens = limits.MaxInputTokens
+	model.MaxOutputTokens = limits.MaxOutputTokens
+}
+
+// ModelsWithContextLimits returns a copy so the package-level model catalog
+// remains immutable for callers that reuse it across requests.
+func ModelsWithContextLimits(models []Model) []Model {
+	out := make([]Model, len(models))
+	copy(out, models)
+	for i := range out {
+		ApplyContextLimits(&out[i])
+	}
+	return out
 }
 
 // DefaultModels OpenAI models list

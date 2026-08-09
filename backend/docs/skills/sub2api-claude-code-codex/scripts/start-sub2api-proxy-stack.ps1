@@ -8,6 +8,7 @@ param(
   [int]$DockerWaitSeconds = 180,
   [int]$HealthWaitSeconds = 90,
   [int]$WslRetrySeconds = 120,
+  [switch]$ForceRecreate,
   [string]$HyperVVmName = "",
   [string]$HyperVVmSshUser = "",
   [string]$HyperVVmSshKey = "",
@@ -471,13 +472,21 @@ try {
   $envPath = Join-Path $Root ".env"
   $hyperVEnvPath = Join-Path $Root "hyperv-bridge.env"
   $StateRoot = Get-DotEnvValue -Path $envPath -Name "SUB2API_STATE_ROOT" -Fallback "./data"
+  $HeadroomRequireCuda = Get-DotEnvValue -Path $envPath -Name "HEADROOM_REQUIRE_CUDA" -Fallback "1"
+  $RequireCuda = $HeadroomRequireCuda -match "^(1|true|yes|on)$"
   $HeadroomAccelerator = Get-DotEnvValue -Path $envPath -Name "HEADROOM_ACCELERATOR" -Fallback "auto"
+  if ($RequireCuda -and $HeadroomAccelerator -eq "cpu") {
+    throw "CUDA is required by HEADROOM_REQUIRE_CUDA=1; refusing CPU fallback"
+  }
   if ($HeadroomAccelerator -eq "auto") {
     try {
       Invoke-WslBash "command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1"
       $HeadroomAccelerator = "cuda"
       Write-StackLog "auto accelerator resolved to cuda; applying GPU compose overlay"
     } catch {
+      if ($RequireCuda) {
+        throw "CUDA is required by HEADROOM_REQUIRE_CUDA=1, but nvidia-smi is unavailable; refusing CPU fallback"
+      }
       $HeadroomAccelerator = "cpu"
       Write-StackLog "auto accelerator resolved to cpu: $($_.Exception.Message)"
     }
@@ -509,7 +518,13 @@ try {
   }
 
   Invoke-WslBash "mkdir -p '$WslStateRoot/headroom' '$WslStateRoot/headroom-cache' '$WslStateRoot/headroom-huggingface' '$WslStateRoot/sub2api' '$WslStateRoot/postgres' '$WslStateRoot/redis'"
-  Invoke-WslBash "cd '$WslRoot' && docker compose --env-file .env -p '$ProjectName' $ComposeFiles up -d --remove-orphans"
+  # A scheduled health check may call this script while Claude has an active
+  # SSE/tool turn. Compose recreates a healthy service when the rendered
+  # config hash differs, which tears down that stream. Recovery is the only
+  # path allowed to opt into recreation explicitly.
+  $recreateFlag = if ($ForceRecreate) { "--force-recreate" } else { "--no-recreate" }
+  Write-StackLog "starting compose with recreate_policy=$recreateFlag"
+  Invoke-WslBash "cd '$WslRoot' && docker compose --env-file .env -p '$ProjectName' $ComposeFiles up -d --remove-orphans $recreateFlag"
   Invoke-WslBash "cd '$WslRoot' && docker compose --env-file .env -p '$ProjectName' $ComposeFiles ps"
 
   $baseUrl = Set-ClaudeBaseUrlFromWsl

@@ -23,6 +23,14 @@ type HTTPUpstreamSuite struct {
 	cfg *config.Config // 测试用配置
 }
 
+type failingReadCloser struct {
+	err error
+}
+
+func (r failingReadCloser) Read([]byte) (int, error) { return 0, r.err }
+
+func (r failingReadCloser) Close() error { return nil }
+
 // SetupTest 每个测试用例执行前的初始化
 // 创建空配置，各测试用例可按需覆盖
 func (s *HTTPUpstreamSuite) SetupTest() {
@@ -224,6 +232,119 @@ func (s *HTTPUpstreamSuite) TestOpenAIHTTP2ProxyCompatibilityErrorActivatesFallb
 	require.False(s.T(), transport.ForceAttemptHTTP2)
 	require.NotNil(s.T(), transport.TLSNextProto)
 	require.Equal(s.T(), upstreamProtocolModeOpenAIH1Fallback, entry.protocolMode)
+}
+
+// TestBDDOpenAIHTTP2BodyResetActivatesFallback is the executable BDD contract
+// for the real incident: HTTP 200 was received, then the SSE body failed.
+func (s *HTTPUpstreamSuite) TestBDDOpenAIHTTP2BodyResetActivatesFallback() {
+	s.cfg.Gateway = config.GatewayConfig{
+		OpenAIHTTP2: config.GatewayOpenAIHTTP2Config{
+			Enabled:                   true,
+			AllowProxyFallbackToHTTP1: true,
+			FallbackTTLSeconds:        60,
+		},
+	}
+	svc := s.newService()
+	proxyURL := "http://proxy-body-reset.local:8080"
+	bodyErr := errors.New("http2: stream error: stream ID 3903; INTERNAL_ERROR; received from peer")
+	body := wrapTrackedBodyWithReadError(
+		failingReadCloser{err: bodyErr},
+		nil,
+		func(err error) {
+			svc.recordOpenAIHTTP2BodyFailure(
+				service.HTTPUpstreamProfileOpenAI,
+				upstreamProtocolModeOpenAIH2,
+				proxyURL,
+				err,
+			)
+		},
+	)
+	_, err := body.Read(make([]byte, 64))
+	require.ErrorIs(s.T(), err, bodyErr)
+
+	entry, err := svc.getClientEntry(proxyURL, 1, 1, service.HTTPUpstreamProfileOpenAI, false, false)
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), upstreamProtocolModeOpenAIH1Fallback, entry.protocolMode,
+		"a post-200 H2 body reset must make the next pre-output retry use H1")
+}
+
+// TestBDDOpenAIHTTP2PreHeaderResetActivatesFallbackImmediately covers the
+// same failure before response headers, including direct upstream traffic.
+func (s *HTTPUpstreamSuite) TestBDDOpenAIHTTP2PreHeaderResetActivatesFallbackImmediately() {
+	s.cfg.Gateway = config.GatewayConfig{
+		OpenAIHTTP2: config.GatewayOpenAIHTTP2Config{
+			Enabled:                   true,
+			AllowProxyFallbackToHTTP1: true,
+			FallbackErrorThreshold:    5,
+			FallbackTTLSeconds:        60,
+		},
+	}
+	svc := s.newService()
+	svc.recordOpenAIHTTP2Failure(
+		service.HTTPUpstreamProfileOpenAI,
+		upstreamProtocolModeOpenAIH2,
+		directProxyKey,
+		errors.New("read: connection reset by peer"),
+	)
+
+	entry, err := svc.getClientEntry("", 1, 1, service.HTTPUpstreamProfileOpenAI, false, false)
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), upstreamProtocolModeOpenAIH1Fallback, entry.protocolMode,
+		"a hard H2 reset must bypass the normal threshold and make the next retry use H1")
+}
+
+// TestBDDOpenAIHTTP2BodyResetMarkers keeps the body-error classifier explicit
+// for the protocol failures that must activate the per-proxy H1 circuit.
+func (s *HTTPUpstreamSuite) TestBDDOpenAIHTTP2BodyResetMarkers() {
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{name: "internal error", err: errors.New("stream error: INTERNAL_ERROR; received from peer")},
+		{name: "rst stream", err: errors.New("RST_STREAM received from peer")},
+		{name: "goaway", err: errors.New("http2: server sent GOAWAY")},
+		{name: "unexpected eof", err: io.ErrUnexpectedEOF},
+		{name: "connection reset", err: errors.New("read: connection reset by peer")},
+	} {
+		s.Run(tc.name, func() {
+			require.True(s.T(), isOpenAIHTTP2BodyCompatibilityError(tc.err))
+		})
+	}
+}
+
+// TestBDDOpenAIHTTP2FallbackIsolatedAndExpires verifies that one proxy does
+// not force all OpenAI traffic to H1 and that H2 is retried after the TTL.
+func (s *HTTPUpstreamSuite) TestBDDOpenAIHTTP2FallbackIsolatedAndExpires() {
+	s.cfg.Gateway = config.GatewayConfig{
+		OpenAIHTTP2: config.GatewayOpenAIHTTP2Config{
+			Enabled:                   true,
+			AllowProxyFallbackToHTTP1: true,
+			FallbackTTLSeconds:        1,
+		},
+	}
+	svc := s.newService()
+	failedProxy := "http://proxy-failed.local:8080"
+	healthyProxy := "http://proxy-healthy.local:8080"
+	svc.recordOpenAIHTTP2BodyFailure(
+		service.HTTPUpstreamProfileOpenAI,
+		upstreamProtocolModeOpenAIH2,
+		failedProxy,
+		errors.New("stream error: INTERNAL_ERROR; received from peer"),
+	)
+
+	failedEntry, err := svc.getClientEntry(failedProxy, 1, 1, service.HTTPUpstreamProfileOpenAI, false, false)
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), upstreamProtocolModeOpenAIH1Fallback, failedEntry.protocolMode)
+
+	healthyEntry, err := svc.getClientEntry(healthyProxy, 1, 1, service.HTTPUpstreamProfileOpenAI, false, false)
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), upstreamProtocolModeOpenAIH2, healthyEntry.protocolMode)
+
+	state := svc.getOrCreateOpenAIHTTP2FallbackState(failedProxy)
+	require.False(s.T(), state.isFallbackActive(time.Now().Add(2*time.Second)))
+	expiredEntry, err := svc.getClientEntry(failedProxy, 1, 1, service.HTTPUpstreamProfileOpenAI, false, false)
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), upstreamProtocolModeOpenAIH2, expiredEntry.protocolMode)
 }
 
 // TestNormalizeProxyURL_Canonicalizes 测试代理 URL 规范化

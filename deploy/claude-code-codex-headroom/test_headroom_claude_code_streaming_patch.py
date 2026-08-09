@@ -30,6 +30,10 @@ class StreamingHandler:
     _mid_turn_queues: dict[str, asyncio.Queue] = {}
     _active_streams: set[str] = set()
 
+    def __init__(self) -> None:
+        self.finalized_tags: dict[str, str] | None = None
+        self.raise_in_finalizer = False
+
     @staticmethod
     def _get_session_key(body: dict, session_header: str | None = None) -> str:
         return session_header or "derived-session"
@@ -48,6 +52,11 @@ class StreamingHandler:
         if not drain_pending_messages or queue is None or queue.empty():
             return []
         return [queue.get_nowait()]
+
+    async def _finalize_stream_response(self, **kwargs: Any) -> None:
+        self.finalized_tags = dict(kwargs["tags"])
+        if self.raise_in_finalizer:
+            raise RuntimeError("injected telemetry finalizer failure")
 
     async def _stream_response(
         self,
@@ -72,7 +81,62 @@ class StreamingHandler:
         return await self._stream_response_inner()
 
     async def _stream_response_inner(self):
-        return "ok"
+        headers = {}
+        body = {"stream": True}
+        provider = "anthropic"
+        outcome_provider = "openai"
+        model = "gpt-5.6-luna"
+        request_id = "request-id"
+        original_tokens = 12
+        optimized_tokens = 8
+        tokens_saved = 4
+        transforms_applied = ["fixture"]
+        tags = {"existing": "tag"}
+        optimization_latency = 0.001
+        pipeline_timing = {}
+        prefix_tracker = None
+        original_messages = []
+        client = "claude-code"
+        waste_signals = {}
+        session_key = "session-1"
+        start_time = time.time()
+        outbound_headers = {**headers, "content-type": "application/json"}
+        chunks = [
+            b'event: message_start\\ndata: {"type":"message_start"}\\n\\n',
+            b'event: content_block_delta\\ndata: {"type":"content_block_delta","delta":{"type":"text_delta","text":"OK"}}\\n\\n',
+            b'event: message_stop\\ndata: {"type":"message_stop"}\\n\\n',
+        ]
+        stream_state: dict[str, Any] = {
+            "total_bytes": 0,
+            "ttfb_ms": None,  # Time to first byte from upstream
+        }
+        forwarded_headers = {}
+
+        async def generate():
+            full_sse_bytes = bytearray()
+            parsed_response = None
+            completed_normally = False
+            try:
+                for chunk in chunks:
+                    full_sse_bytes.extend(chunk)
+                    stream_state["total_bytes"] += len(chunk)
+                    yield chunk
+                completed_normally = True
+            except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout) as e:
+                logger.error(f"[{request_id}] Connection error to upstream API: {e}")
+            except httpx.HTTPStatusError as e:
+                logger.error(f"[{request_id}] HTTP error from upstream API: {e}")
+            except Exception as e:
+                logger.error(f"[{request_id}] Unexpected streaming error: {e}")
+            finally:
+                pending_messages = self._cleanup_mid_turn_stream(
+                    session_key
+                )
+                await self._finalize_stream_response(
+                    tags=tags,
+                )
+
+        return generate()
 """
 
 
@@ -172,6 +236,34 @@ def digest(*paths: Path) -> str:
 
 
 class HeadroomClaudeCodeStreamingPatchTest(unittest.TestCase):
+    @staticmethod
+    def _load_streaming_module(path: Path, module_name: str) -> types.ModuleType:
+        spec = importlib.util.spec_from_file_location(module_name, path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"could not load patched streaming fixture: {path}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    @staticmethod
+    async def _consume_fixture_stream(handler: Any) -> list[bytes]:
+        response = await handler._stream_response(
+            "url",
+            {},
+            {"stream": True},
+            "anthropic",
+            "gpt-5.6-luna",
+            "request-id",
+            12,
+            8,
+            4,
+            ["fixture"],
+            {"existing": "tag"},
+            0.001,
+            session_key="session-1",
+        )
+        return [chunk async for chunk in response]
+
     def test_patches_streaming_and_anthropic_and_is_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -197,6 +289,48 @@ class HeadroomClaudeCodeStreamingPatchTest(unittest.TestCase):
             second = run_patch(root)
             self.assertEqual(second.returncode, 0, second.stderr)
             self.assertEqual(after_first, digest(streaming, anthropic))
+
+    def test_stream_generator_reaches_message_stop_and_clean_eof(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            streaming, _ = write_fake_headroom(root)
+            result = run_patch(root)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            module = self._load_streaming_module(streaming, "patched_streaming_clean_eof")
+            handler = module.StreamingHandler()
+            chunks = asyncio.run(self._consume_fixture_stream(handler))
+
+            wire = b"".join(chunks)
+            self.assertIn(b"event: message_start", wire)
+            self.assertIn(b"event: content_block_delta", wire)
+            self.assertIn(b"event: message_stop", wire)
+            self.assertEqual(handler.finalized_tags["existing"], "tag")
+            self.assertEqual(handler.finalized_tags["stream_chunks_yielded"], "3")
+            self.assertEqual(handler.finalized_tags["stream_terminal_event"], "true")
+            self.assertNotIn("session-1", handler._active_streams)
+            self.assertNotIn("session-1", handler._active_stream_counts)
+
+    def test_telemetry_finalizer_failure_does_not_break_completed_stream(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            streaming, _ = write_fake_headroom(root)
+            result = run_patch(root)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            module = self._load_streaming_module(streaming, "patched_streaming_finalize_error")
+            handler = module.StreamingHandler()
+            handler.raise_in_finalizer = True
+
+            with self.assertLogs("headroom.proxy", level="ERROR") as captured:
+                chunks = asyncio.run(self._consume_fixture_stream(handler))
+
+            self.assertIn(b"event: message_stop", b"".join(chunks))
+            self.assertTrue(
+                any("event=claude_code_stream_finalize_failed" in line for line in captured.output)
+            )
+            self.assertNotIn("session-1", handler._active_streams)
+            self.assertNotIn("session-1", handler._active_stream_counts)
 
     def test_session_key_helper_uses_claude_session_and_agent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

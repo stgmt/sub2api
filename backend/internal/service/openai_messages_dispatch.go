@@ -39,6 +39,7 @@ func normalizeOpenAIMessagesDispatchModelConfig(cfg OpenAIMessagesDispatchModelC
 		OpusMappedModel:        normalizeOpenAIMessagesDispatchMappedModel(cfg.OpusMappedModel),
 		SonnetMappedModel:      normalizeOpenAIMessagesDispatchMappedModel(cfg.SonnetMappedModel),
 		HaikuMappedModel:       normalizeOpenAIMessagesDispatchMappedModel(cfg.HaikuMappedModel),
+		FastMappedModel:        normalizeOpenAIMessagesDispatchMappedModel(cfg.FastMappedModel),
 		CompactMappedModel:     normalizeOpenAIMessagesDispatchFallbackModel(cfg.CompactMappedModel),
 		CompactReasoningEffort: normalizeOpenAIMessagesDispatchReasoningEffort(cfg.CompactReasoningEffort),
 		PlanMappedModel:        normalizeOpenAIMessagesDispatchFallbackModel(cfg.PlanMappedModel),
@@ -82,6 +83,17 @@ func normalizeOpenAIMessagesDispatchModelConfig(cfg OpenAIMessagesDispatchModelC
 	out.AutomaticModelFallbacks = normalizeOpenAIMessagesDispatchFallbacks(cfg.AutomaticModelFallbacks)
 
 	return out
+}
+
+// ResolveMessagesDispatchFastModel returns the model used when Claude Code
+// explicitly requested Fast mode. It is separate from ordinary Opus routing:
+// normal work can stay on Sol while a verified Fast signal selects Luna.
+func (g *Group) ResolveMessagesDispatchFastModel() string {
+	if g == nil {
+		return ""
+	}
+	cfg := normalizeOpenAIMessagesDispatchModelConfig(g.MessagesDispatchModelConfig)
+	return strings.TrimSpace(cfg.FastMappedModel)
 }
 
 func normalizeOpenAIMessagesDispatchFallbacks(fallbacks map[string][]string) map[string][]string {

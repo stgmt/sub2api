@@ -12,8 +12,13 @@ import "encoding/json"
 
 // AnthropicRequest is the request body for POST /v1/messages.
 type AnthropicRequest struct {
-	Model       string             `json:"model"`
-	MaxTokens   int                `json:"max_tokens"`
+	Model     string `json:"model"`
+	MaxTokens int    `json:"max_tokens"`
+	// Speed is the Anthropic fast-mode request signal ("fast"). It is
+	// translated by the OpenAI compatibility gateway to service_tier=priority;
+	// it is not an OpenAI Responses field and therefore must not be forwarded
+	// verbatim through the conversion layer.
+	Speed       string             `json:"speed,omitempty"`
 	System      json.RawMessage    `json:"system,omitempty"` // string or []AnthropicContentBlock
 	Messages    []AnthropicMessage `json:"messages"`
 	Tools       []AnthropicTool    `json:"tools,omitempty"`
@@ -257,12 +262,15 @@ type ResponsesTool struct {
 
 // ResponsesResponse is the non-streaming response from POST /v1/responses.
 type ResponsesResponse struct {
-	ID     string            `json:"id"`
-	Object string            `json:"object"` // "response"
-	Model  string            `json:"model"`
-	Status string            `json:"status"` // "completed" | "incomplete" | "failed"
-	Output []ResponsesOutput `json:"output"`
-	Usage  *ResponsesUsage   `json:"usage,omitempty"`
+	ID     string `json:"id"`
+	Object string `json:"object"` // "response"
+	Model  string `json:"model"`
+	Status string `json:"status"` // "completed" | "incomplete" | "failed"
+	// ServiceTier is the tier reported by the upstream Responses API. It is
+	// distinct from the request tier recorded by the gateway for billing.
+	ServiceTier string            `json:"service_tier,omitempty"`
+	Output      []ResponsesOutput `json:"output"`
+	Usage       *ResponsesUsage   `json:"usage,omitempty"`
 
 	// incomplete_details is present when status="incomplete"
 	IncompleteDetails *ResponsesIncompleteDetails `json:"incomplete_details,omitempty"`

@@ -644,6 +644,8 @@ if (-not $SkipClaudeConfig) {
   Set-ObjectProperty $settings.env "CLAUDE_CODE_MAX_OUTPUT_TOKENS" ([string]$MaxOutputTokens)
   Set-ObjectProperty $settings.env "MAX_THINKING_TOKENS" ([string]$MaxThinkingTokens)
   Set-ObjectProperty $settings.env "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC" "1"
+  Set-ObjectProperty $settings.env "CLAUDE_CODE_SKIP_FAST_MODE_NETWORK_ERRORS" "1"
+  Set-ObjectProperty $settings.env "CLAUDE_CODE_SKIP_FAST_MODE_ORG_CHECK" "1"
   Set-ObjectProperty $settings.env "CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK" "1"
   Remove-ObjectProperty $settings.env "CLAUDE_CODE_EFFORT_LEVEL"
   $settings | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $settingsPath -Encoding UTF8
@@ -664,6 +666,7 @@ if (-not $SkipClaudeConfig) {
   [Environment]::SetEnvironmentVariable("ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES", "effort,thinking", "User")
   [Environment]::SetEnvironmentVariable("ANTHROPIC_SMALL_FAST_MODEL", $SmallFastModel, "User")
   [Environment]::SetEnvironmentVariable("CLAUDE_CODE_SUBAGENT_MODEL", $SubagentModel, "User")
+  [Environment]::SetEnvironmentVariable("CLAUDE_CODE_SKIP_FAST_MODE_NETWORK_ERRORS", "1", "User")
   [Environment]::SetEnvironmentVariable("CLAUDE_CODE_MAX_CONTEXT_TOKENS", [string]$MaxContextTokens, "User")
   [Environment]::SetEnvironmentVariable("CLAUDE_CODE_AUTO_COMPACT_WINDOW", [string]$AutoCompactWindow, "User")
   [Environment]::SetEnvironmentVariable("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS", [string]$MaxConcurrentSubagents, "User")
@@ -671,6 +674,7 @@ if (-not $SkipClaudeConfig) {
   [Environment]::SetEnvironmentVariable("CLAUDE_CODE_MAX_OUTPUT_TOKENS", [string]$MaxOutputTokens, "User")
   [Environment]::SetEnvironmentVariable("MAX_THINKING_TOKENS", [string]$MaxThinkingTokens, "User")
   [Environment]::SetEnvironmentVariable("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1", "User")
+  [Environment]::SetEnvironmentVariable("CLAUDE_CODE_SKIP_FAST_MODE_ORG_CHECK", "1", "User")
   [Environment]::SetEnvironmentVariable("CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK", "1", "User")
   try {
     [Environment]::SetEnvironmentVariable("CLAUDE_CODE_EFFORT_LEVEL", $null, "User")

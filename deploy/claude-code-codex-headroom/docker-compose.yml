@@ -7,7 +7,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.headroom
-      target: ${HEADROOM_DOCKER_TARGET:-cpu}
+      target: ${HEADROOM_DOCKER_TARGET:-gpu}
       args:
         HEADROOM_VERSION: ${HEADROOM_VERSION:-0.31.0}
         HEADROOM_PYTHON_VERSION: ${HEADROOM_PYTHON_VERSION:-3.12}
@@ -19,6 +19,8 @@ services:
     image: headroom-sub2api:${HEADROOM_VERSION:-0.31.0}
     container_name: headroom-sub2api
     restart: unless-stopped
+    stop_grace_period: 90s
+    gpus: all
     labels:
       org.opencontainers.image.source: ${HEADROOM_GIT_REPO:-https://github.com/stgmt/headroom.git}
       org.opencontainers.image.revision: ${HEADROOM_GIT_REF:-fa182526cf7668a856553ef76a1b43f610256632}
@@ -74,6 +76,7 @@ services:
       HEADROOM_UPSTREAM_RECOVERY_HOLD_STATUSES: ${HEADROOM_UPSTREAM_RECOVERY_HOLD_STATUSES:-429,502,503,504,529}
       HEADROOM_FORCE_KOMPRESS: ${HEADROOM_FORCE_KOMPRESS:-0}
       HEADROOM_DISABLE_KOMPRESS: ${HEADROOM_DISABLE_KOMPRESS:-1}
+      HEADROOM_REQUIRE_CUDA: ${HEADROOM_REQUIRE_CUDA:-1}
       HEADROOM_ACCURACY_GUARD: ${HEADROOM_ACCURACY_GUARD:-strict}
       HEADROOM_CODE_AWARE_ENABLED: ${HEADROOM_CODE_AWARE_ENABLED:-1}
       HEADROOM_CONTEXT_TOOL: ${HEADROOM_CONTEXT_TOOL:-rtk}
@@ -109,7 +112,7 @@ services:
     healthcheck:
       test:
         - CMD-SHELL
-        - "python - <<'PY'\nimport json, urllib.request\nr=urllib.request.urlopen('http://127.0.0.1:8787/health', timeout=5)\nraise SystemExit(0 if json.load(r).get('ready') else 1)\nPY"
+        - "python -c \"import json,sys,torch,urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8787/health', timeout=5); sys.exit(0 if torch.cuda.is_available() and json.load(r).get('ready') else 1)\""
       interval: 15s
       timeout: 5s
       retries: 20
@@ -126,6 +129,7 @@ services:
     image: ${SUB2API_IMAGE:-sub2api-codex:local-token-usage}
     container_name: sub2api-codex
     restart: unless-stopped
+    stop_grace_period: 90s
     labels:
       org.opencontainers.image.source: ${SUB2API_GIT_REPO:-https://github.com/stgmt/sub2api.git}
       org.opencontainers.image.revision: ${SUB2API_GIT_REF:-local}

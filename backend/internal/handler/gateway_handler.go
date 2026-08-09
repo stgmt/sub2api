@@ -1028,7 +1028,7 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 	if platform == service.PlatformOpenAI {
 		c.JSON(http.StatusOK, gin.H{
 			"object": "list",
-			"data":   openai.DefaultModels,
+			"data":   openai.ModelsWithContextLimits(openai.DefaultModels),
 		})
 		return
 	}
@@ -1050,12 +1050,18 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 func writeModelsList(c *gin.Context, modelIDs []string) {
 	models := make([]claude.Model, 0, len(modelIDs))
 	for _, modelID := range modelIDs {
-		models = append(models, claude.Model{
+		model := claude.Model{
 			ID:          modelID,
 			Type:        "model",
 			DisplayName: modelID,
 			CreatedAt:   "2024-01-01T00:00:00Z",
-		})
+		}
+		if limits, ok := openai.ContextLimitsForModel(modelID); ok {
+			model.ContextLength = limits.ContextLength
+			model.MaxInputTokens = limits.MaxInputTokens
+			model.MaxOutputTokens = limits.MaxOutputTokens
+		}
+		models = append(models, model)
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"object": "list",
@@ -1080,17 +1086,20 @@ func writeOpenAIModelsList(c *gin.Context, modelIDs []string) {
 	models := make([]openai.Model, 0, len(modelIDs))
 	for _, modelID := range modelIDs {
 		if model, ok := defaultsByID[modelID]; ok {
+			openai.ApplyContextLimits(&model)
 			models = append(models, model)
 			continue
 		}
-		models = append(models, openai.Model{
+		model := openai.Model{
 			ID:          modelID,
 			Object:      "model",
 			Created:     1704067200,
 			OwnedBy:     "openai",
 			Type:        "model",
 			DisplayName: modelID,
-		})
+		}
+		openai.ApplyContextLimits(&model)
+		models = append(models, model)
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"object": "list",

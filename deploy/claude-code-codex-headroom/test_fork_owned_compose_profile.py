@@ -23,6 +23,7 @@ def test_headroom_image_builds_from_stgmt_fork_ref() -> None:
     assert "HEADROOM_GIT_REPO: ${HEADROOM_GIT_REPO:-https://github.com/stgmt/headroom.git}" in compose
     assert "HEADROOM_GIT_REF: ${HEADROOM_GIT_REF:-fa182526cf7668a856553ef76a1b43f610256632}" in compose
     assert "HEADROOM_RUST_TOOLCHAIN: ${HEADROOM_RUST_TOOLCHAIN:-1.88.0}" in compose
+    assert "stop_grace_period: 90s" in compose
 
 
 def test_sub2api_service_records_fork_provenance() -> None:
@@ -80,13 +81,14 @@ def test_headroom_gpu_stage_and_overlay_are_explicit() -> None:
     assert "ARG HEADROOM_TORCH_INDEX_URL=" in dockerfile
     assert 'python -m pip install "torch==${HEADROOM_TORCH_VERSION}"' in dockerfile
     assert "torch.cuda.is_available()" in dockerfile
-    assert "target: ${HEADROOM_DOCKER_TARGET:-cpu}" in compose
+    assert "target: ${HEADROOM_DOCKER_TARGET:-gpu}" in compose
     assert "HEADROOM_KOMPRESS_BACKEND: ${HEADROOM_KOMPRESS_BACKEND:-auto}" in compose
-    assert "gpus: all" in gpu_compose
+    assert "gpus: all" in compose
     assert "target: gpu" in gpu_compose
     assert "HEADROOM_KOMPRESS_BACKEND: pytorch" in gpu_compose
     assert 'HEADROOM_FORCE_KOMPRESS: "1"' in gpu_compose
     assert 'HEADROOM_DISABLE_KOMPRESS: "0"' in gpu_compose
+    assert 'HEADROOM_REQUIRE_CUDA: "1"' in gpu_compose
 
 
 def test_setup_and_autostart_select_gpu_overlay_from_env() -> None:
@@ -116,6 +118,49 @@ def test_autostart_retries_transient_wsl_service_failures() -> None:
     assert "WSL service transient on attempt $attempt; retrying" in start
 
 
+def test_normal_autostart_cannot_recreate_a_live_stream() -> None:
+    scripts = (ROOT / "../../backend/docs/skills/sub2api-claude-code-codex/scripts").resolve()
+    start = (scripts / "start-sub2api-proxy-stack.ps1").read_text(encoding="utf-8")
+    ensure = (scripts / "ensure-sub2api-proxy-stack.ps1").read_text(encoding="utf-8")
+
+    assert '[switch]$ForceRecreate' in start
+    assert '$recreateFlag = if ($ForceRecreate) { "--force-recreate" } else { "--no-recreate" }' in start
+    assert 'up -d --remove-orphans $recreateFlag' in start
+    assert 'ForceRecreate = $true' in ensure
+    assert 'SSE/tool turn' in start
+    assert 'function Invoke-HeadroomStatsProbe' in ensure
+    assert 'function Get-ActiveHeadroomState' in ensure
+    assert 'function Get-StackLifecycleState' in ensure
+    assert 'recovery_deferred' in ensure
+    assert 'active_proxy_requests' in ensure
+    assert 'active_state_unproven' in ensure
+    assert 'active -eq 0' in ensure
+    assert 'missing_or_stopped' in ensure
+    assert "Where-Object { ([string]$_).Trim() -match '^/' }" in ensure
+    assert 'function Get-HeadroomImageState' in ensure
+    assert 'function Invoke-HeadroomIdleRollout' in ensure
+    assert 'param([System.Collections.IDictionary]$ImageState)' in ensure
+    assert 'headroom_image_rollout_deferred' in ensure
+    assert '--no-deps --force-recreate headroom' in ensure
+
+
+def test_stream_trace_contract_is_durable_and_correlation_is_explicit() -> None:
+    patch = read("patch-headroom-claude-code-streaming.py")
+
+    assert "STREAMING_TRACE_SENTINEL" in patch
+    assert 'outbound_headers["x-headroom-request-id"] = request_id' in patch
+    assert 'stream_output_started' in patch
+    assert 'stream_completed_normally' in patch
+    assert 'client_disconnect_or_cancel' in patch
+    assert "After the first yielded byte, never replay" in patch
+    assert 'final_tags = dict(tags or {})' in patch
+    assert 'tags=final_tags' in patch
+    assert 'event=claude_code_stream_finalize_failed' in patch
+    assert "'                tags = dict(tags or {})\\n'" not in patch
+    assert 'forwarded_start = text.find("        forwarded_headers =")' in patch
+    assert 'could not locate _stream_response_inner generator' in patch
+
+
 def test_verifier_retries_wsl_and_cannot_false_green_gpu_as_cpu() -> None:
     scripts = (ROOT / "../../backend/docs/skills/sub2api-claude-code-codex/scripts").resolve()
     verifier = (scripts / "verify-claude-code-sub2api.ps1").read_text(encoding="utf-8")
@@ -141,7 +186,7 @@ def test_verifier_uses_active_profile_for_all_wrapper_picker_aliases() -> None:
 
     assert 'if ($isNativeClaudeProfile) { "claude-subscription-only" }' in verifier
     assert 'elseif ($isChatGPTOnlyProfile) { "chatgpt-subscription-only" }' in verifier
-    assert '$sdkCliAutomaticFallbackModel = if ($isChatGPTOnlyProfile) { "gpt-5.6-sol" } else { "" }' in verifier
+    assert '$sdkCliAutomaticFallbackModel = ""' in verifier
     assert '-Effort $sdkCliEffort' in verifier
     assert 'Claude subagent profile contract check failed' in verifier
     assert 'Claude wrapper model contract check failed' in verifier

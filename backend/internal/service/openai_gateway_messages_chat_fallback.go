@@ -61,6 +61,11 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 		writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, fmt.Errorf("convert anthropic to responses: %w", err)
 	}
+	fastModeRequested, fastModeSource := applyAnthropicFastModeToResponses(
+		responsesReq,
+		c.GetHeader("anthropic-beta"),
+		anthropicReq.Speed,
+	)
 
 	billingModel := resolveOpenAIForwardModel(account, anthropicReq.Model, defaultMappedModel)
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
@@ -78,7 +83,6 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 
 	reasoningEffort := extractOpenAIReasoningEffortFromBody(body, originalModel)
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, billingModel)
-	serviceTier := extractOpenAIServiceTierFromBody(body)
 
 	chatBody, err := json.Marshal(chatReq)
 	if err != nil {
@@ -87,10 +91,30 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 	if normalizedBody, normalized := NormalizeGLMOpenAIReasoningEffort(chatBody, upstreamModel); normalized {
 		chatBody = normalizedBody
 	}
-	// Unlike forwardResponsesViaRawChatCompletions, applyOpenAIFastPolicyToBody
-	// is intentionally skipped: Anthropic Messages bodies carry no service_tier,
-	// so the converted Chat Completions body never contains one and the policy
-	// would always be a no-op on this path.
+	// The converted Chat Completions body now carries service_tier=priority when
+	// Claude Code requested /fast. Apply the same policy as the Responses path;
+	// previously this fallback silently downgraded every fast request.
+	updatedChatBody, policyErr := s.applyOpenAIFastPolicyToBody(ctx, account, upstreamModel, chatBody)
+	if policyErr != nil {
+		var blocked *OpenAIFastBlockedError
+		if errors.As(policyErr, &blocked) {
+			writeAnthropicError(c, http.StatusForbidden, "forbidden_error", blocked.Message)
+		}
+		return nil, policyErr
+	}
+	chatBody = updatedChatBody
+	serviceTier := extractOpenAIServiceTierFromBody(chatBody)
+	if fastModeRequested {
+		forwarded := serviceTier != nil && *serviceTier == OpenAIFastTierPriority
+		logger.L().Info("openai_messages.fast_mode_forwarded",
+			zap.Int64("account_id", account.ID),
+			zap.String("original_model", originalModel),
+			zap.String("upstream_model", upstreamModel),
+			zap.String("source", fastModeSource),
+			zap.Bool("raw_chat_fallback", true),
+			zap.Bool("forwarded", forwarded),
+		)
+	}
 
 	logger.L().Debug("openai messages: forwarding via raw chat completions",
 		zap.Int64("account_id", account.ID),
@@ -192,10 +216,18 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 	}
 
 	// 5. Convert response
+	var result *OpenAIForwardResult
+	var handleErr error
 	if clientStream {
-		return s.streamChatCompletionsAsAnthropic(c, resp, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
+		result, handleErr = s.streamChatCompletionsAsAnthropic(c, resp, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
+	} else {
+		result, handleErr = s.bufferChatCompletionsAsAnthropic(c, resp, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
 	}
-	return s.bufferChatCompletionsAsAnthropic(c, resp, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
+	if fastModeRequested {
+		logAnthropicFastModeProviderConfirmation(account, originalModel, upstreamModel, fastModeSource, result)
+		reconcileOpenAIServiceTierWithProvider(result)
+	}
+	return result, handleErr
 }
 
 func (s *OpenAIGatewayService) bufferChatCompletionsAsAnthropic(
@@ -237,15 +269,16 @@ func (s *OpenAIGatewayService) bufferChatCompletionsAsAnthropic(
 	c.JSON(http.StatusOK, anthropicResp)
 
 	return &OpenAIForwardResult{
-		RequestID:       requestID,
-		Usage:           usage,
-		Model:           originalModel,
-		BillingModel:    billingModel,
-		UpstreamModel:   upstreamModel,
-		ReasoningEffort: reasoningEffort,
-		ServiceTier:     serviceTier,
-		Stream:          false,
-		Duration:        time.Since(startTime),
+		RequestID:           requestID,
+		Usage:               usage,
+		Model:               originalModel,
+		BillingModel:        billingModel,
+		UpstreamModel:       upstreamModel,
+		ProviderServiceTier: optionalTrimmedStringPtr(ccResp.ServiceTier),
+		ReasoningEffort:     reasoningEffort,
+		ServiceTier:         serviceTier,
+		Stream:              false,
+		Duration:            time.Since(startTime),
 	}, nil
 }
 
@@ -280,6 +313,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 	anthropicState := apicompat.NewResponsesEventToAnthropicState()
 	anthropicState.Model = originalModel
 	var usage OpenAIUsage
+	var providerServiceTier *string
 	var firstTokenMs *int
 	clientDisconnected := false
 	sawDone := false
@@ -317,6 +351,9 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 				zap.String("request_id", requestID),
 			)
 			continue
+		}
+		if tier := optionalTrimmedStringPtr(chunk.ServiceTier); tier != nil {
+			providerServiceTier = tier
 		}
 		if firstTokenMs == nil && !isOpenAIChatUsageOnlyStreamChunk(payload) && chatChunkStartsResponsesOutput(&chunk) {
 			ms := int(time.Since(startTime).Milliseconds())
@@ -358,17 +395,18 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 		// masks the truncation, and surface the error to flag usage incomplete
 		// (mirrors forwardResponsesViaRawChatCompletions).
 		return &OpenAIForwardResult{
-			RequestID:        requestID,
-			Usage:            usage,
-			Model:            originalModel,
-			BillingModel:     billingModel,
-			UpstreamModel:    upstreamModel,
-			ReasoningEffort:  reasoningEffort,
-			ServiceTier:      serviceTier,
-			Stream:           true,
-			Duration:         time.Since(startTime),
-			FirstTokenMs:     firstTokenMs,
-			ClientDisconnect: clientDisconnected,
+			RequestID:           requestID,
+			Usage:               usage,
+			Model:               originalModel,
+			BillingModel:        billingModel,
+			UpstreamModel:       upstreamModel,
+			ProviderServiceTier: providerServiceTier,
+			ReasoningEffort:     reasoningEffort,
+			ServiceTier:         serviceTier,
+			Stream:              true,
+			Duration:            time.Since(startTime),
+			FirstTokenMs:        firstTokenMs,
+			ClientDisconnect:    clientDisconnected,
 		}, fmt.Errorf("stream usage incomplete: %w", err)
 	}
 
@@ -404,16 +442,17 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 	}
 
 	return &OpenAIForwardResult{
-		RequestID:        requestID,
-		Usage:            usage,
-		Model:            originalModel,
-		BillingModel:     billingModel,
-		UpstreamModel:    upstreamModel,
-		ReasoningEffort:  reasoningEffort,
-		ServiceTier:      serviceTier,
-		Stream:           true,
-		Duration:         time.Since(startTime),
-		FirstTokenMs:     firstTokenMs,
-		ClientDisconnect: clientDisconnected,
+		RequestID:           requestID,
+		Usage:               usage,
+		Model:               originalModel,
+		BillingModel:        billingModel,
+		UpstreamModel:       upstreamModel,
+		ProviderServiceTier: providerServiceTier,
+		ReasoningEffort:     reasoningEffort,
+		ServiceTier:         serviceTier,
+		Stream:              true,
+		Duration:            time.Since(startTime),
+		FirstTokenMs:        firstTokenMs,
+		ClientDisconnect:    clientDisconnected,
 	}, nil
 }

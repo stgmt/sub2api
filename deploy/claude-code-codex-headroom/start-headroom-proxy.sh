@@ -18,4 +18,11 @@ copy_seed "$seed_dir/cache-huggingface" /root/.cache/huggingface
 
 mkdir -p /root/.headroom/logs /root/.cache/headroom /root/.cache/huggingface
 
+if [ "${HEADROOM_REQUIRE_CUDA:-1}" = "1" ]; then
+  if ! python -c 'import sys, torch; ok = bool(torch.cuda.is_available()); print("HEADROOM_CUDA_AVAILABLE=" + str(ok)); sys.exit(0 if ok else 78)'; then
+    echo "Headroom startup refused: CUDA is required but torch.cuda.is_available() is false" >&2
+    exit 78
+  fi
+fi
+
 exec headroom proxy "$@"

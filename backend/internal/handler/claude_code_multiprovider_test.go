@@ -186,6 +186,70 @@ func TestIsClaudeCodeSDKCLIRequest(t *testing.T) {
 	}
 }
 
+func TestIsClaudeCodeFastModeRequest_AcceptsHeaderAndBodySignals(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name   string
+		header string
+		body   string
+		want   bool
+	}{
+		{name: "beta header", header: "oauth-2025-04-20, fast-mode-2026-02-01", body: `{}`, want: true},
+		{name: "body speed", body: `{"model":"claude-opus-5","speed":"fast"}`, want: true},
+		{name: "ordinary", body: `{"model":"claude-opus-5","speed":"standard"}`, want: false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("POST", "/v1/messages", strings.NewReader(tt.body))
+			if tt.header != "" {
+				req.Header.Set("anthropic-beta", tt.header)
+			}
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = req
+			require.Equal(t, tt.want, isClaudeCodeFastModeRequest(c, []byte(tt.body)))
+		})
+	}
+}
+
+func TestRewriteFastModeRequest_UsesFastMappedModelWithoutChangingOrdinaryOpus(t *testing.T) {
+	t.Parallel()
+
+	group := &service.Group{
+		Platform: service.PlatformOpenAI,
+		MessagesDispatchModelConfig: service.OpenAIMessagesDispatchModelConfig{
+			OpusMappedModel: "gpt-5.6-sol",
+			FastMappedModel: "gpt-5.6-luna",
+			ExactModelMappings: map[string]string{
+				"claude-opus-5": "gpt-5.6-sol",
+			},
+		},
+	}
+
+	fastBody := []byte(`{"model":"claude-opus-5","speed":"fast"}`)
+	fastModel := group.ResolveMessagesDispatchFastModel()
+	rewritten, model, err := rewriteClaudeCodeCompactModelForMultiprovider(fastBody, fastModel)
+	require.NoError(t, err)
+	require.Equal(t, "gpt-5.6-luna", model)
+	require.JSONEq(t, `{"model":"gpt-5.6-luna","speed":"fast"}`, string(rewritten))
+
+	ordinaryBody := []byte(`{"model":"claude-opus-5"}`)
+	rewritten, model, err = rewriteExplicitClaudeCodeModelForMultiprovider(ordinaryBody, "claude-opus-5", service.PlatformOpenAI, group)
+	require.NoError(t, err)
+	require.Equal(t, "gpt-5.6-sol", model)
+	require.JSONEq(t, `{"model":"gpt-5.6-sol"}`, string(rewritten))
+}
+
+func TestShouldRewriteClaudeCodeFastModeRequest_IncludesSDKCLI(t *testing.T) {
+	t.Parallel()
+
+	// `claude --print` uses the external sdk-cli user agent. Fast mode is a
+	// request-level opt-in and must win over the ordinary SDK model profile.
+	require.True(t, shouldRewriteClaudeCodeFastModeRequest(true, false, "gpt-5.6-luna", service.PlatformOpenAI))
+	require.False(t, shouldRewriteClaudeCodeFastModeRequest(true, true, "gpt-5.6-luna", service.PlatformOpenAI))
+	require.False(t, shouldRewriteClaudeCodeFastModeRequest(true, false, "", service.PlatformOpenAI))
+	require.False(t, shouldRewriteClaudeCodeFastModeRequest(true, false, "gpt-5.6-luna", service.PlatformAnthropic))
+}
+
 func TestRewriteClaudeCodeCompactModelForMultiprovider_RoutesGPTCompactToQwenFamily(t *testing.T) {
 	t.Parallel()
 

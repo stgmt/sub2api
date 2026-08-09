@@ -69,6 +69,8 @@ Assert-Contains $start 'Sync-SelfHealScheduledTask' "Legacy logon-only tasks mus
 Assert-Contains $start 'actionUsesHiddenLauncher' "Legacy direct PowerShell tasks must self-upgrade to the zero-window launcher"
 Assert-Contains $start 'upgrading legacy or focus-stealing autostart task to repeating zero-window self-heal' "Legacy task migration must be observable"
 Assert-Contains $start 'Hyper-V guest config update skipped by mode=none' "Bridge-only Windows mode must remain observable"
+Assert-Contains $start 'HEADROOM_REQUIRE_CUDA' "GPU-required profiles must be explicit in the starter"
+Assert-Contains $start 'refusing CPU fallback' "GPU-required profiles must fail closed instead of starting CPU Headroom"
 Assert-Contains $verifier 'ensure-sub2api-proxy-stack\.ps1' "Verifier must reject the legacy start-script action"
 Assert-Contains $verifier 'run-hidden\.vbs' "Verifier must reject focus-stealing scheduled task actions"
 Assert-Contains $verifier 'PT1M repeating self-heal trigger' "Verifier must require the repeating trigger"

@@ -35,6 +35,7 @@ ANTHROPIC_NO_202_SENTINEL = "# sub2api downstream Claude Code no-202 overlap pat
 ANTHROPIC_HANDLER_WATCHDOG_SENTINEL = (
     "# sub2api downstream Claude Code handler watchdog patch"
 )
+STREAMING_TRACE_SENTINEL = "# sub2api downstream Claude Code stream trace patch"
 
 
 def _replace_once(text: str, old: str, new: str, path: Path) -> str:
@@ -136,6 +137,178 @@ def patch_streaming(base: Path) -> None:
             "        self._mark_mid_turn_stream_active(session_key)\n\n"
             "        # Guard everything up to the generator's own try/finally",
             path,
+        )
+
+    if STREAMING_TRACE_SENTINEL not in text:
+        text = _replace_once(
+            text,
+            '        outbound_headers = {**headers, "content-type": "application/json"}\n',
+            '        outbound_headers = {**headers, "content-type": "application/json"}\n'
+            f'        {STREAMING_TRACE_SENTINEL}\n'
+            '        # Carry one stable id through Headroom -> sub2api -> request logs.\n'
+            '        outbound_headers.setdefault("x-request-id", request_id)\n'
+            '        outbound_headers["x-headroom-request-id"] = request_id\n',
+            path,
+        )
+
+        forwarded_start = text.find("        forwarded_headers =")
+        if forwarded_start < 0:
+            raise RuntimeError(f"could not locate streaming forwarded_headers block in {path}")
+        forwarded_line_end = text.find("\n", forwarded_start)
+        generate_pos = text.find("        async def generate():\n", forwarded_line_end)
+        if generate_pos < 0:
+            raise RuntimeError(f"could not locate _stream_response_inner generator in {path}")
+        text = text[:generate_pos] + (
+            '        forwarded_headers["x-headroom-request-id"] = request_id\n'
+            '        forwarded_headers.setdefault("x-request-id", request_id)\n\n'
+        ) + text[generate_pos:]
+
+        text = _replace_once(
+            text,
+            '            "ttfb_ms": None,  # Time to first byte from upstream\n',
+            '            "ttfb_ms": None,  # Time to first byte from upstream\n'
+            '            "chunks_yielded": 0,\n'
+            '            "terminal_event_seen": False,\n'
+            '            "stream_error": None,\n',
+            path,
+        )
+
+        yield_positions = [
+            index for index in range(len(text)) if text.startswith("yield chunk\n", index)
+        ]
+        if len(yield_positions) != 1:
+            raise RuntimeError(
+                f"expected exactly one streaming yield in {path}, got {len(yield_positions)}"
+            )
+        yield_pos = yield_positions[0]
+        line_start = text.rfind("\n", 0, yield_pos) + 1
+        indent = text[line_start:yield_pos]
+        text = text[:line_start] + (
+            indent + 'stream_state["chunks_yielded"] += 1\n'
+            + indent + 'if b"message_stop" in chunk:\n'
+            + indent + '    stream_state["terminal_event_seen"] = True\n'
+            + indent + "# After the first yielded byte, never replay the request.\n"
+            + indent + "# A tool_use may already be visible to Claude Code.\n"
+            + indent + "yield chunk\n"
+        ) + text[yield_pos + len("yield chunk\n") :]
+
+        text = _replace_once(
+            text,
+            '            except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout) as e:\n',
+            '            except asyncio.CancelledError:\n'
+            '                stream_state["stream_error"] = "client_disconnect_or_cancel"\n'
+            '                logger.warning(\n'
+            '                    "event=claude_code_stream_cancelled request_id=%s "\n'
+            '                    "chunks_yielded=%s bytes=%s output_started=%s",\n'
+            '                    request_id,\n'
+            '                    stream_state["chunks_yielded"],\n'
+            '                    stream_state["total_bytes"],\n'
+            '                    stream_state["chunks_yielded"] > 0,\n'
+            '                )\n'
+            '                raise\n'
+            '            except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout) as e:\n',
+            path,
+        )
+
+        text = _replace_once(
+            text,
+            '                logger.error(f"[{request_id}] Connection error to upstream API: {e}")\n',
+            '                stream_state["stream_error"] = "upstream_connection_error"\n'
+            '                logger.error(f"[{request_id}] Connection error to upstream API: {e}")\n',
+            path,
+        )
+
+        text = _replace_once(
+            text,
+            '                logger.error(f"[{request_id}] HTTP error from upstream API: {e}")\n',
+            '                stream_state["stream_error"] = "upstream_http_error"\n'
+            '                logger.error(f"[{request_id}] HTTP error from upstream API: {e}")\n',
+            path,
+        )
+
+        text = _replace_once(
+            text,
+            '                logger.error(f"[{request_id}] Unexpected streaming error: {e}")\n',
+            '                stream_state["stream_error"] = type(e).__name__\n'
+            '                logger.error(f"[{request_id}] Unexpected streaming error: {e}")\n',
+            path,
+        )
+
+        text = _replace_once(
+            text,
+            '                pending_messages = self._cleanup_mid_turn_stream(\n',
+            '                try:\n'
+            '                    final_tags = dict(tags or {})\n'
+            '                    final_tags.update(\n'
+            '                        {\n'
+            '                            "stream_chunks_yielded": str(stream_state["chunks_yielded"]),\n'
+            '                            "stream_bytes_yielded": str(stream_state["total_bytes"]),\n'
+            '                            "stream_output_started": str(stream_state["chunks_yielded"] > 0).lower(),\n'
+            '                            "stream_terminal_event": str(stream_state["terminal_event_seen"]).lower(),\n'
+            '                            "stream_error": str(stream_state["stream_error"] or ""),\n'
+            '                            "stream_completed_normally": str(completed_normally).lower(),\n'
+            '                        }\n'
+            '                    )\n'
+            '                    logger.info(\n'
+            '                        "event=claude_code_stream_finalized request_id=%s "\n'
+            '                        "chunks_yielded=%s bytes=%s output_started=%s terminal_event=%s "\n'
+            '                        "completed_normally=%s error=%s",\n'
+            '                        request_id,\n'
+            '                        stream_state["chunks_yielded"],\n'
+            '                        stream_state["total_bytes"],\n'
+            '                        stream_state["chunks_yielded"] > 0,\n'
+            '                        stream_state["terminal_event_seen"],\n'
+            '                        completed_normally,\n'
+            '                        stream_state["stream_error"] or "",\n'
+            '                    )\n'
+            '                except Exception as trace_error:\n'
+            '                    final_tags = {}\n'
+            '                    logger.exception(\n'
+            '                        "event=claude_code_stream_trace_failed request_id=%s "\n'
+            '                        "error_type=%s",\n'
+            '                        request_id,\n'
+            '                        type(trace_error).__name__,\n'
+            '                    )\n'
+            '                pending_messages = self._cleanup_mid_turn_stream(\n',
+            path,
+        )
+
+        finalize_start = text.find(
+            '                await self._finalize_stream_response(\n',
+            generate_pos,
+        )
+        if finalize_start < 0:
+            raise RuntimeError(f"could not locate generator stream finalizer in {path}")
+        finalize_end = text.find('                )\n', finalize_start)
+        if finalize_end < 0:
+            raise RuntimeError(f"could not locate generator stream finalizer end in {path}")
+        finalize_end += len('                )\n')
+        finalize_block = text[finalize_start:finalize_end]
+        if finalize_block.count('                    tags=tags,\n') != 1:
+            raise RuntimeError(f"could not locate unique generator finalizer tags in {path}")
+        finalize_block = finalize_block.replace(
+            '                    tags=tags,\n',
+            '                    tags=final_tags,\n',
+            1,
+        )
+        indented_finalize_block = "".join(
+            f"    {line}" if line.strip() else line
+            for line in finalize_block.splitlines(keepends=True)
+        )
+        text = (
+            text[:finalize_start]
+            + '                try:\n'
+            + indented_finalize_block
+            + '                except Exception as finalize_error:\n'
+            + '                    logger.exception(\n'
+            + '                        "event=claude_code_stream_finalize_failed request_id=%s "\n'
+            + '                        "error_type=%s output_started=%s terminal_event=%s",\n'
+            + '                        request_id,\n'
+            + '                        type(finalize_error).__name__,\n'
+            + '                        stream_state["chunks_yielded"] > 0,\n'
+            + '                        stream_state["terminal_event_seen"],\n'
+            + '                    )\n'
+            + text[finalize_end:]
         )
 
     path.write_text(text, encoding="utf-8")

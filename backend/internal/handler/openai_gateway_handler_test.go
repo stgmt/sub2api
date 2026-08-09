@@ -564,6 +564,22 @@ func TestShouldFastFallbackOpenAIMessagesBeforeSameAccountRetry(t *testing.T) {
 	))
 }
 
+func TestOpenAIMessagesRetryLimitBeforeVisibleOutput(t *testing.T) {
+	account := &service.Account{
+		Type:     service.AccountTypeAPIKey,
+		Platform: service.PlatformOpenAI,
+		Credentials: map[string]any{
+			"pool_mode":             true,
+			"pool_mode_retry_count": 5,
+		},
+	}
+
+	require.Equal(t, 1, openAIMessagesRetryLimit(account, nil, false), "connection failure has no visible output")
+	require.Equal(t, 1, openAIMessagesRetryLimit(account, &service.OpenAIForwardResult{}, false), "midstream failure before visible output")
+	require.Equal(t, 0, openAIMessagesRetryLimit(account, &service.OpenAIForwardResult{ClientOutputStarted: true}, false), "visible output disables replay")
+	require.Equal(t, 0, openAIMessagesRetryLimit(account, &service.OpenAIForwardResult{ClientOutputStarted: true}, true), "OAuth autoheal also cannot replay visible output")
+}
+
 func TestMarkClaudeCodeMessagesRoutePreservesOriginalModel(t *testing.T) {
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 
