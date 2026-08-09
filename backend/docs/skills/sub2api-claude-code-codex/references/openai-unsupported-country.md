@@ -67,6 +67,11 @@ block UDP globally: games and unrelated HTTP/3 traffic are outside this scope.
 7. Account selection reaches consent and the OAuth callback is issued without
    `unsupported_country`.
 
+If that callback reaches `localhost` with `ERR_CONNECTION_REFUSED`, the OpenAI
+country check succeeded but the initiating CLI/app listener expired. Close the
+tab containing the one-time code and restart the original login flow. Never
+record, reuse, or paste the authorization code into logs.
+
 Do not apply domain rules before steps 2 and 3. A dead private proxy makes
 ChatGPT and Codex appear broadly offline because all OpenAI domains select the
 same unavailable outbound.
