@@ -1,7 +1,7 @@
 ---
 name: sub2api-claude-code-codex
 description: >-
-  Operate Claude Code through local Headroom + sub2api with OpenAI/Codex, Alibaba Token Plan, or the native Claude Code subscription. Use for Docker/WSL or Ubuntu/Hyper-V setup, host RTK, CUDA Kompress, embedding-server/watchdog, OAuth self-heal, GPT-5.6, Qwen/GLM/DeepSeek, compact and subagent routing, picker aliases, effort/context mapping, persistence/autostart, request tracing, and fleet-wide provider switching. Also use to move main, compact, SDK, picker aliases, and every subagent between anthropic-only, chatgpt-only, and hybrid-current profiles; reconcile host/VM drift; or prove no forbidden fallback occurred. Triggers include "Claude Code через Codex подписку", "Headroom sub2api", "provider toggle", "anthropic-only", "chatgpt-only", "full ChatGPT", "hybrid-current", "claude-route", "переключи все модели", "usage 0/0", "503 Service temporarily unavailable", and "No tool output found".
+  Operate Claude Code through local Headroom + sub2api with OpenAI/Codex, Alibaba Token Plan, or the native Claude Code subscription. Use for Docker/WSL or Ubuntu/Hyper-V setup, host RTK, CUDA Kompress, embedding-server/watchdog, OAuth self-heal, GPT-5.6, Qwen/GLM/DeepSeek, compact and subagent routing, picker aliases, effort/context mapping, persistence/autostart, request tracing, and fleet-wide provider switching. Also use when OpenAI/Codex OAuth reports unsupported_country behind a VPN, or to move main, compact, SDK, picker aliases, and every subagent between anthropic-only, chatgpt-only, and hybrid-current profiles; reconcile host/VM drift; or prove no forbidden fallback occurred. Triggers include "Claude Code через Codex подписку", "Headroom sub2api", "provider toggle", "unsupported_country", "OpenAI services are not available in your country", "anthropic-only", "chatgpt-only", "full ChatGPT", "hybrid-current", "claude-route", "переключи все модели", "usage 0/0", "503 Service temporarily unavailable", and "No tool output found".
 ---
 
 # sub2api Claude Code Codex
@@ -118,6 +118,7 @@ Read only the file needed for the current task:
 - `references/harness-publication.md`: complete skill/deploy/source publication boundary, deliberate local-state exclusions, and the release checklist.
 - `references/verification.md`: health probes, Claude Code probes, `/v1/messages` checks, usage_logs queries, compact verification, and expected evidence.
 - `references/troubleshooting.md`: 429/503/no-available-accounts, stale cooldowns, empty streams, context overflow, Luna availability, localhost relay, and usage-display bugs.
+- `references/openai-unsupported-country.md`: OpenAI/Codex OAuth `unsupported_country`, mixed-geo hosting ASN diagnosis, optional OpenAI-only egress, safe proof order, and escalation boundary.
 - `references/headroom-gpu-kompress.md`: GPU backend research, fork ownership, implementation, reproducible CPU/CUDA benchmark, autostart failure, live proof, and remaining architecture work.
 - `references/session-failure-registry.md`: cross-session failure IDs, layer-specific root causes, forbidden shortcuts, and the proof required before declaring each class fixed.
 - `references/fullpower-profile.json`: machine-readable profile snapshot when scripts or exact config values are useful.
@@ -176,9 +177,10 @@ Read only the file needed for the current task:
 2. If installing or repairing Docker/Claude config, read `references/install-and-claude-config.md` and use the bundled setup script.
 3. If the task touches persistence, embeddings, caches, Docker volumes, compose, setup, RTK, or "reusable" docs, run the host-bind audit before and after changes. Do not accept Docker named volumes as equivalent to host persistence. For RTK, require a real Claude Code Bash tool call that increments host `rtk gain` plus matching container totals; a manual container probe is not proof of automatic participation.
 4. If changing models or compact routing, read `references/group-and-compact-routing.md`, patch `groups.messages_dispatch_model_config.compact_mapped_model`, and clear any stale OpenAI account `compact_model_mapping` / `compact_model_fallbacks` unless the user explicitly requests a legacy OpenAI-only compact fallback.
-5. If debugging limits or errors, read `references/troubleshooting.md` before changing DB state. Preserve non-quota reasons such as `upstream_404_model_not_found` unless deliberately re-probing that model.
-6. Verify with `references/verification.md`: Headroom health/upstream, host bind mounts, sub2api health, GPT-5.6 probes through Headroom, Claude alias probes, and `usage_logs` mapping evidence.
-7. Update this skill only after live verification when a model lineup, context window, persistence layout, or proxy behavior changes.
+5. If OpenAI/Codex OAuth reports `unsupported_country`, read `references/openai-unsupported-country.md` before changing account state, model routes, or auth files.
+6. If debugging limits or errors, read `references/troubleshooting.md` before changing DB state. Preserve non-quota reasons such as `upstream_404_model_not_found` unless deliberately re-probing that model.
+7. Verify with `references/verification.md`: Headroom health/upstream, host bind mounts, sub2api health, GPT-5.6 probes through Headroom, Claude alias probes, and `usage_logs` mapping evidence.
+8. Update this skill only after live verification when a model lineup, context window, persistence layout, or proxy behavior changes.
 
 ## Bundled Scripts
 

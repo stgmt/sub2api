@@ -708,6 +708,33 @@ Antigravity accounts support optional **hybrid scheduling**. When enabled, the g
 
 ---
 
+## Optional: OpenAI OAuth `unsupported_country`
+
+If OpenAI/Codex authorization fails with:
+
+```text
+OpenAI's services are not available in your country.
+error_code: unsupported_country
+```
+
+and the same account gets a new `request_id` in another browser, do not repair
+sub2api model routing or regenerate OAuth state first. The failure happens at
+the OpenAI account/egress boundary before sub2api can use the account. A VPS can
+report an NL/DE location while its hosting ASN or prefix is classified
+differently by the provider.
+
+For router + self-hosted VPS deployments, an optional fix is an OpenAI-only
+supported-country egress. Keep all other traffic on the existing route and
+enable the OpenAI rule only after the router itself proves the private proxy
+route and country. The reusable workflow, health checks, restart proof, and
+rollback are documented in
+[`23-openai-country-egress`](https://github.com/stgmt/claude-skill-router-vpn/tree/master/skills/23-openai-country-egress).
+
+See also the local operator reference:
+[`openai-unsupported-country.md`](backend/docs/skills/sub2api-claude-code-codex/references/openai-unsupported-country.md).
+
+---
+
 ## Project Structure
 
 ```
