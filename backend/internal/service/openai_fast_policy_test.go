@@ -199,6 +199,26 @@ func TestApplyOpenAIFastPolicyToBody_ForcePriorityRewritesKnownTier(t *testing.T
 	}
 }
 
+func TestApplyOpenAIFastPolicyToBody_ForcePriorityInjectsMissingTier(t *testing.T) {
+	settings := &OpenAIFastPolicySettings{
+		Rules: []OpenAIFastPolicyRule{{
+			ServiceTier:    OpenAIFastTierAny,
+			Action:         OpenAIFastPolicyActionForcePriority,
+			Scope:          BetaPolicyScopeOAuth,
+			ModelWhitelist: []string{"gpt-5.6-luna"},
+		}},
+	}
+	svc := newOpenAIGatewayServiceWithSettings(t, settings)
+	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+
+	updated, err := svc.applyOpenAIFastPolicyToBody(
+		context.Background(), account, "gpt-5.6-luna", []byte(`{"model":"gpt-5.6-luna"}`),
+	)
+	require.NoError(t, err)
+	require.Equal(t, OpenAIFastTierPriority, gjson.GetBytes(updated, "service_tier").String(),
+		"an omitted service_tier must become priority under the configured OAuth force policy")
+}
+
 // TestApplyOpenAIFastPolicyToBody_OfficialTiersBypassDefaultRule 验证默认配置
 // 下客户端显式发送的 OpenAI 官方合法 tier 能透传到上游而不被静默剥离。
 func TestApplyOpenAIFastPolicyToBody_OfficialTiersBypassDefaultRule(t *testing.T) {

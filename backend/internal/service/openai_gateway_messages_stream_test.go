@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -50,6 +51,37 @@ func TestOpenAIMessagesAnthropicStreamContextLengthBeforeVisibleOutputReturnsCli
 	assert.False(t, failoverErr.RetryableOnSameAccount)
 	assert.Contains(t, string(failoverErr.ResponseBody), "invalid_request_error")
 	assert.Contains(t, string(failoverErr.ResponseBody), "context window")
+	assert.False(t, c.Writer.Written())
+	assert.Empty(t, rec.Body.String())
+}
+
+func TestOpenAIMessagesAnthropicStreamTransportErrorBeforeVisibleOutputReturnsRetryableFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}}
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"X-Request-Id": []string{"rid-stream-reset"}},
+		Body: &streamReadCloser{
+			payload: []byte("event: response.created\n"),
+			err:     errors.New("stream ID 2229; INTERNAL_ERROR; received from peer"),
+		},
+	}
+
+	result, err := svc.handleAnthropicStreamingResponse(resp, c, &Account{ID: 1, Platform: PlatformOpenAI, Name: "acc"}, "gpt-5.6-luna", "gpt-5.6-luna", "gpt-5.6-luna", time.Now(), 12345)
+
+	require.Error(t, err)
+	require.NotNil(t, result)
+	assert.False(t, result.ClientOutputStarted)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	assert.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+	assert.True(t, failoverErr.RetryableOnSameAccount)
+	assert.Contains(t, string(failoverErr.ResponseBody), "transport error before output")
 	assert.False(t, c.Writer.Written())
 	assert.Empty(t, rec.Body.String())
 }

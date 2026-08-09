@@ -121,6 +121,8 @@ services:
     build:
       context: ${SUB2API_BUILD_CONTEXT:-../..}
       dockerfile: ${SUB2API_DOCKERFILE:-Dockerfile}
+      args:
+        COMMIT: ${SUB2API_GIT_REF:-local}
     image: ${SUB2API_IMAGE:-sub2api-codex:local-token-usage}
     container_name: sub2api-codex
     restart: unless-stopped

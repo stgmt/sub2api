@@ -222,6 +222,24 @@ func TestOpenAIEnsureAnthropicErrorResponse_AfterWaitPingAppendsErrorEvent(t *te
 	assert.NotContains(t, body, "event: message_start\n", "fallback error must not synthesize message_start")
 }
 
+func TestOpenAIEnsureAnthropicErrorResponse_CommittedMessagesStreamWithoutStartedFlagAppendsErrorEvent(t *testing.T) {
+	c, w := newGinContextForEndpoint(t, EndpointMessages)
+	c.Set(openAIMessagesStreamRequestContextKey, true)
+	_, _ = c.Writer.WriteString(string(SSEPingFormatComment))
+
+	h := &OpenAIGatewayHandler{}
+	wrote := h.ensureAnthropicErrorResponse(c, false, false)
+
+	require.True(t, wrote)
+	body := w.Body.String()
+	assert.True(t, strings.HasPrefix(body, string(SSEPingFormatComment)+"event: error\ndata: "), "committed stream must receive a named error event: %q", body)
+	parsed := parseAnthropicErrorSSE(t, body)
+	errorObj, ok := parsed["error"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "api_error", errorObj["type"])
+	assert.Equal(t, "Upstream request failed", errorObj["message"])
+}
+
 func TestOpenAIHandleAnthropicFailoverExhausted_AfterWaitPingEmitsErrorEvent(t *testing.T) {
 	c, w := newGinContextForEndpoint(t, EndpointMessages)
 	_, _ = c.Writer.WriteString(string(SSEPingFormatComment))

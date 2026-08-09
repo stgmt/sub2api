@@ -48,6 +48,9 @@ const (
 	// defaultResponseHeaderTimeout: 默认等待响应头超时时间（5分钟）
 	// LLM 请求可能排队较久，需要较长超时
 	defaultResponseHeaderTimeout = 300 * time.Second
+	// defaultOpenAIResponseHeaderTimeout: OpenAI/Codex 首个响应头安全上限（2分钟）
+	// 防止 provider 连接异常时请求永久占用账户并发槽；不限制已建立的 SSE 流。
+	defaultOpenAIResponseHeaderTimeout = 120 * time.Second
 	// defaultMaxUpstreamClients: 默认最大客户端缓存数量
 	// 超出后会淘汰最久未使用的客户端
 	defaultMaxUpstreamClients = 5000
@@ -672,7 +675,7 @@ func (s *httpUpstreamService) applyProfilePoolSettings(settings poolSettings, pr
 	if profile != service.HTTPUpstreamProfileOpenAI {
 		return settings
 	}
-	settings.responseHeaderTimeout = 0
+	settings.responseHeaderTimeout = defaultOpenAIResponseHeaderTimeout
 	if s != nil && s.cfg != nil && s.cfg.Gateway.OpenAIResponseHeaderTimeout > 0 {
 		settings.responseHeaderTimeout = time.Duration(s.cfg.Gateway.OpenAIResponseHeaderTimeout) * time.Second
 	}

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -83,7 +84,7 @@ func (s *HTTPUpstreamSuite) TestGetOrCreateClient_InvalidURLReturnsError() {
 	require.Error(s.T(), err, "expected error for invalid proxy URL")
 }
 
-func (s *HTTPUpstreamSuite) TestOpenAIProfileDefaultsToHTTP2AndNoHeaderTimeout() {
+func (s *HTTPUpstreamSuite) TestOpenAIProfileDefaultsToHTTP2AndBoundedHeaderTimeout() {
 	s.cfg.Gateway = config.GatewayConfig{
 		ResponseHeaderTimeout: 600,
 		OpenAIHTTP2: config.GatewayOpenAIHTTP2Config{
@@ -96,7 +97,7 @@ func (s *HTTPUpstreamSuite) TestOpenAIProfileDefaultsToHTTP2AndNoHeaderTimeout()
 	require.NoError(s.T(), err)
 	transport, ok := entry.client.Transport.(*http.Transport)
 	require.True(s.T(), ok, "expected *http.Transport")
-	require.Equal(s.T(), time.Duration(0), transport.ResponseHeaderTimeout, "OpenAI profile should not inherit generic header timeout")
+	require.Equal(s.T(), 120*time.Second, transport.ResponseHeaderTimeout, "OpenAI profile should use the bounded safety default")
 	require.True(s.T(), transport.ForceAttemptHTTP2, "OpenAI profile should prefer HTTP/2")
 	require.Equal(s.T(), upstreamProtocolModeOpenAIH2, entry.protocolMode)
 }
@@ -117,7 +118,29 @@ func (s *HTTPUpstreamSuite) TestOpenAIProfileCustomHeaderTimeout() {
 	require.Equal(s.T(), 1800*time.Second, transport.ResponseHeaderTimeout)
 }
 
-func (s *HTTPUpstreamSuite) TestOpenAIProfileTLSFingerprintDoesNotInheritGenericHeaderTimeout() {
+func (s *HTTPUpstreamSuite) TestOpenAIProfileTimeoutStopsStalledHeaders() {
+	s.cfg.Gateway = config.GatewayConfig{
+		OpenAIResponseHeaderTimeout: 1,
+		OpenAIHTTP2:                 config.GatewayOpenAIHTTP2Config{Enabled: true},
+	}
+	upstream := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		time.Sleep(2 * time.Second)
+	}))
+	defer upstream.Close()
+
+	svc := s.newService()
+	req, err := http.NewRequest(http.MethodGet, upstream.URL, nil)
+	require.NoError(s.T(), err)
+	req = req.WithContext(service.WithHTTPUpstreamProfile(req.Context(), service.HTTPUpstreamProfileOpenAI))
+
+	started := time.Now()
+	_, err = svc.Do(req, "", 1, 1)
+	require.Error(s.T(), err)
+	require.Contains(s.T(), err.Error(), "timeout awaiting response headers")
+	require.Less(s.T(), time.Since(started), 1500*time.Millisecond)
+}
+
+func (s *HTTPUpstreamSuite) TestOpenAIProfileTLSFingerprintUsesBoundedHeaderTimeout() {
 	s.cfg.Gateway = config.GatewayConfig{
 		ResponseHeaderTimeout: 600,
 		OpenAIHTTP2: config.GatewayOpenAIHTTP2Config{
@@ -129,7 +152,7 @@ func (s *HTTPUpstreamSuite) TestOpenAIProfileTLSFingerprintDoesNotInheritGeneric
 	require.NoError(s.T(), err)
 	transport, ok := entry.client.Transport.(*http.Transport)
 	require.True(s.T(), ok, "expected *http.Transport")
-	require.Equal(s.T(), time.Duration(0), transport.ResponseHeaderTimeout, "OpenAI TLS path should not inherit generic header timeout")
+	require.Equal(s.T(), 120*time.Second, transport.ResponseHeaderTimeout, "OpenAI TLS path should use the bounded safety default")
 }
 
 func (s *HTTPUpstreamSuite) TestOpenAIProfileHTTP2DisabledUsesHTTP1Transport() {

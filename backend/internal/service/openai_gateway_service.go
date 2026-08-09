@@ -7502,10 +7502,30 @@ func (s *OpenAIGatewayService) applyOpenAIFastPolicyToBody(ctx context.Context, 
 		return body, nil
 	}
 	rawTier := gjson.GetBytes(body, "service_tier").String()
-	if rawTier == "" {
-		return body, nil
-	}
 	normTier := normalizedOpenAIServiceTierValue(rawTier)
+	if rawTier == "" {
+		// Claude Code and other OpenAI clients commonly omit service_tier.
+		// OpenAI treats that as the default tier. Evaluate the policy so a
+		// configured force_priority profile can make fast the real default,
+		// while preserving the no-op behavior for pass/filter policies.
+		action, errMsg := s.evaluateOpenAIFastPolicy(ctx, account, model, OpenAIFastTierDefault)
+		switch action {
+		case BetaPolicyActionBlock:
+			msg := errMsg
+			if msg == "" {
+				msg = fmt.Sprintf("openai service_tier=%s is not allowed for model %s", OpenAIFastTierDefault, model)
+			}
+			return body, &OpenAIFastBlockedError{Message: msg}
+		case OpenAIFastPolicyActionForcePriority:
+			updated, err := sjson.SetBytes(body, "service_tier", OpenAIFastTierPriority)
+			if err != nil {
+				return body, fmt.Errorf("force service_tier priority: %w", err)
+			}
+			return updated, nil
+		default:
+			return body, nil
+		}
+	}
 	if normTier == "" {
 		return body, nil
 	}
@@ -7606,10 +7626,28 @@ func (s *OpenAIGatewayService) applyOpenAIFastPolicyToWSResponseCreate(
 		return frame, nil, nil
 	}
 	rawTier := gjson.GetBytes(frame, "service_tier").String()
-	if rawTier == "" {
-		return frame, nil, nil
-	}
 	normTier := normalizedOpenAIServiceTierValue(rawTier)
+	if rawTier == "" {
+		// An omitted service_tier is OpenAI's default tier. Only a force rule
+		// injects priority here; filter/pass remain no-ops on an absent field.
+		action, errMsg := s.evaluateOpenAIFastPolicy(ctx, account, model, OpenAIFastTierDefault)
+		switch action {
+		case BetaPolicyActionBlock:
+			msg := errMsg
+			if msg == "" {
+				msg = fmt.Sprintf("openai service_tier=%s is not allowed for model %s", OpenAIFastTierDefault, model)
+			}
+			return frame, &OpenAIFastBlockedError{Message: msg}, nil
+		case OpenAIFastPolicyActionForcePriority:
+			updated, err := sjson.SetBytes(frame, "service_tier", OpenAIFastTierPriority)
+			if err != nil {
+				return frame, nil, fmt.Errorf("force service_tier priority in ws frame: %w", err)
+			}
+			return updated, nil, nil
+		default:
+			return frame, nil, nil
+		}
+	}
 	if normTier == "" {
 		return frame, nil, nil
 	}

@@ -529,7 +529,13 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		if promptCacheKey != "" && anthropicDigestChain != "" {
 			s.bindOpenAICompatAnthropicDigestPromptCacheKey(account, apiKeyID, anthropicDigestChain, promptCacheKey, anthropicMatchedDigestChain)
 		}
-		if responsesReq.ServiceTier != "" {
+		// Use the final request body for billing metadata. The OpenAI fast
+		// policy may inject priority after AnthropicToResponses has built
+		// responsesReq, so reading only responsesReq.ServiceTier would report
+		// null even though priority was sent upstream.
+		if st := extractOpenAIServiceTierFromBody(responsesBody); st != nil {
+			result.ServiceTier = st
+		} else if responsesReq.ServiceTier != "" {
 			st := responsesReq.ServiceTier
 			result.ServiceTier = &st
 		}
@@ -2327,6 +2333,17 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 			)
 		}
 	}
+	streamTransportError := func(err error) (*OpenAIForwardResult, error) {
+		result := resultWithUsage()
+		if clientDisconnected || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return result, fmt.Errorf("stream usage incomplete: %w", err)
+		}
+		if !clientOutputStarted {
+			message := fmt.Sprintf("OpenAI messages stream transport error before output: %v", err)
+			return result, s.newOpenAIStreamFailoverError(c, account, false, requestID, nil, message)
+		}
+		return result, fmt.Errorf("stream usage incomplete: %w", err)
+	}
 	missingTerminalErr := func() (*OpenAIForwardResult, error) {
 		result := resultWithUsage()
 		if clientDisconnected {
@@ -2368,7 +2385,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 		}
 		if err := scanner.Err(); err != nil {
 			handleScanErr(err)
-			return resultWithUsage(), fmt.Errorf("stream usage incomplete: %w", err)
+			return streamTransportError(err)
 		}
 		if frame, ok := parser.Finish(); ok {
 			if strings.TrimSpace(frame.Data) == "[DONE]" {
@@ -2441,7 +2458,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 			}
 			if ev.err != nil {
 				handleScanErr(ev.err)
-				return resultWithUsage(), fmt.Errorf("stream usage incomplete: %w", ev.err)
+				return streamTransportError(ev.err)
 			}
 			lastDataAt = time.Now()
 			line := ev.line
@@ -2469,7 +2486,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 				zap.String("model", originalModel),
 				zap.Duration("interval", streamInterval),
 			)
-			return resultWithUsage(), fmt.Errorf("stream data interval timeout")
+			return streamTransportError(errors.New("stream data interval timeout"))
 
 		case <-keepaliveCh:
 			if clientDisconnected {

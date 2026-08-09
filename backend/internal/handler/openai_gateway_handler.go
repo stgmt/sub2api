@@ -42,9 +42,30 @@ type OpenAIGatewayHandler struct {
 }
 
 const (
-	openAIOAuth403AutohealRetryLimit = 1
-	openAIOAuth403AutohealRetryDelay = 2250 * time.Millisecond
+	openAIOAuth403AutohealRetryLimit      = 1
+	openAIOAuth403AutohealRetryDelay      = 2250 * time.Millisecond
+	openAIMessagesStreamRequestContextKey = "sub2api.openai_messages_stream_request"
 )
+
+func isOpenAIMessagesStreamRequest(c *gin.Context) bool {
+	if c == nil {
+		return false
+	}
+	value, ok := c.Get(openAIMessagesStreamRequestContextKey)
+	stream, ok := value.(bool)
+	return ok && stream
+}
+
+// anthropicMessagesStreamStarted also treats a committed streaming response
+// as started. The writer can be committed by the upstream bridge before the
+// first Anthropic event reaches the client, so streamStarted alone is not a
+// reliable protocol-state marker.
+func anthropicMessagesStreamStarted(c *gin.Context, streamStarted bool) bool {
+	if streamStarted {
+		return true
+	}
+	return isOpenAIMessagesStreamRequest(c) && c.Writer != nil && c.Writer.Written()
+}
 
 func shouldAutohealOpenAIOAuth403(account *service.Account, failoverErr *service.UpstreamFailoverError) bool {
 	return account != nil &&
@@ -828,6 +849,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			resolveOpenAIMessagesDispatchAutomaticFallbackModels(apiKey, reqModel, preferredMappedModel)...)
 	}
 	reqStream := gjson.GetBytes(body, "stream").Bool()
+	c.Set(openAIMessagesStreamRequestContextKey, reqStream)
 
 	reqLog = reqLog.With(zap.String("model", reqModel), zap.Bool("stream", reqStream))
 
@@ -1122,10 +1144,15 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 				}
 				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
 				anthropicStarted := result != nil && result.ClientOutputStarted
+				writerWrittenBeforeFallback := c.Writer != nil && c.Writer.Written()
 				wroteFallback := h.ensureAnthropicErrorResponse(c, streamStarted, anthropicStarted)
 				reqLog.Warn("openai_messages.forward_failed",
 					zap.Int64("account_id", account.ID),
 					zap.Bool("fallback_error_response_written", wroteFallback),
+					zap.Bool("stream_request", reqStream),
+					zap.Bool("stream_started", streamStarted),
+					zap.Bool("writer_written_before_fallback", writerWrittenBeforeFallback),
+					zap.Bool("client_output_started", anthropicStarted),
 					zap.Error(err),
 				)
 				return
@@ -1208,6 +1235,7 @@ func (h *OpenAIGatewayHandler) anthropicErrorResponse(c *gin.Context, status int
 // anthropicStreamingAwareError handles errors that may occur during streaming,
 // using Anthropic SSE error format.
 func (h *OpenAIGatewayHandler) anthropicStreamingAwareError(c *gin.Context, status int, errType, message string, streamStarted bool) {
+	streamStarted = anthropicMessagesStreamStarted(c, streamStarted)
 	if streamStarted {
 		flusher, ok := c.Writer.(http.Flusher)
 		if ok {
@@ -1273,6 +1301,7 @@ func (h *OpenAIGatewayHandler) ensureAnthropicErrorResponse(c *gin.Context, stre
 	if c == nil || c.Writer == nil {
 		return false
 	}
+	streamStarted = anthropicMessagesStreamStarted(c, streamStarted)
 	if streamStarted {
 		if !anthropicStarted {
 			requestLogger(c, "handler.openai_gateway.messages").Warn("zero_anthropic_event_stream")
