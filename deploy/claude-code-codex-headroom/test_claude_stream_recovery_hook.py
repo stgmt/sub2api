@@ -14,6 +14,8 @@ HOOK = SKILL_ROOT / "scripts" / "claude-stream-recovery.mjs"
 SETUP = SKILL_ROOT / "scripts" / "setup-sub2api-claude-code.ps1"
 INSTALL_PS1 = SKILL_ROOT / "scripts" / "install-claude-stream-recovery.ps1"
 VERIFY = SKILL_ROOT / "scripts" / "verify-claude-code-sub2api.ps1"
+LIVE_PROOF = SKILL_ROOT / "scripts" / "prove-claude-stream-recovery.ps1"
+FAULT_UPSTREAM = SKILL_ROOT / "scripts" / "synthetic-anthropic-stream-fault.py"
 
 
 class _RecoveryHandler(BaseHTTPRequestHandler):
@@ -125,6 +127,27 @@ def test_setup_owns_recovery_env_and_installer():
     assert "HEADROOM_CLAUDE_STREAM_RECOVERY_MAX_ATTEMPTS" in compose
     assert "Test-ClaudeStreamRecoveryHook" in verifier
     assert "Test-HeadroomClaudeStreamRecoveryProfile" in verifier
+
+
+def test_live_proof_contract_covers_same_session_continuation():
+    proof = LIVE_PROOF.read_text(encoding="utf-8")
+    upstream = FAULT_UPSTREAM.read_text(encoding="utf-8")
+
+    for field in (
+        "claude_exit",
+        "upstream_requests",
+        "unique_session_ids",
+        "first_part_seen",
+        "second_pass_seen",
+    ):
+        assert field in proof
+    assert '$requestCount -ne 2' in proof
+    assert '$sessionIds.Count -ne 1' in proof
+    assert 'Contains("FIRST_PART")' in proof
+    assert 'Contains("SECOND_PASS")' in proof
+    assert '"FIRST_PART" if request_index == 1 else "SECOND_PASS"' in upstream
+    assert "if request_index > 1:" in upstream
+    assert '"message_stop"' in upstream
 
 
 def test_powershell_installer_is_idempotent_and_preserves_unrelated_hooks(tmp_path: Path):

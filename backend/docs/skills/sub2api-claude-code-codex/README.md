@@ -19,6 +19,13 @@ frontend messages-dispatch round-trip. Run
 `scripts/test-qwen-sdk-cli-harness-contract.ps1` before publishing so those
 surfaces cannot be omitted while only the skill entrypoint is updated.
 
+For the F46 partial-stream path, run
+`scripts/prove-claude-stream-recovery.ps1`. It starts a fault-injecting
+Anthropic SSE upstream and a temporary Headroom instance, then drives the real
+`claude --print` client. The proof passes only when Claude exits cleanly, the
+upstream sees two requests under one session id, and the transcript contains
+both `FIRST_PART` and `SECOND_PASS` without another user prompt.
+
 Install into a Codex profile by copying this directory to:
 
 ```text
