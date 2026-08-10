@@ -10,7 +10,7 @@ Included support material:
 
 - `profiles/` - versioned provider snapshots, including the strict Alibaba Qwen + DeepSeek Flash route
 - `references/` - setup notes, provider switching, fleet reconciliation, routing policy, compact behavior, verification, troubleshooting, and the cross-session failure registry
-- `scripts/` - Windows and Linux setup, provider controller, verification, host-profile, autostart, RTK, compact-recovery, routing, and contract-test helpers
+- `scripts/` - Windows and Linux setup, provider controller, verification, host-profile, autostart, RTK, compact and partial-stream recovery, routing, and contract-test helpers
 - `evals/` - lightweight eval prompts for the skill behavior
 
 The complete reproducible harness also includes the repository's

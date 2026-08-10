@@ -32,7 +32,7 @@ param(
   [string]$HeadroomVersion = "0.31.0",
   [string]$HeadroomPythonVersion = "3.12",
   [string]$HeadroomGitRepo = "https://github.com/stgmt/headroom.git",
-  [string]$HeadroomGitRef = "ae5f8fcdf6d433b41f2ade47fdce109798f6834c",
+  [string]$HeadroomGitRef = "773755d469e0dfda5952ea77976f861be0f1679c",
   [string]$HeadroomRustToolchain = "1.88.0",
   [ValidateSet("auto", "cpu", "cuda")]
   [string]$HeadroomAccelerator = "auto",
@@ -58,6 +58,12 @@ param(
   [int]$HeadroomUpstream429DefaultRetrySeconds = 30,
   [ValidatePattern('^\d{3}(,\d{3})*$')]
   [string]$HeadroomUpstreamRecoveryHoldStatuses = "429,502,503,504,529",
+  [ValidateSet("0", "1")]
+  [string]$HeadroomClaudeStreamRecovery = "1",
+  [ValidateRange(60, 86400)]
+  [int]$HeadroomClaudeStreamRecoveryTtlSeconds = 900,
+  [ValidateRange(1, 10)]
+  [int]$HeadroomClaudeStreamRecoveryMaxAttempts = 3,
   [string]$RtkVersion = "v0.42.4",
   [string]$RtkStateRoot = "",
   [string]$WslDistro = "Ubuntu-24.04",
@@ -71,6 +77,7 @@ param(
   [switch]$SkipGeneralPurposeAgent,
   [switch]$SkipHeadroomMcp,
   [switch]$SkipRtk,
+  [switch]$SkipStreamRecovery,
   [switch]$SkipAutostart,
   [switch]$SkipSDKCLIRouting,
   [switch]$SkipProviderSwitcher
@@ -272,6 +279,9 @@ function Write-DotEnv([System.Collections.IDictionary]$Map, [string]$Path) {
     "HEADROOM_UPSTREAM_429_HEARTBEAT_SECONDS",
     "HEADROOM_UPSTREAM_429_DEFAULT_RETRY_SECONDS",
     "HEADROOM_UPSTREAM_RECOVERY_HOLD_STATUSES",
+    "HEADROOM_CLAUDE_STREAM_RECOVERY",
+    "HEADROOM_CLAUDE_STREAM_RECOVERY_TTL_SECONDS",
+    "HEADROOM_CLAUDE_STREAM_RECOVERY_MAX_ATTEMPTS",
     "HEADROOM_FORCE_KOMPRESS",
     "HEADROOM_DISABLE_KOMPRESS",
     "HEADROOM_ACCURACY_GUARD",
@@ -428,6 +438,9 @@ Set-DotEnvValue $envMap "HEADROOM_UPSTREAM_429_MAX_WAIT_SECONDS" ([string]$Headr
 Set-DotEnvValue $envMap "HEADROOM_UPSTREAM_429_HEARTBEAT_SECONDS" ([string]$HeadroomUpstream429HeartbeatSeconds)
 Set-DotEnvValue $envMap "HEADROOM_UPSTREAM_429_DEFAULT_RETRY_SECONDS" ([string]$HeadroomUpstream429DefaultRetrySeconds)
 Set-DotEnvValue $envMap "HEADROOM_UPSTREAM_RECOVERY_HOLD_STATUSES" $HeadroomUpstreamRecoveryHoldStatuses
+Set-DotEnvValue $envMap "HEADROOM_CLAUDE_STREAM_RECOVERY" $HeadroomClaudeStreamRecovery
+Set-DotEnvValue $envMap "HEADROOM_CLAUDE_STREAM_RECOVERY_TTL_SECONDS" ([string]$HeadroomClaudeStreamRecoveryTtlSeconds)
+Set-DotEnvValue $envMap "HEADROOM_CLAUDE_STREAM_RECOVERY_MAX_ATTEMPTS" ([string]$HeadroomClaudeStreamRecoveryMaxAttempts)
 Set-DotEnvValue $envMap "HEADROOM_FORCE_KOMPRESS" $resolvedHeadroomForceKompress
 Set-DotEnvValue $envMap "HEADROOM_DISABLE_KOMPRESS" $resolvedHeadroomDisableKompress
 Set-DotEnvValue $envMap "HEADROOM_ACCURACY_GUARD" "strict"
@@ -806,6 +819,14 @@ $contractEnd
     if ($LASTEXITCODE -ne 0) { throw "RTK installer failed with exit code $LASTEXITCODE" }
   }
 
+  if (-not $SkipStreamRecovery) {
+    $streamRecoveryInstaller = Join-Path $PSScriptRoot "install-claude-stream-recovery.ps1"
+    if (-not (Test-Path -LiteralPath $streamRecoveryInstaller)) {
+      throw "Claude stream recovery installer not found: $streamRecoveryInstaller"
+    }
+    & $streamRecoveryInstaller
+  }
+
   if (-not $SkipHeadroomMcp) {
     if ((Get-Command claude -ErrorAction SilentlyContinue) -and (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
       try {
@@ -842,6 +863,7 @@ Write-Host "Headroom image: headroom-sub2api:$HeadroomVersion"
 Write-Host "Headroom savings profile: $HeadroomSavingsProfile (target ratio $HeadroomTargetRatio)"
 Write-Host "RTK: $RtkVersion host+WSL Claude Bash hook; shared dashboard state at $composeRtkStateRoot"
 Write-Host "Headroom embedding server: enabled (--embedding-server with patched watchdog/socket client)"
+Write-Host "Claude stream recovery: $HeadroomClaudeStreamRecovery (TTL ${HeadroomClaudeStreamRecoveryTtlSeconds}s, max $HeadroomClaudeStreamRecoveryMaxAttempts continuations)"
 Write-Host "Headroom persistent storage: /root/.headroom plus /root/.cache/headroom and /root/.cache/huggingface mounts"
 Write-Host "Windows autostart: Sub2API Codex Proxy Stack Autostart (single task, RunLevel=Highest, VHDX self-heal)"
 Write-Host "provider switcher: claude-route status|anthropic|hybrid|reconcile|verify"

@@ -130,6 +130,34 @@ function Test-ClaudeRtkHook {
   Write-Host "host gain: commands $($before.total_commands) -> $($after.total_commands), saved=$($after.total_saved)"
 }
 
+function Test-ClaudeStreamRecoveryHook {
+  Write-Host "`nClaude stream recovery hooks:"
+  $settingsPath = Join-Path $env:USERPROFILE ".claude\settings.json"
+  if (-not (Test-Path -LiteralPath $settingsPath)) {
+    throw "Claude settings are missing: $settingsPath"
+  }
+  $hookPath = Join-Path $env:USERPROFILE ".claude\hooks\claude-stream-recovery.mjs"
+  if (-not (Test-Path -LiteralPath $hookPath)) {
+    throw "Claude stream recovery hook is missing: $hookPath"
+  }
+
+  $settings = Get-Content -Raw -LiteralPath $settingsPath | ConvertFrom-Json
+  foreach ($eventName in @("Stop", "SubagentStop")) {
+    $matches = @(
+      @($settings.hooks.$eventName) |
+        ForEach-Object { @($_.hooks) } |
+        Where-Object { [string]$_.command -match "claude-stream-recovery\.mjs" }
+    )
+    if ($matches.Count -ne 1) {
+      throw "Expected exactly one Claude stream recovery hook for $eventName, found $($matches.Count) in $settingsPath"
+    }
+    if ([int]$matches[0].timeout -lt 3) {
+      throw "Claude stream recovery hook timeout for $eventName is too short: $($matches[0].timeout)s"
+    }
+  }
+  Write-Host "Claude stream recovery hooks: Stop=1, SubagentStop=1, script=$hookPath"
+}
+
 function Test-Sub2apiAutostartTask {
   if (-not (Test-IsWindowsHost)) {
     Write-Warning "Autostart task check is Windows-only; skipping."
@@ -281,6 +309,40 @@ function Test-HeadroomUpstream429HoldProfile([string]$Url) {
     }
   }
   Write-Host "Headroom upstream recovery hold: enabled, max_wait=$($maxWaitMatch.Groups[1].Value)s heartbeat=$($heartbeatMatch.Groups[1].Value)s statuses=$($holdStatuses -join ',') active=$($recovery.active_holds) cooling_routes=$($recovery.cooling_routes) recovered=$($recovery.recoveries_total)"
+}
+
+function Test-HeadroomClaudeStreamRecoveryProfile([string]$Url) {
+  Write-Host "`nHeadroom Claude stream recovery:"
+  if (Test-DockerRuntimeAvailable) {
+    $envOutput = (Invoke-DockerCommand -Args @("inspect", "headroom-sub2api", "--format", "{{range .Config.Env}}{{println .}}{{end}}") 2>&1) -join "`n"
+    if ($LASTEXITCODE -ne 0) {
+      throw "Could not inspect headroom-sub2api stream recovery environment: $envOutput"
+    }
+    foreach ($expected in @(
+      "HEADROOM_CLAUDE_STREAM_RECOVERY=1",
+      "HEADROOM_CLAUDE_STREAM_RECOVERY_TTL_SECONDS=900",
+      "HEADROOM_CLAUDE_STREAM_RECOVERY_MAX_ATTEMPTS=3"
+    )) {
+      if ($envOutput -notmatch "(?m)^$([regex]::Escape($expected))$") {
+        throw "Headroom stream recovery environment is missing $expected"
+      }
+    }
+  }
+
+  $health = Invoke-RestMethod "$Url/health" -TimeoutSec 15
+  $recovery = $health.runtime.claude_stream_recovery
+  if (-not $recovery -or -not $recovery.enabled) {
+    throw "Headroom /health did not expose enabled runtime.claude_stream_recovery."
+  }
+  if ([int]$recovery.max_attempts -ne 3 -or [int]$recovery.ttl_seconds -lt 900) {
+    throw "Unsafe Claude stream recovery profile: max_attempts=$($recovery.max_attempts), ttl=$($recovery.ttl_seconds)s"
+  }
+  foreach ($field in @("tracked_sessions", "pending_sessions", "exhausted_sessions")) {
+    if ($null -eq $recovery.$field) {
+      throw "Headroom /health runtime.claude_stream_recovery is missing $field."
+    }
+  }
+  Write-Host "Headroom Claude stream recovery: enabled, max_attempts=$($recovery.max_attempts), ttl=$($recovery.ttl_seconds)s, pending=$($recovery.pending_sessions)"
 }
 
 function Test-HeadroomRequestHistory([string]$Url) {
@@ -789,10 +851,12 @@ if (Test-Path -LiteralPath $subagentProfileSync) {
 
 Test-Sub2apiAutostartTask
 Test-ClaudeRtkHook
+Test-ClaudeStreamRecoveryHook
 Show-Health "Headroom" $BaseUrl
 Show-Health "sub2api" $Sub2apiBaseUrl
 Test-HeadroomRateLimitProfile $BaseUrl
 Test-HeadroomUpstream429HoldProfile $BaseUrl
+Test-HeadroomClaudeStreamRecoveryProfile $BaseUrl
 Test-HeadroomRequestHistory $BaseUrl
 Test-HeadroomEffortPreservationProfile
 
