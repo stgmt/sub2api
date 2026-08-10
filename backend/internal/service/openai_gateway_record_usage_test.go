@@ -1096,7 +1096,7 @@ func TestOpenAIGatewayServiceRecordUsage_ServiceTierFlexHalvesCost(t *testing.T)
 }
 
 func TestNormalizeOpenAIServiceTier(t *testing.T) {
-	t.Run("fast maps to priority", func(t *testing.T) {
+	t.Run("fast maps to the native Codex wire tier", func(t *testing.T) {
 		got := normalizeOpenAIServiceTier(" fast ")
 		require.NotNil(t, got)
 		require.Equal(t, "priority", *got)

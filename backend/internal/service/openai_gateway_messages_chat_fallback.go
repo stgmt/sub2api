@@ -61,10 +61,11 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 		writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, fmt.Errorf("convert anthropic to responses: %w", err)
 	}
-	fastModeRequested, fastModeSource := applyAnthropicFastModeToResponses(
+	fastModeRequested, fastModeSource := applyAnthropicFastModeToResponsesForAccount(
 		responsesReq,
 		c.GetHeader("anthropic-beta"),
 		anthropicReq.Speed,
+		account,
 	)
 
 	billingModel := resolveOpenAIForwardModel(account, anthropicReq.Model, defaultMappedModel)
@@ -91,7 +92,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 	if normalizedBody, normalized := NormalizeGLMOpenAIReasoningEffort(chatBody, upstreamModel); normalized {
 		chatBody = normalizedBody
 	}
-	// The converted Chat Completions body now carries service_tier=priority when
+	// The converted Chat Completions body now carries the account-specific Fast tier when
 	// Claude Code requested /fast. Apply the same policy as the Responses path;
 	// previously this fallback silently downgraded every fast request.
 	updatedChatBody, policyErr := s.applyOpenAIFastPolicyToBody(ctx, account, upstreamModel, chatBody)
@@ -105,7 +106,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 	chatBody = updatedChatBody
 	serviceTier := extractOpenAIServiceTierFromBody(chatBody)
 	if fastModeRequested {
-		forwarded := serviceTier != nil && *serviceTier == OpenAIFastTierPriority
+		forwarded := serviceTier != nil && isOpenAIFastProviderTier(*serviceTier)
 		logger.L().Info("openai_messages.fast_mode_forwarded",
 			zap.Int64("account_id", account.ID),
 			zap.String("original_model", originalModel),

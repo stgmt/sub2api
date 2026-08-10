@@ -152,6 +152,12 @@ func TestApplyOpenAIFastPolicyToBody_DefaultPassesPriorityAndFast(t *testing.T) 
 	require.NoError(t, err)
 	require.Equal(t, "priority", gjson.GetBytes(updated, "service_tier").String())
 
+	oauthAccount := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+	updated, err = svc.applyOpenAIFastPolicyToBody(context.Background(), oauthAccount, "gpt-5.5", body)
+	require.NoError(t, err)
+	require.Equal(t, OpenAIFastTierPriority, gjson.GetBytes(updated, "service_tier").String(),
+		"ChatGPT OAuth must use the native Codex Fast wire tier")
+
 	body = []byte(`{"model":"gpt-4","service_tier":"priority"}`)
 	updated, err = svc.applyOpenAIFastPolicyToBody(context.Background(), account, "gpt-4", body)
 	require.NoError(t, err)

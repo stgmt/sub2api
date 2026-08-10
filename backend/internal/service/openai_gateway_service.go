@@ -3005,7 +3005,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 
 	if rawTier := requestView.ServiceTier; rawTier != "" {
-		if normTier := normalizedOpenAIServiceTierValue(rawTier); normTier != "" {
+		if normTier := normalizeOpenAIServiceTierForAccount(rawTier, account); normTier != "" {
 			action, errMsg := s.evaluateOpenAIFastPolicy(ctx, account, upstreamModel, normTier)
 			switch action {
 			case BetaPolicyActionBlock:
@@ -7369,10 +7369,11 @@ func normalizeOpenAIServiceTier(raw string) *string {
 	if value == "" {
 		return nil
 	}
-	if value == "fast" {
-		value = "priority"
+	// 接受 ChatGPT/Codex 配置层的 fast alias，并在 wire 层归一化为
+	// native Codex 的 priority；同时放过 OpenAI API 的其他合法 tier。
+	if value == OpenAIFastTierFast {
+		value = OpenAIFastTierPriority
 	}
-	// 放过 OpenAI 官方文档定义的所有合法 tier 值：priority/flex/auto/default/scale。
 	// 对 Codex 客户端零影响（Codex 只发 priority 或 flex，见 codex-rs/core/src/client.rs），
 	// 但能让直连 OpenAI SDK 的用户透传 auto/default/scale 以便抓包/调试。
 	// 真未知值仍返回 nil，由 normalizeResponsesBodyServiceTier 从 body 中删除。
@@ -7445,7 +7446,7 @@ func evaluateOpenAIFastPolicyWithSettings(settings *OpenAIFastPolicySettings, ac
 			continue
 		}
 		ruleTier := strings.ToLower(strings.TrimSpace(rule.ServiceTier))
-		if ruleTier != "" && ruleTier != OpenAIFastTierAny && ruleTier != tier {
+		if ruleTier != "" && ruleTier != OpenAIFastTierAny && !openAIFastPolicyTiersMatch(ruleTier, tier) {
 			continue
 		}
 		eff := BetaPolicyRule{
@@ -7458,6 +7459,16 @@ func evaluateOpenAIFastPolicyWithSettings(settings *OpenAIFastPolicySettings, ac
 		return resolveRuleAction(eff, model)
 	}
 	return BetaPolicyActionPass, ""
+}
+
+func openAIFastPolicyTiersMatch(ruleTier, requestTier string) bool {
+	if ruleTier == requestTier {
+		return true
+	}
+	// `fast` is the configuration alias and `priority` is the current native
+	// Codex OAuth wire value. Treat them as one policy family.
+	return (ruleTier == OpenAIFastTierFast && requestTier == OpenAIFastTierPriority) ||
+		(ruleTier == OpenAIFastTierPriority && requestTier == OpenAIFastTierFast)
 }
 
 // openAIFastPolicyCtxKey 是 context 中预取的 OpenAIFastPolicySettings 缓存
@@ -7493,20 +7504,21 @@ func openAIFastPolicySettingsFromContext(ctx context.Context) *OpenAIFastPolicyS
 // applyOpenAIFastPolicyToBody applies the OpenAI fast policy to a raw request
 // body. When action=filter it removes the service_tier field; when
 // action=block it returns (body, *OpenAIFastBlockedError). On pass it
-// normalizes the service_tier value (e.g. client alias "fast" → "priority").
+// normalizes the Codex configuration alias `fast` to the OpenAI OAuth wire
+// tier `priority` for both OAuth and API-key compatibility routes.
 // action=force_priority rewrites any matched known tier to "priority".
 //
 // Rationale for normalize-on-pass: chat-completions / messages 入口在调用本
 // 函数之前已经通过 normalizeResponsesBodyServiceTier 把 service_tier 归一化
 // 到了上游可识别值；passthrough（OpenAI 自动透传） / native /responses 等
-// 入口没有这一前置步骤，pass 路径下若不在此处归一化，"fast" 就会被原样
-// 透传到 OpenAI 上游导致 400/拒绝。把归一化收敛到本函数，所有入口行为一致。
+// 入口没有这一前置步骤，pass 路径下仍需做兼容归一化：Codex's
+// user-facing `fast` setting is serialized as wire-level `priority`.
 func (s *OpenAIGatewayService) applyOpenAIFastPolicyToBody(ctx context.Context, account *Account, model string, body []byte) ([]byte, error) {
 	if len(body) == 0 {
 		return body, nil
 	}
 	rawTier := gjson.GetBytes(body, "service_tier").String()
-	normTier := normalizedOpenAIServiceTierValue(rawTier)
+	normTier := normalizeOpenAIServiceTierForAccount(rawTier, account)
 	if rawTier == "" {
 		// Claude Code and other OpenAI clients commonly omit service_tier.
 		// OpenAI treats that as the default tier. Evaluate the policy so a
@@ -7554,7 +7566,8 @@ func (s *OpenAIGatewayService) applyOpenAIFastPolicyToBody(ctx context.Context, 
 		}
 		return updated, nil
 	default:
-		// pass：把别名（如 "fast"）写回为规范值（"priority"）。
+		// pass：保留账户兼容层已经选择的 tier；fast 对 OAuth 是真实
+		// ChatGPT/Codex subscription tier，priority 对 API key 是公开 API tier。
 		if normTier == rawTier {
 			return body, nil
 		}
@@ -7587,7 +7600,7 @@ func writeOpenAIFastPolicyBlockedResponse(c *gin.Context, err *OpenAIFastBlocked
 // applyOpenAIFastPolicyToBody contract but operates on a Realtime/Responses
 // WS payload:
 //
-//   - pass: keeps service_tier, normalizing aliases such as "fast" to "priority"
+//   - pass: keeps the account-normalized service_tier (`fast` becomes `priority`)
 //   - filter: returns a copy with top-level service_tier removed
 //   - force_priority: keeps service_tier and rewrites it to "priority"
 //   - block: returns (frame, *OpenAIFastBlockedError)
@@ -7630,7 +7643,7 @@ func (s *OpenAIGatewayService) applyOpenAIFastPolicyToWSResponseCreate(
 		return frame, nil, nil
 	}
 	rawTier := gjson.GetBytes(frame, "service_tier").String()
-	normTier := normalizedOpenAIServiceTierValue(rawTier)
+	normTier := normalizeOpenAIServiceTierForAccount(rawTier, account)
 	if rawTier == "" {
 		// An omitted service_tier is OpenAI's default tier. Only a force rule
 		// injects priority here; filter/pass remain no-ops on an absent field.

@@ -564,8 +564,9 @@ func DefaultBetaPolicySettings() *BetaPolicySettings {
 }
 
 // OpenAI Fast Policy 策略常量
-// OpenAI 的 "fast 模式" 通过请求体中的 service_tier 字段识别：
-//   - "priority"（客户端可传 "fast"，归一化为 "priority"）：fast 模式
+// OpenAI 的 Fast 模式有两个兼容名称：
+//   - "fast"：ChatGPT/Codex OAuth 订阅路径
+//   - "priority"：公开 OpenAI API Priority Processing 路径
 //   - "flex"：低优先级模式
 //   - 省略：normal 默认
 //
@@ -573,18 +574,19 @@ func DefaultBetaPolicySettings() *BetaPolicySettings {
 // anthropic-beta header 换成 body 的 service_tier 字段。
 const (
 	OpenAIFastTierAny      = "all"      // 匹配任意已识别的 service_tier
-	OpenAIFastTierPriority = "priority" // 仅匹配 fast（priority）
+	OpenAIFastTierFast     = "fast"     // ChatGPT/Codex subscription Fast
+	OpenAIFastTierPriority = "priority" // OpenAI API Priority Processing
 	OpenAIFastTierFlex     = "flex"     // 仅匹配 flex
 	OpenAIFastTierDefault  = "default"  // OpenAI default when service_tier is omitted
 
 	// OpenAIFastPolicyActionForcePriority 会保留 service_tier 字段并强制写成
-	// priority，用于把 flex/auto/default/scale 等已识别 tier 收敛为 fast。
+	// priority；这是显式的 API Priority policy，不是订阅 Fast 的默认映射。
 	OpenAIFastPolicyActionForcePriority = "force_priority"
 )
 
 // OpenAIFastPolicyRule 单条 OpenAI fast/flex 策略规则
 type OpenAIFastPolicyRule struct {
-	ServiceTier          string   `json:"service_tier"`                     // "priority" | "flex" | "auto" | "default" | "scale" | "all"
+	ServiceTier          string   `json:"service_tier"`                     // "fast" | "priority" | "flex" | "auto" | "default" | "scale" | "all"
 	Action               string   `json:"action"`                           // "pass" | "filter" | "block" | "force_priority"
 	Scope                string   `json:"scope"`                            // "all" | "oauth" | "apikey" | "bedrock"
 	ErrorMessage         string   `json:"error_message,omitempty"`          // 自定义错误消息 (action=block 时生效)

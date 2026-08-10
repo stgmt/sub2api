@@ -5342,7 +5342,7 @@ func (s *SettingService) SetOpenAIFastPolicySettings(ctx context.Context, settin
 		BetaPolicyScopeAll: true, BetaPolicyScopeOAuth: true, BetaPolicyScopeAPIKey: true, BetaPolicyScopeBedrock: true,
 	}
 	validTiers := map[string]bool{
-		OpenAIFastTierAny: true, OpenAIFastTierPriority: true, OpenAIFastTierFlex: true,
+		OpenAIFastTierAny: true, OpenAIFastTierFast: true, OpenAIFastTierPriority: true, OpenAIFastTierFlex: true,
 	}
 
 	for i, rule := range settings.Rules {

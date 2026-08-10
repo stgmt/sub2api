@@ -40,6 +40,27 @@ func TestApplyAnthropicFastModeToResponses(t *testing.T) {
 	require.Equal(t, OpenAIFastTierPriority, fast.ServiceTier)
 }
 
+func TestApplyAnthropicFastModeToResponsesForAccountUsesCodexWireTier(t *testing.T) {
+	fast := &apicompat.ResponsesRequest{Model: "gpt-5.6-luna"}
+	oauth := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+
+	requested, source := applyAnthropicFastModeToResponsesForAccount(fast, "fast-mode-2026-02-01", "", oauth)
+
+	require.True(t, requested)
+	require.Equal(t, "beta_header", source)
+	require.Equal(t, OpenAIFastTierPriority, fast.ServiceTier)
+}
+
+func TestApplyAnthropicFastModeToResponsesForAccountUsesPriorityForAPIKey(t *testing.T) {
+	fast := &apicompat.ResponsesRequest{Model: "gpt-5.6-luna"}
+	apiKey := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+
+	requested, _ := applyAnthropicFastModeToResponsesForAccount(fast, "fast-mode-2026-02-01", "", apiKey)
+
+	require.True(t, requested)
+	require.Equal(t, OpenAIFastTierPriority, fast.ServiceTier)
+}
+
 func TestAnthropicSpeedSurvivesMessagesParsingAndReachesChatFallbackTier(t *testing.T) {
 	body := []byte(`{"model":"gpt-5.6-luna","max_tokens":64,"speed":"fast","messages":[{"role":"user","content":"hi"}]}`)
 	var anthropicReq apicompat.AnthropicRequest

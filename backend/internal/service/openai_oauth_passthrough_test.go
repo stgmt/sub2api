@@ -1261,7 +1261,7 @@ func TestOpenAIGatewayService_OAuthPassthrough_StreamingSetsFirstTokenMs(t *test
 	require.NotNil(t, result.FirstTokenMs)
 	require.GreaterOrEqual(t, *result.FirstTokenMs, 0)
 	require.NotNil(t, result.ServiceTier)
-	require.Equal(t, "priority", *result.ServiceTier)
+	require.Equal(t, OpenAIFastTierPriority, *result.ServiceTier)
 }
 
 func TestOpenAIGatewayService_OAuthPassthrough_StreamClientDisconnectStillCollectsUsage(t *testing.T) {

@@ -32,10 +32,13 @@ func anthropicFastModeSource(betaHeader, speed string) string {
 }
 
 // applyAnthropicFastModeToResponses translates the Anthropic fast-mode signal
-// into the OpenAI-compatible tier used by the Codex/OpenAI upstream. It is
-// intentionally opt-in: absent a fast signal, the request remains on the
-// provider default tier.
+// into the OpenAI OAuth wire tier. The user-facing Codex setting is called
+// `fast`, but the native ChatGPT/Codex client sends service_tier="priority".
 func applyAnthropicFastModeToResponses(req *apicompat.ResponsesRequest, betaHeader, speed string) (bool, string) {
+	return applyAnthropicFastModeToResponsesForAccount(req, betaHeader, speed, nil)
+}
+
+func applyAnthropicFastModeToResponsesForAccount(req *apicompat.ResponsesRequest, betaHeader, speed string, account *Account) (bool, string) {
 	if req == nil {
 		return false, ""
 	}
@@ -43,7 +46,7 @@ func applyAnthropicFastModeToResponses(req *apicompat.ResponsesRequest, betaHead
 	if source == "" {
 		return false, ""
 	}
-	req.ServiceTier = OpenAIFastTierPriority
+	req.ServiceTier = openAIFastTierForAccount(account)
 	return true, source
 }
 
@@ -69,16 +72,32 @@ func logAnthropicFastModeProviderConfirmation(account *Account, originalModel, u
 	)
 }
 
-// isOpenAIFastProviderTier accepts both names used by OpenAI-compatible
-// Responses implementations. The ChatGPT OAuth endpoint currently requests
-// `priority`, while newer API surfaces may echo `fast` directly.
+// isOpenAIFastProviderTier accepts the tier names that an OpenAI-compatible
+// provider may return. The current ChatGPT/Codex OAuth path sends priority;
+// accepting fast as an echoed value keeps confirmation parsing compatible with
+// other OpenAI-compatible implementations.
 func isOpenAIFastProviderTier(tier string) bool {
 	switch strings.ToLower(strings.TrimSpace(tier)) {
-	case OpenAIFastTierPriority, "fast":
+	case OpenAIFastTierFast, OpenAIFastTierPriority:
 		return true
 	default:
 		return false
 	}
+}
+
+func openAIFastTierForAccount(_ *Account) string {
+	// `fast` is a Codex configuration alias. The OpenAI OAuth Responses
+	// endpoint used by this gateway rejects raw service_tier="fast"; native
+	// Codex serializes the subscription Fast toggle as service_tier="priority".
+	return OpenAIFastTierPriority
+}
+
+func normalizeOpenAIServiceTierForAccount(raw string, _ *Account) string {
+	tier := normalizedOpenAIServiceTierValue(raw)
+	if tier == OpenAIFastTierFast {
+		return OpenAIFastTierPriority
+	}
+	return tier
 }
 
 // reconcileOpenAIServiceTierWithProvider replaces the request intent with the

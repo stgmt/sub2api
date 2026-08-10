@@ -155,10 +155,11 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	// 3b. Preserve Claude Code /fast across the Anthropic → Responses bridge.
 	// Both the legacy beta header and the newer body-level speed:"fast" form
 	// are accepted; ordinary requests remain on the upstream default tier.
-	fastModeRequested, fastModeSource := applyAnthropicFastModeToResponses(
+	fastModeRequested, fastModeSource := applyAnthropicFastModeToResponsesForAccount(
 		responsesReq,
 		c.GetHeader("anthropic-beta"),
 		anthropicReq.Speed,
+		account,
 	)
 
 	responsesReq.Model = upstreamModel
@@ -342,7 +343,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 
 	// 4c. Apply OpenAI fast policy (may filter service_tier or block the request).
 	// Mirrors the Claude anthropic-beta "fast-mode-2026-02-01" filter, but keyed
-	// on the body-level service_tier field (priority/flex).
+	// on the body-level service_tier field (fast/priority/flex).
 	updatedBody, policyErr := s.applyOpenAIFastPolicyToBody(ctx, account, upstreamModel, responsesBody)
 	if policyErr != nil {
 		var blocked *OpenAIFastBlockedError
@@ -355,7 +356,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	responsesBody = updatedBody
 	if fastModeRequested {
 		finalTier := extractOpenAIServiceTierFromBody(responsesBody)
-		forwarded := finalTier != nil && *finalTier == OpenAIFastTierPriority
+		forwarded := finalTier != nil && isOpenAIFastProviderTier(*finalTier)
 		logger.L().Info("openai_messages.fast_mode_forwarded",
 			zap.Int64("account_id", account.ID),
 			zap.String("original_model", originalModel),

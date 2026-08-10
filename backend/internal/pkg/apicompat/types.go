@@ -14,8 +14,9 @@ import "encoding/json"
 type AnthropicRequest struct {
 	Model     string `json:"model"`
 	MaxTokens int    `json:"max_tokens"`
-	// Speed is the Anthropic fast-mode request signal ("fast"). It is
-	// translated by the OpenAI compatibility gateway to service_tier=priority;
+	// Speed is the Anthropic fast-mode request signal ("fast"). The OpenAI
+	// compatibility gateway serializes it as the native Codex OAuth wire tier
+	// service_tier=priority;
 	// it is not an OpenAI Responses field and therefore must not be forwarded
 	// verbatim through the conversion layer.
 	Speed       string             `json:"speed,omitempty"`
