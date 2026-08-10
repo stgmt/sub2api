@@ -25,11 +25,11 @@ set "ANTHROPIC_BASE_URL=http://127.0.0.1:8787"
   if ([string]$settingsJson.env.CLAUDE_CODE_SKIP_FAST_MODE_ORG_CHECK -ne "1") {
     throw "settings.json does not bypass the unsupported custom-gateway organization probe"
   }
-  if ([string]$settingsJson.env.ANTHROPIC_MODEL -ne "claude-opus-5") {
-    throw "chatgpt-only profile must expose a Claude-supported Opus identity to the client"
+  if ([string]$settingsJson.env.ANTHROPIC_MODEL -ne "gpt-5.6-sol") {
+    throw "chatgpt-only profile must expose the OpenAI main model to the client"
   }
-  if ([string]$settingsJson.env.ANTHROPIC_DEFAULT_OPUS_MODEL -ne "claude-opus-5") {
-    throw "chatgpt-only Opus picker must use the Claude-supported identity"
+  if ([string]$settingsJson.env.ANTHROPIC_DEFAULT_OPUS_MODEL -ne "gpt-5.6-sol") {
+    throw "chatgpt-only primary picker slot must use the OpenAI main model"
   }
 
   $wrapperText = Get-Content -Raw -LiteralPath $wrapper
@@ -39,8 +39,8 @@ set "ANTHROPIC_BASE_URL=http://127.0.0.1:8787"
   if ($wrapperText -notmatch '(?im)^set\s+"CLAUDE_CODE_SKIP_FAST_MODE_ORG_CHECK=1"\s*$') {
     throw "claude.cmd does not receive CLAUDE_CODE_SKIP_FAST_MODE_ORG_CHECK"
   }
-  if ($wrapperText -notmatch '(?im)^set\s+"ANTHROPIC_MODEL=claude-opus-5"\s*$') {
-    throw "claude.cmd does not receive the Claude-supported Opus identity"
+  if ($wrapperText -notmatch '(?im)^set\s+"ANTHROPIC_MODEL=gpt-5\.6-sol"\s*$') {
+    throw "claude.cmd does not receive the OpenAI main model"
   }
   if ($wrapperText -match '(?im)^set\s+"CLAUDE_CODE_FORCE_FAST_MODE=') {
     throw "unsupported CLAUDE_CODE_FORCE_FAST_MODE must not be installed"

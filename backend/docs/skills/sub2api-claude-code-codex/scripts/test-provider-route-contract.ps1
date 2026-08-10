@@ -92,8 +92,8 @@ try {
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $applier -ProfilePath $chatgptProfile -SettingsPath $settingsPath -AgentsPath $agentsPath -WrapperPath $wrapperPath -Generation 10 -AuthToken "fleet-test-key" -EnvironmentTarget None | Out-Null
   Assert-True ($LASTEXITCODE -eq 0) "ChatGPT-only profile apply must succeed"
   $afterChatGPT = Get-Content -Raw $settingsPath | ConvertFrom-Json
-   Assert-True ($afterChatGPT.env.ANTHROPIC_MODEL -eq "claude-opus-5") "ChatGPT-only main must expose the Claude-supported Opus identity"
-   Assert-True ($afterChatGPT.env.ANTHROPIC_DEFAULT_OPUS_MODEL -eq "claude-opus-5") "ChatGPT-only Opus picker must expose the Claude-supported identity"
+  Assert-True ($afterChatGPT.env.ANTHROPIC_MODEL -eq "gpt-5.6-sol") "ChatGPT-only main must expose the OpenAI/Codex identity"
+  Assert-True ($afterChatGPT.env.ANTHROPIC_DEFAULT_OPUS_MODEL -eq "gpt-5.6-sol") "ChatGPT-only primary picker slot must expose the OpenAI/Codex identity"
    Assert-True ($afterChatGPT.env.CLAUDE_CODE_SKIP_FAST_MODE_NETWORK_ERRORS -eq "1") "ChatGPT-only must bypass the gateway network probe"
    Assert-True ($afterChatGPT.env.CLAUDE_CODE_SKIP_FAST_MODE_ORG_CHECK -eq "1") "ChatGPT-only must bypass the gateway organization probe"
   Assert-True ($afterChatGPT.env.CLAUDE_CODE_SUBAGENT_MODEL -eq "gpt-5.6-luna") "ChatGPT-only subagents must use Luna"
