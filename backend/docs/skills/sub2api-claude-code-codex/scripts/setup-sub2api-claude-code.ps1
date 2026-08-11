@@ -32,7 +32,7 @@ param(
   [string]$HeadroomVersion = "0.31.0",
   [string]$HeadroomPythonVersion = "3.12",
   [string]$HeadroomGitRepo = "https://github.com/stgmt/headroom.git",
-  [string]$HeadroomGitRef = "773755d469e0dfda5952ea77976f861be0f1679c",
+  [string]$HeadroomGitRef = "b131ef9c4ba886c60d291fdabd3485dfac10630e",
   [string]$HeadroomRustToolchain = "1.88.0",
   [ValidateSet("auto", "cpu", "cuda")]
   [string]$HeadroomAccelerator = "auto",
@@ -52,6 +52,8 @@ param(
   [string]$HeadroomUpstream429HoldEnabled = "1",
   [ValidateRange(60, 86400)]
   [int]$HeadroomUpstream429MaxWaitSeconds = 21600,
+  [ValidateRange(1, 3600)]
+  [int]$HeadroomUpstreamTransientMaxWaitSeconds = 90,
   [ValidateRange(1, 300)]
   [int]$HeadroomUpstream429HeartbeatSeconds = 15,
   [ValidateRange(1, 3600)]
@@ -276,6 +278,7 @@ function Write-DotEnv([System.Collections.IDictionary]$Map, [string]$Path) {
     "HEADROOM_RETRY_MAX_ATTEMPTS",
     "HEADROOM_UPSTREAM_429_HOLD_ENABLED",
     "HEADROOM_UPSTREAM_429_MAX_WAIT_SECONDS",
+    "HEADROOM_UPSTREAM_TRANSIENT_MAX_WAIT_SECONDS",
     "HEADROOM_UPSTREAM_429_HEARTBEAT_SECONDS",
     "HEADROOM_UPSTREAM_429_DEFAULT_RETRY_SECONDS",
     "HEADROOM_UPSTREAM_RECOVERY_HOLD_STATUSES",
@@ -435,6 +438,7 @@ Set-DotEnvValue $envMap "HEADROOM_TPM" ([string]$HeadroomTokensPerMinute)
 Set-DotEnvValue $envMap "HEADROOM_RETRY_MAX_ATTEMPTS" ([string]$HeadroomRetryMaxAttempts)
 Set-DotEnvValue $envMap "HEADROOM_UPSTREAM_429_HOLD_ENABLED" $HeadroomUpstream429HoldEnabled
 Set-DotEnvValue $envMap "HEADROOM_UPSTREAM_429_MAX_WAIT_SECONDS" ([string]$HeadroomUpstream429MaxWaitSeconds)
+Set-DotEnvValue $envMap "HEADROOM_UPSTREAM_TRANSIENT_MAX_WAIT_SECONDS" ([string]$HeadroomUpstreamTransientMaxWaitSeconds)
 Set-DotEnvValue $envMap "HEADROOM_UPSTREAM_429_HEARTBEAT_SECONDS" ([string]$HeadroomUpstream429HeartbeatSeconds)
 Set-DotEnvValue $envMap "HEADROOM_UPSTREAM_429_DEFAULT_RETRY_SECONDS" ([string]$HeadroomUpstream429DefaultRetrySeconds)
 Set-DotEnvValue $envMap "HEADROOM_UPSTREAM_RECOVERY_HOLD_STATUSES" $HeadroomUpstreamRecoveryHoldStatuses
