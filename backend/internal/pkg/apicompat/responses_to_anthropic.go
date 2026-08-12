@@ -3,6 +3,7 @@ package apicompat
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -166,6 +167,17 @@ func sanitizeAnthropicToolUseInput(name string, raw string) json.RawMessage {
 
 // ResponsesEventToAnthropicState tracks state for converting a sequence of
 // Responses SSE events directly into Anthropic SSE events.
+type responsesTextKey struct {
+	OutputIndex  int
+	ContentIndex int
+}
+
+type responsesTextSnapshot struct {
+	Emitted   string
+	DeltaText string
+	Done      bool
+}
+
 type ResponsesEventToAnthropicState struct {
 	MessageStartSent bool
 	MessageStopSent  bool
@@ -177,6 +189,13 @@ type ResponsesEventToAnthropicState struct {
 	CurrentToolArgs     string
 	CurrentToolHadDelta bool
 	HasToolCall         bool
+	CurrentTextKey      responsesTextKey
+	CurrentTextKeySet   bool
+	textSnapshots       map[responsesTextKey]*responsesTextSnapshot
+
+	RecoveredTextBytes    int
+	RecoveredTextSources  map[string]int
+	TextSnapshotConflicts int
 
 	// OutputIndexToBlockIdx maps Responses output_index → Anthropic content block index.
 	OutputIndexToBlockIdx map[int]int
@@ -194,6 +213,8 @@ type ResponsesEventToAnthropicState struct {
 func NewResponsesEventToAnthropicState() *ResponsesEventToAnthropicState {
 	return &ResponsesEventToAnthropicState{
 		OutputIndexToBlockIdx: make(map[int]int),
+		textSnapshots:         make(map[responsesTextKey]*responsesTextSnapshot),
+		RecoveredTextSources:  make(map[string]int),
 		Created:               time.Now().Unix(),
 	}
 }
@@ -209,10 +230,14 @@ func ResponsesEventToAnthropicEvents(
 		return resToAnthHandleCreated(evt, state)
 	case "response.output_item.added":
 		return resToAnthHandleOutputItemAdded(evt, state)
+	case "response.content_part.added":
+		return resToAnthHandleContentPartSnapshot(evt, state, "content_part_added", false)
 	case "response.output_text.delta":
 		return resToAnthHandleTextDelta(evt, state)
 	case "response.output_text.done":
-		return resToAnthHandleBlockDone(state)
+		return resToAnthHandleTextDone(evt, state)
+	case "response.content_part.done":
+		return resToAnthHandleContentPartSnapshot(evt, state, "content_part_done", true)
 	case "response.function_call_arguments.delta",
 		// custom/freeform 工具的输入增量与 function_call 参数增量同形。
 		"response.custom_tool_call_input.delta":
@@ -374,35 +399,124 @@ func resToAnthHandleTextDelta(evt *ResponsesStreamEvent, state *ResponsesEventTo
 		return nil
 	}
 
-	var events []AnthropicStreamEvent
+	key := responsesTextKey{OutputIndex: evt.OutputIndex, ContentIndex: evt.ContentIndex}
+	snapshot := responsesTextSnapshotFor(state, key)
+	snapshot.DeltaText += evt.Delta
 
-	if !state.ContentBlockOpen || state.CurrentBlockType != "text" {
-		events = append(events, closeCurrentBlock(state)...)
-
-		idx := state.ContentBlockIndex
-		state.ContentBlockOpen = true
-		state.CurrentBlockType = "text"
-
-		events = append(events, AnthropicStreamEvent{
-			Type:  "content_block_start",
-			Index: &idx,
-			ContentBlock: &AnthropicContentBlock{
-				Type: "text",
-				Text: "",
-			},
-		})
+	switch {
+	case snapshot.Emitted == "":
+		return emitResponsesText(state, key, snapshot, snapshot.DeltaText, false, "")
+	case strings.HasPrefix(snapshot.Emitted, snapshot.DeltaText):
+		return nil
+	case strings.HasPrefix(snapshot.DeltaText, snapshot.Emitted):
+		return emitResponsesText(state, key, snapshot, snapshot.DeltaText[len(snapshot.Emitted):], false, "")
+	default:
+		state.TextSnapshotConflicts++
+		return nil
 	}
+}
 
+func resToAnthHandleTextDone(evt *ResponsesStreamEvent, state *ResponsesEventToAnthropicState) []AnthropicStreamEvent {
+	key := responsesTextKey{OutputIndex: evt.OutputIndex, ContentIndex: evt.ContentIndex}
+	events := reconcileResponsesTextSnapshot(state, key, evt.Text, "output_text_done")
+	responsesTextSnapshotFor(state, key).Done = true
+	return append(events, closeResponsesTextBlock(state, key)...)
+}
+
+func resToAnthHandleContentPartSnapshot(evt *ResponsesStreamEvent, state *ResponsesEventToAnthropicState, source string, done bool) []AnthropicStreamEvent {
+	if evt.Part == nil || evt.Part.Type != "output_text" {
+		return nil
+	}
+	key := responsesTextKey{OutputIndex: evt.OutputIndex, ContentIndex: evt.ContentIndex}
+	events := reconcileResponsesTextSnapshot(state, key, evt.Part.Text, source)
+	if done {
+		responsesTextSnapshotFor(state, key).Done = true
+		events = append(events, closeResponsesTextBlock(state, key)...)
+	}
+	return events
+}
+
+func responsesTextSnapshotFor(state *ResponsesEventToAnthropicState, key responsesTextKey) *responsesTextSnapshot {
+	if state.textSnapshots == nil {
+		state.textSnapshots = make(map[responsesTextKey]*responsesTextSnapshot)
+	}
+	snapshot := state.textSnapshots[key]
+	if snapshot == nil {
+		snapshot = &responsesTextSnapshot{}
+		state.textSnapshots[key] = snapshot
+	}
+	return snapshot
+}
+
+func reconcileResponsesTextSnapshot(state *ResponsesEventToAnthropicState, key responsesTextKey, text, source string) []AnthropicStreamEvent {
+	if text == "" {
+		return nil
+	}
+	snapshot := responsesTextSnapshotFor(state, key)
+	switch {
+	case snapshot.Emitted == "":
+		return emitResponsesText(state, key, snapshot, text, true, source)
+	case strings.HasPrefix(text, snapshot.Emitted):
+		return emitResponsesText(state, key, snapshot, text[len(snapshot.Emitted):], true, source)
+	case strings.HasPrefix(snapshot.Emitted, text):
+		return nil
+	default:
+		state.TextSnapshotConflicts++
+		return nil
+	}
+}
+
+func emitResponsesText(state *ResponsesEventToAnthropicState, key responsesTextKey, snapshot *responsesTextSnapshot, text string, recovered bool, source string) []AnthropicStreamEvent {
+	if text == "" {
+		return nil
+	}
+	events := ensureResponsesTextBlock(state, key)
 	idx := state.ContentBlockIndex
 	events = append(events, AnthropicStreamEvent{
 		Type:  "content_block_delta",
 		Index: &idx,
 		Delta: &AnthropicDelta{
 			Type: "text_delta",
-			Text: evt.Delta,
+			Text: text,
 		},
 	})
+	snapshot.Emitted += text
+	if recovered {
+		if state.RecoveredTextSources == nil {
+			state.RecoveredTextSources = make(map[string]int)
+		}
+		state.RecoveredTextBytes += len(text)
+		state.RecoveredTextSources[source] += len(text)
+	}
 	return events
+}
+
+func ensureResponsesTextBlock(state *ResponsesEventToAnthropicState, key responsesTextKey) []AnthropicStreamEvent {
+	if state.ContentBlockOpen && state.CurrentBlockType == "text" && state.CurrentTextKeySet && state.CurrentTextKey == key {
+		return nil
+	}
+
+	events := closeCurrentBlock(state)
+	idx := state.ContentBlockIndex
+	state.ContentBlockOpen = true
+	state.CurrentBlockType = "text"
+	state.CurrentTextKey = key
+	state.CurrentTextKeySet = true
+	return append(events, AnthropicStreamEvent{
+		Type:  "content_block_start",
+		Index: &idx,
+		ContentBlock: &AnthropicContentBlock{
+			Type: "text",
+			Text: "",
+		},
+	})
+}
+
+func closeResponsesTextBlock(state *ResponsesEventToAnthropicState, key responsesTextKey) []AnthropicStreamEvent {
+	if !state.ContentBlockOpen || state.CurrentBlockType != "text" || !state.CurrentTextKeySet || state.CurrentTextKey != key {
+		return nil
+	}
+	return closeCurrentBlock(state)
 }
 
 func resToAnthHandleFuncArgsDelta(evt *ResponsesStreamEvent, state *ResponsesEventToAnthropicState) []AnthropicStreamEvent {
@@ -498,6 +612,19 @@ func resToAnthHandleOutputItemDone(evt *ResponsesStreamEvent, state *ResponsesEv
 		return nil
 	}
 
+	if evt.Item.Type == "message" {
+		var events []AnthropicStreamEvent
+		for contentIndex, part := range evt.Item.Content {
+			if part.Type != "output_text" {
+				continue
+			}
+			key := responsesTextKey{OutputIndex: evt.OutputIndex, ContentIndex: contentIndex}
+			events = append(events, reconcileResponsesTextSnapshot(state, key, part.Text, "output_item_done")...)
+			responsesTextSnapshotFor(state, key).Done = true
+		}
+		return append(events, closeCurrentBlock(state)...)
+	}
+
 	// Handle web_search_call → synthesize server_tool_use + web_search_tool_result blocks.
 	if evt.Item.Type == "web_search_call" && evt.Item.Status == "completed" {
 		return resToAnthHandleWebSearchDone(evt, state)
@@ -569,6 +696,7 @@ func resToAnthHandleCompleted(evt *ResponsesStreamEvent, state *ResponsesEventTo
 		return nil
 	}
 
+	hadStreamOutput := state.ContentBlockOpen || state.ContentBlockIndex > 0
 	var events []AnthropicStreamEvent
 	events = append(events, closeCurrentBlock(state)...)
 
@@ -591,8 +719,13 @@ func resToAnthHandleCompleted(evt *ResponsesStreamEvent, state *ResponsesEventTo
 			state.OutputTokens = usage.OutputTokens
 			state.CacheReadInputTokens = usage.CacheReadInputTokens
 		}
-		events = append(events, resToAnthHandleTerminalOutput(evt.Response, state)...)
+		if hadStreamOutput {
+			events = append(events, resToAnthHandleTerminalTextSnapshots(evt.Response, state)...)
+		} else {
+			events = append(events, resToAnthHandleTerminalOutput(evt.Response, state)...)
+		}
 	}
+	events = append(events, closeCurrentBlock(state)...)
 
 	stopReason := "end_turn"
 	if evt.Response != nil {
@@ -623,6 +756,27 @@ func resToAnthHandleCompleted(evt *ResponsesStreamEvent, state *ResponsesEventTo
 		AnthropicStreamEvent{Type: "message_stop"},
 	)
 	state.MessageStopSent = true
+	return events
+}
+
+func resToAnthHandleTerminalTextSnapshots(resp *ResponsesResponse, state *ResponsesEventToAnthropicState) []AnthropicStreamEvent {
+	if resp == nil {
+		return nil
+	}
+	var events []AnthropicStreamEvent
+	for outputIndex, item := range resp.Output {
+		if item.Type != "message" {
+			continue
+		}
+		for contentIndex, part := range item.Content {
+			if part.Type != "output_text" {
+				continue
+			}
+			key := responsesTextKey{OutputIndex: outputIndex, ContentIndex: contentIndex}
+			events = append(events, reconcileResponsesTextSnapshot(state, key, part.Text, "terminal_output")...)
+			responsesTextSnapshotFor(state, key).Done = true
+		}
+	}
 	return events
 }
 
@@ -695,6 +849,11 @@ func resToAnthHandleTerminalOutput(resp *ResponsesResponse, state *ResponsesEven
 					Text: block.Text,
 				},
 			})
+			if state.RecoveredTextSources == nil {
+				state.RecoveredTextSources = make(map[string]int)
+			}
+			state.RecoveredTextBytes += len(block.Text)
+			state.RecoveredTextSources["terminal_output"] += len(block.Text)
 		case "thinking":
 			events = append(events, AnthropicStreamEvent{
 				Type:  "content_block_delta",
@@ -724,6 +883,7 @@ func closeCurrentBlock(state *ResponsesEventToAnthropicState) []AnthropicStreamE
 	state.CurrentToolName = ""
 	state.CurrentToolArgs = ""
 	state.CurrentToolHadDelta = false
+	state.CurrentTextKeySet = false
 	return []AnthropicStreamEvent{{
 		Type:  "content_block_stop",
 		Index: &idx,

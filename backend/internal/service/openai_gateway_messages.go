@@ -2340,6 +2340,18 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 			}
 			return nil, terminalClientError
 		}
+		if state.RecoveredTextBytes > 0 {
+			logger.L().Info("openai_messages.stream_terminal_text_recovered",
+				zap.String("request_id", requestID),
+				zap.String("response_id", responseID),
+				zap.Int64("account_id", account.ID),
+				zap.String("model", originalModel),
+				zap.String("upstream_model", upstreamModel),
+				zap.Int("recovered_text_bytes", state.RecoveredTextBytes),
+				zap.Any("recovered_text_sources", state.RecoveredTextSources),
+				zap.Int("text_snapshot_conflicts", state.TextSnapshotConflicts),
+			)
+		}
 		if !clientVisibleOutputStarted {
 			result := resultWithUsage()
 			fields := []zap.Field{
@@ -2348,6 +2360,9 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 				zap.Int64("account_id", account.ID),
 				zap.String("model", originalModel),
 				zap.String("upstream_model", upstreamModel),
+				zap.Int("recovered_text_bytes", state.RecoveredTextBytes),
+				zap.Any("recovered_text_sources", state.RecoveredTextSources),
+				zap.Int("text_snapshot_conflicts", state.TextSnapshotConflicts),
 			}
 			fields = append(fields, streamDiag.ZapFields()...)
 			logger.L().Warn("openai_messages.stream_completed_without_visible_output", fields...)
@@ -2705,6 +2720,9 @@ type openAIMessagesStreamDiagnostic struct {
 
 	OutputTextDeltaBytes       int
 	OutputTextDoneCount        int
+	OutputTextDoneBytes        int
+	ContentPartDoneTextBytes   int
+	OutputItemDoneTextBytes    int
 	ReasoningDeltaBytes        int
 	ReasoningDoneCount         int
 	FunctionArgsDeltaBytes     int
@@ -2748,11 +2766,23 @@ func (d *openAIMessagesStreamDiagnostic) Record(evt apicompat.ResponsesStreamEve
 				itemType = "<empty>"
 			}
 			d.OutputItemTypes[itemType]++
+			if eventType == "response.output_item.done" && itemType == "message" {
+				for _, part := range evt.Item.Content {
+					if strings.TrimSpace(part.Type) == "output_text" {
+						d.OutputItemDoneTextBytes += len(part.Text)
+					}
+				}
+			}
 		}
 	case "response.output_text.delta":
 		d.OutputTextDeltaBytes += len(evt.Delta)
 	case "response.output_text.done":
 		d.OutputTextDoneCount++
+		d.OutputTextDoneBytes += len(evt.Text)
+	case "response.content_part.done":
+		if evt.Part != nil && strings.TrimSpace(evt.Part.Type) == "output_text" {
+			d.ContentPartDoneTextBytes += len(evt.Part.Text)
+		}
 	case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
 		d.ReasoningDeltaBytes += len(evt.Delta)
 	case "response.reasoning_summary_text.done":
@@ -2817,6 +2847,9 @@ func (d *openAIMessagesStreamDiagnostic) ZapFields() []zap.Field {
 		zap.Any("responses_final_output_types", d.FinalOutputTypes),
 		zap.Int("output_text_delta_bytes", d.OutputTextDeltaBytes),
 		zap.Int("output_text_done_count", d.OutputTextDoneCount),
+		zap.Int("output_text_done_bytes", d.OutputTextDoneBytes),
+		zap.Int("content_part_done_text_bytes", d.ContentPartDoneTextBytes),
+		zap.Int("output_item_done_text_bytes", d.OutputItemDoneTextBytes),
 		zap.Int("reasoning_delta_bytes", d.ReasoningDeltaBytes),
 		zap.Int("reasoning_done_count", d.ReasoningDoneCount),
 		zap.Int("function_args_delta_bytes", d.FunctionArgsDeltaBytes),
