@@ -14,14 +14,14 @@ def test_headroom_image_builds_from_stgmt_fork_ref() -> None:
     compose = read("docker-compose.yml")
 
     assert "ARG HEADROOM_GIT_REPO=https://github.com/stgmt/headroom.git" in dockerfile
-    assert "ARG HEADROOM_GIT_REF=b131ef9c4ba886c60d291fdabd3485dfac10630e" in dockerfile
+    assert "ARG HEADROOM_GIT_REF=301e387425e69b930e065c11bc2970be00105eb9" in dockerfile
     assert "ARG HEADROOM_RUST_TOOLCHAIN=1.88.0" in dockerfile
     assert "build-essential curl pkg-config" in dockerfile
     assert '--default-toolchain "${HEADROOM_RUST_TOOLCHAIN}"' in dockerfile
     assert "git+${HEADROOM_GIT_REPO}@${HEADROOM_GIT_REF}" in dockerfile
     assert "headroom-ai[proxy,code,relevance,html,spreadsheet,otel,reports,mcp]==" not in dockerfile
     assert "HEADROOM_GIT_REPO: ${HEADROOM_GIT_REPO:-https://github.com/stgmt/headroom.git}" in compose
-    assert "HEADROOM_GIT_REF: ${HEADROOM_GIT_REF:-b131ef9c4ba886c60d291fdabd3485dfac10630e}" in compose
+    assert "HEADROOM_GIT_REF: ${HEADROOM_GIT_REF:-301e387425e69b930e065c11bc2970be00105eb9}" in compose
     assert "HEADROOM_RUST_TOOLCHAIN: ${HEADROOM_RUST_TOOLCHAIN:-1.88.0}" in compose
     assert "stop_grace_period: 90s" in compose
 
@@ -45,7 +45,7 @@ def test_setup_script_preserves_fork_source_values() -> None:
     text = setup.read_text(encoding="utf-8")
 
     assert '$HeadroomGitRepo = "https://github.com/stgmt/headroom.git"' in text
-    assert '$HeadroomGitRef = "b131ef9c4ba886c60d291fdabd3485dfac10630e"' in text
+    assert '$HeadroomGitRef = "301e387425e69b930e065c11bc2970be00105eb9"' in text
     assert '$HeadroomRustToolchain = "1.88.0"' in text
     assert '$Sub2apiGitRepo = "https://github.com/stgmt/sub2api.git"' in text
     assert 'Set-DotEnvValue $envMap "HEADROOM_GIT_REPO" $HeadroomGitRepo' in text
@@ -62,7 +62,7 @@ def test_fullpower_profile_tracks_both_forks() -> None:
 
     assert profile["proxy"]["headroom"]["fork"] == "https://github.com/stgmt/headroom"
     assert profile["proxy"]["headroom"]["git_repo"] == "https://github.com/stgmt/headroom.git"
-    assert profile["proxy"]["headroom"]["git_ref"] == "b131ef9c4ba886c60d291fdabd3485dfac10630e"
+    assert profile["proxy"]["headroom"]["git_ref"] == "301e387425e69b930e065c11bc2970be00105eb9"
     assert profile["proxy"]["headroom"]["upstream_429_hold_enabled"] is True
     assert profile["proxy"]["headroom"]["upstream_429_max_wait_seconds"] == 21600
     assert profile["proxy"]["headroom"]["upstream_transient_max_wait_seconds"] == 90
