@@ -308,11 +308,16 @@ function Invoke-HeadroomStatsProbe {
         error = "proxy_inbound.active is missing"
       }
     }
+    # The request that reads /stats has already entered Headroom's inbound
+    # middleware, so proxy_inbound.active includes this observer itself.
+    $rawActive = [int]$proxyInbound.active
     return [ordered]@{
       url = "$Url/stats"
       ok = $true
       active_known = $true
-      active = [int]$proxyInbound.active
+      active = [Math]::Max(0, $rawActive - 1)
+      raw_active = $rawActive
+      observer_adjustment = 1
     }
   } catch {
     return [ordered]@{
