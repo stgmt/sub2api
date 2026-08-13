@@ -2136,6 +2136,11 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 	var terminalClientError error
 	var pendingClientSSE []string
 	streamDiag := newOpenAIMessagesStreamDiagnostic(estimatedInputTokens)
+	lastClientWriteAt := time.Now()
+	preOutputKeepaliveLogged := false
+	markClientWrite := func() {
+		lastClientWriteAt = time.Now()
+	}
 
 	scanner := bufio.NewScanner(resp.Body)
 	maxLineSize := defaultMaxLineSize
@@ -2189,6 +2194,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 				)
 				break
 			}
+			markClientWrite()
 			clientOutputStarted = true
 		}
 		pendingClientSSE = pendingClientSSE[:0]
@@ -2292,6 +2298,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 					)
 					break
 				}
+				markClientWrite()
 				clientOutputStarted = true
 			}
 		}
@@ -2328,6 +2335,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 					)
 					break
 				}
+				markClientWrite()
 				clientOutputStarted = true
 			}
 			if !clientDisconnected && clientVisibleOutputStarted {
@@ -2498,7 +2506,6 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 	if keepaliveTicker != nil {
 		keepaliveCh = keepaliveTicker.C
 	}
-	lastDataAt := time.Now()
 	var parser openAICompatSSEFrameParser
 
 	for {
@@ -2520,7 +2527,6 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 				handleScanErr(ev.err)
 				return streamTransportError(ev.err)
 			}
-			lastDataAt = time.Now()
 			line := ev.line
 			if isOpenAICompatDoneSentinelLine(line) {
 				return missingTerminalErr()
@@ -2552,10 +2558,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 			if clientDisconnected {
 				continue
 			}
-			if !clientVisibleOutputStarted {
-				continue
-			}
-			if time.Since(lastDataAt) < keepaliveInterval {
+			if time.Since(lastClientWriteAt) < keepaliveInterval {
 				continue
 			}
 			// Send Anthropic-format ping event
@@ -2568,8 +2571,15 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 				clientDisconnected = true
 				continue
 			}
-			clientOutputStarted = true
+			markClientWrite()
 			c.Writer.Flush()
+			if !clientVisibleOutputStarted && !preOutputKeepaliveLogged {
+				logger.L().Info("openai messages stream: pre-output keepalive started",
+					zap.String("request_id", requestID),
+					zap.String("model", originalModel),
+				)
+				preOutputKeepaliveLogged = true
+			}
 		}
 	}
 }

@@ -120,3 +120,33 @@ func TestStreamWrittenGuard_NoByteWritten_GuardNotTriggered(t *testing.T) {
 	require.False(t, guardTriggered,
 		"未写入任何字节时，守卫条件必须为 false，应允许正常 failover 继续")
 }
+
+// TestOpenAIMessagesRetryGuard_PingOnlyDoesNotCommitSemanticOutput covers the
+// Claude Code idle-timeout incident where the bridge must emit protocol pings
+// while retaining the right to replay a generation that produced no text or
+// tool_use yet.
+func TestOpenAIMessagesRetryGuard_PingOnlyDoesNotCommitSemanticOutput(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	sizeBeforeForward := c.Writer.Size()
+	_, err := c.Writer.Write([]byte("event: ping\ndata: {\"type\":\"ping\"}\n\n"))
+	require.NoError(t, err)
+	require.NotEqual(t, sizeBeforeForward, c.Writer.Size(), "the keepalive must reach Claude Code")
+
+	result := &service.OpenAIForwardResult{ClientOutputStarted: false}
+	semanticGuardTriggered := c.Writer.Size() != sizeBeforeForward && result.ClientOutputStarted
+	require.False(t, semanticGuardTriggered, "a protocol ping must not disable transparent pre-output retry")
+
+	account := &service.Account{
+		Type:     service.AccountTypeAPIKey,
+		Platform: service.PlatformOpenAI,
+		Credentials: map[string]any{
+			"pool_mode":             true,
+			"pool_mode_retry_count": 5,
+		},
+	}
+	require.Equal(t, 1, openAIMessagesRetryLimit(account, result, false))
+}

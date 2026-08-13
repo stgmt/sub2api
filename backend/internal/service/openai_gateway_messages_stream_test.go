@@ -86,6 +86,94 @@ func TestOpenAIMessagesAnthropicStreamTransportErrorBeforeVisibleOutputReturnsRe
 	assert.Empty(t, rec.Body.String())
 }
 
+func TestOpenAIMessagesAnthropicStreamKeepsClientAliveBeforeVisibleOutputWithoutCommittingResponse(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
+		MaxLineSize:             defaultMaxLineSize,
+		StreamKeepaliveInterval: 1,
+	}}}
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	reader, writer := io.Pipe()
+	go func() {
+		_, _ = io.WriteString(writer, strings.Join([]string{
+			"event: response.created",
+			`data: {"type":"response.created","response":{"id":"resp_delayed","model":"gpt-5.6-sol","status":"in_progress"}}`,
+			"",
+			"event: response.in_progress",
+			`data: {"type":"response.in_progress","response":{"id":"resp_delayed","status":"in_progress"}}`,
+			"",
+		}, "\n"))
+		time.Sleep(1500 * time.Millisecond)
+		_ = writer.CloseWithError(errors.New("stream ID 455; INTERNAL_ERROR; received from peer"))
+	}()
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"X-Request-Id": []string{"rid-pre-output-keepalive"}},
+		Body:       reader,
+	}
+
+	result, err := svc.handleAnthropicStreamingResponse(resp, c, &Account{ID: 1, Platform: PlatformOpenAI, Name: "acc"}, "gpt-5.6-sol", "gpt-5.6-sol", "gpt-5.6-sol", time.Now(), 12345)
+
+	require.Error(t, err)
+	require.NotNil(t, result)
+	assert.False(t, result.ClientOutputStarted, "protocol keepalives must not make a generation unsafe to retry")
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	assert.True(t, failoverErr.RetryableOnSameAccount)
+	assert.Equal(t, "event: ping\ndata: {\"type\":\"ping\"}\n\n", rec.Body.String())
+	assert.NotContains(t, rec.Body.String(), "event: message_start")
+}
+
+func TestOpenAIMessagesAnthropicStreamDeliversVisibleOutputOnceAfterPreOutputKeepalive(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
+		MaxLineSize:             defaultMaxLineSize,
+		StreamKeepaliveInterval: 1,
+	}}}
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	reader, writer := io.Pipe()
+	go func() {
+		_, _ = io.WriteString(writer, "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_delayed_ok\",\"model\":\"gpt-5.6-sol\",\"status\":\"in_progress\"}}\n\n")
+		time.Sleep(1500 * time.Millisecond)
+		_, _ = io.WriteString(writer, strings.Join([]string{
+			"event: response.output_item.added",
+			`data: {"type":"response.output_item.added","output_index":0,"item":{"id":"msg_delayed","type":"message","role":"assistant","content":[]}}`,
+			"",
+			"event: response.output_text.delta",
+			`data: {"type":"response.output_text.delta","output_index":0,"content_index":0,"delta":"Recovered"}`,
+			"",
+			"event: response.output_text.done",
+			`data: {"type":"response.output_text.done","output_index":0,"content_index":0}`,
+			"",
+			"event: response.completed",
+			`data: {"type":"response.completed","response":{"id":"resp_delayed_ok","status":"completed","usage":{"input_tokens":12345,"output_tokens":3,"total_tokens":12348},"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Recovered"}]}]}}`,
+			"",
+		}, "\n"))
+		_ = writer.Close()
+	}()
+
+	resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{"X-Request-Id": []string{"rid-delayed-success"}}, Body: reader}
+	result, err := svc.handleAnthropicStreamingResponse(resp, c, &Account{ID: 1, Platform: PlatformOpenAI, Name: "acc"}, "gpt-5.6-sol", "gpt-5.6-sol", "gpt-5.6-sol", time.Now(), 12345)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.ClientOutputStarted)
+	body := rec.Body.String()
+	assert.True(t, strings.HasPrefix(body, "event: ping\ndata: {\"type\":\"ping\"}\n\n"))
+	assert.Equal(t, 1, strings.Count(body, "event: message_start"))
+	assert.Equal(t, 1, strings.Count(body, "Recovered"))
+	assert.Equal(t, 1, strings.Count(body, "event: message_stop"))
+}
+
 func TestOpenAIMessagesAnthropicStreamBuffersStartUntilVisibleOutput(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}}
