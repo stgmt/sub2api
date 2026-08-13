@@ -37,6 +37,24 @@ var (
 	BuildType = "source" // "source" for manual builds, "release" for CI builds (set by ldflags)
 )
 
+const (
+	serverShutdownTimeoutEnv     = "SUB2API_SERVER_SHUTDOWN_TIMEOUT"
+	defaultServerShutdownTimeout = 85 * time.Second
+)
+
+func serverShutdownTimeout(getenv func(string) string) time.Duration {
+	raw := strings.TrimSpace(getenv(serverShutdownTimeoutEnv))
+	if raw == "" {
+		return defaultServerShutdownTimeout
+	}
+
+	timeout, err := time.ParseDuration(raw)
+	if err != nil || timeout <= 0 {
+		return defaultServerShutdownTimeout
+	}
+	return timeout
+}
+
 func init() {
 	// 如果 Version 已通过 ldflags 注入（例如 -X main.Version=...），则不要覆盖。
 	if strings.TrimSpace(Version) != "" {
@@ -168,9 +186,10 @@ func runMainServer() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	log.Println("Shutting down server...")
+	shutdownTimeout := serverShutdownTimeout(os.Getenv)
+	log.Printf("Shutting down server (grace %s)...", shutdownTimeout)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 
 	if err := app.Server.Shutdown(ctx); err != nil {

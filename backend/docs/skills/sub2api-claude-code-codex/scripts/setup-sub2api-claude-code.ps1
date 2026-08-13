@@ -72,6 +72,7 @@ param(
   [string]$Sub2apiImage = "sub2api-codex:local-token-usage",
   [string]$Sub2apiGitRepo = "https://github.com/stgmt/sub2api.git",
   [string]$Sub2apiGitRef = "",
+  [string]$Sub2apiServerShutdownTimeout = "85s",
   [string]$ApiKey = "",
   [switch]$ForceRegenerateSecrets,
   [switch]$SkipDockerUp,
@@ -485,6 +486,7 @@ Set-DotEnvValue $envMap "SUB2API_GIT_REF" $Sub2apiGitRef
 Set-DotEnvValue $envMap "SUB2API_BUILD_CONTEXT" "../.."
 Set-DotEnvValue $envMap "SUB2API_DOCKERFILE" "Dockerfile"
 Set-DotEnvValue $envMap "SUB2API_OPENAI_CODEX_AUTH_FILE" "/app/data/codex-auth.json"
+Set-DotEnvValue $envMap "SUB2API_SERVER_SHUTDOWN_TIMEOUT" $Sub2apiServerShutdownTimeout
 Set-DotEnvValue $envMap "TZ" $TimeZone
 Set-DotEnvValue $envMap "RUN_MODE" "simple"
 Set-DotEnvValue $envMap "SIMPLE_MODE_CONFIRM" "true"

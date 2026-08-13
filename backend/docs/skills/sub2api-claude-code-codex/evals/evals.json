@@ -276,6 +276,12 @@
       "prompt": "После успешного Edit Claude Code пять минут молчал и упал с Stream idle timeout - no chunks received. В sub2api тот же запрос ещё десять минут жил на response.in_progress и закончил INTERNAL_ERROR. Исправь так, чтобы ночной агент продолжил сам и tool_use не задублировался.",
       "expected_output": "Classifies the incident as F49 only after correlating the exact Claude JSONL turn, Headroom request ID, sub2api request, timestamps, and the later HTTP/2 body reset. Distinguishes non-visible upstream lifecycle traffic from downstream liveness and emits protocol-valid Anthropic ping events from request start based on time since the last client write, not time since the last upstream frame. A ping must never set ClientOutputStarted, so a pre-output INTERNAL_ERROR remains eligible for exactly one same-account retry and the per-upstream H2 circuit makes that retry use H1; text or tool_use still forbids replay. It adds lifecycle-only fault, delayed-success exactly-once semantic stream, handler retry-guard, and mutation tests; keeps HTTP/2 enabled globally; runs affected and full suites; rebuilds the live image; proves the running revision plus pre-output keepalive log and successful Claude continuation; updates installed skills and pushes main.",
       "files": []
+    },
+    {
+      "id": 47,
+      "prompt": "В compose у sub2api stop_grace_period 90 секунд, но при обновлении контейнера живые Claude Code агенты всё равно обрываются через несколько секунд. Найди рассинхрон и исправь воспроизводимо.",
+      "expected_output": "Classifies the rollout defect as F50 after checking both Docker's stop_grace_period and the Go server's internal http.Server.Shutdown deadline. Replaces the hardcoded five-second deadline with SUB2API_SERVER_SHUTDOWN_TIMEOUT, defaults it to 85s below Docker's 90s kill deadline, falls back on invalid or non-positive values, preserves it through compose and setup, and adds unit plus profile contract tests. It validates rendered compose config, rebuilds the image with the final commit revision, rolls out without deleting state, verifies both health endpoints and the running revision, and completes a real Claude request without an idle-timeout or forced-shutdown error. It states that graceful shutdown is a rollout guard and does not replace F49 pre-output SSE keepalives and bounded transport retry.",
+      "files": []
     }
   ]
 }
