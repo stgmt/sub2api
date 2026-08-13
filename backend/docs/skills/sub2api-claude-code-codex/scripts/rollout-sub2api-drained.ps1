@@ -2,19 +2,22 @@
 param(
   [string]$ProfileDir = "",
   [string]$WslDistro = "Ubuntu-24.04",
-  [int]$HeadroomPort = 8787,
+  [string]$HeadroomContainer = "headroom-sub2api",
+  [string]$Sub2apiContainer = "sub2api-codex",
   [ValidateRange(1, 86400)]
   [int]$DrainTimeoutSeconds = 900,
-  [ValidateRange(50, 10000)]
-  [int]$PollMilliseconds = 250,
-  [ValidateRange(0, 10)]
-  [int]$ObserverAllowance = 1,
+  [ValidateRange(1, 600)]
+  [int]$PausedDrainTimeoutSeconds = 60,
   [ValidateRange(1, 600)]
   [int]$HealthWaitSeconds = 90
 )
 
 $ErrorActionPreference = "Stop"
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$idleHelperPath = Join-Path $scriptRoot "wait_sub2api_idle.py"
+if (-not (Test-Path -LiteralPath $idleHelperPath)) {
+  throw "Missing passive drain helper: $idleHelperPath"
+}
 
 if (-not $ProfileDir) {
   $repoRoot = (Resolve-Path (Join-Path $scriptRoot "..\..\..\..\..")).Path
@@ -47,57 +50,48 @@ $wslProfileDir = (& wsl.exe -d $WslDistro -- wslpath -a ($ProfileDir -replace "\
 if ($LASTEXITCODE -ne 0 -or -not $wslProfileDir) {
   throw "Could not translate profile path into WSL: $ProfileDir"
 }
-
-$deadline = (Get-Date).AddSeconds($DrainTimeoutSeconds)
-$consecutiveIdle = 0
-$samples = 0
-while ((Get-Date) -lt $deadline) {
-  try {
-    $stats = Invoke-RestMethod -Uri "http://127.0.0.1:$HeadroomPort/stats" -TimeoutSec 2
-    $active = [int]$stats.proxy_inbound.active
-  } catch {
-    $active = -1
-  }
-
-  $samples++
-  if ($active -ge 0 -and $active -le $ObserverAllowance) {
-    $consecutiveIdle++
-  } else {
-    $consecutiveIdle = 0
-  }
-  if ($consecutiveIdle -ge 2) { break }
-  Start-Sleep -Milliseconds $PollMilliseconds
-}
-
-if ($consecutiveIdle -lt 2) {
-  throw "Drain timeout after ${DrainTimeoutSeconds}s; live container was left untouched"
+$wslIdleHelperPath = (& wsl.exe -d $WslDistro -- wslpath -a ($idleHelperPath -replace "\\", "/")).Trim()
+if ($LASTEXITCODE -ne 0 -or -not $wslIdleHelperPath) {
+  throw "Could not translate idle helper path into WSL: $idleHelperPath"
 }
 
 $compose = "cd '$wslProfileDir' && docker compose -p sub2api-codex --env-file .env -f docker-compose.yml -f docker-compose.gpu.yml"
-Invoke-WslBash "$compose up -d --no-deps --force-recreate --no-build sub2api"
+$headroomPaused = $false
+try {
+  Invoke-WslBash "python3 '$wslIdleHelperPath' --container '$Sub2apiContainer' --timeout $DrainTimeoutSeconds --stable-seconds 0.5"
+  Invoke-WslBash "docker pause '$HeadroomContainer' >/dev/null"
+  $headroomPaused = $true
 
-$healthy = $false
-for ($i = 0; $i -lt $HealthWaitSeconds; $i++) {
-  $health = (& wsl.exe -d $WslDistro -- docker inspect sub2api-codex --format "{{.State.Health.Status}}" 2>$null).Trim()
-  if ($health -eq "healthy") {
-    $healthy = $true
-    break
+  # Close the race between the passive idle observation and docker pause.
+  Invoke-WslBash "python3 '$wslIdleHelperPath' --container '$Sub2apiContainer' --timeout $PausedDrainTimeoutSeconds --stable-seconds 0.25"
+  Invoke-WslBash "$compose up -d --no-deps --force-recreate --no-build sub2api"
+
+  $healthy = $false
+  for ($i = 0; $i -lt $HealthWaitSeconds; $i++) {
+    $health = (& wsl.exe -d $WslDistro -- docker inspect $Sub2apiContainer --format "{{.State.Health.Status}}" 2>$null).Trim()
+    if ($health -eq "healthy") {
+      $healthy = $true
+      break
+    }
+    Start-Sleep -Seconds 1
   }
-  Start-Sleep -Seconds 1
-}
-if (-not $healthy) {
-  throw "sub2api-codex did not become healthy within ${HealthWaitSeconds}s"
-}
+  if (-not $healthy) {
+    throw "$Sub2apiContainer did not become healthy within ${HealthWaitSeconds}s"
+  }
 
-$expectedRevision = Read-DotEnvValue -Path $envPath -Name "SUB2API_GIT_REF"
-$runningRevision = (& wsl.exe -d $WslDistro -- docker inspect sub2api-codex --format '{{index .Config.Labels "org.opencontainers.image.revision"}}').Trim()
-if ($LASTEXITCODE -ne 0 -or $runningRevision -ne $expectedRevision) {
-  throw "Running revision '$runningRevision' does not match expected '$expectedRevision'"
+  $expectedRevision = Read-DotEnvValue -Path $envPath -Name "SUB2API_GIT_REF"
+  $runningRevision = (& wsl.exe -d $WslDistro -- docker inspect $Sub2apiContainer --format '{{index .Config.Labels "org.opencontainers.image.revision"}}').Trim()
+  if ($LASTEXITCODE -ne 0 -or $runningRevision -ne $expectedRevision) {
+    throw "Running revision '$runningRevision' does not match expected '$expectedRevision'"
+  }
+} finally {
+  if ($headroomPaused) {
+    & wsl.exe -d $WslDistro -- docker unpause $HeadroomContainer 2>$null | Out-Null
+  }
 }
 
 [pscustomobject]@{
   status = "healthy"
   revision = $runningRevision
-  samples = $samples
-  observerAllowance = $ObserverAllowance
+  headroomPaused = $headroomPaused
 }

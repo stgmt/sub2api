@@ -66,10 +66,11 @@ def test_drained_rollout_is_fail_closed_and_observer_aware() -> None:
         ROOT / "../../backend/docs/skills/sub2api-claude-code-codex/scripts/rollout-sub2api-drained.ps1"
     ).resolve().read_text(encoding="utf-8")
 
-    assert '[int]$ObserverAllowance = 1' in script
-    assert '$active -le $ObserverAllowance' in script
-    assert '$consecutiveIdle -ge 2' in script
-    assert 'live container was left untouched' in script
+    assert 'wait_sub2api_idle.py' in script
+    assert "docker pause '$HeadroomContainer'" in script
+    assert "docker unpause $HeadroomContainer" in script
+    assert "$PausedDrainTimeoutSeconds" in script
+    assert "finally" in script
     assert 'up -d --no-deps --force-recreate --no-build sub2api' in script
     assert 'Running revision' in script
 
