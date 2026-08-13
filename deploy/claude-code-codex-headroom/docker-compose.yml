@@ -130,6 +130,8 @@ services:
       dockerfile: ${SUB2API_DOCKERFILE:-Dockerfile}
       args:
         COMMIT: ${SUB2API_GIT_REF:-local}
+        GOPROXY: ${SUB2API_GOPROXY:-https://proxy.golang.org,direct}
+        GOSUMDB: ${SUB2API_GOSUMDB:-sum.golang.org}
     image: ${SUB2API_IMAGE:-sub2api-codex:local-token-usage}
     container_name: sub2api-codex
     restart: unless-stopped

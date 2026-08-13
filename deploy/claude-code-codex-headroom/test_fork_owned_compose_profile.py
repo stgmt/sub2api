@@ -34,6 +34,10 @@ def test_sub2api_service_records_fork_provenance() -> None:
     assert "org.opencontainers.image.revision: ${SUB2API_GIT_REF:-local}" in compose
     assert "SUB2API_GIT_REPO=https://github.com/stgmt/sub2api.git" in env_example
     assert "SUB2API_GIT_REF=local" in env_example
+    assert "GOPROXY: ${SUB2API_GOPROXY:-https://proxy.golang.org,direct}" in compose
+    assert "GOSUMDB: ${SUB2API_GOSUMDB:-sum.golang.org}" in compose
+    assert "SUB2API_GOPROXY=https://proxy.golang.org,direct" in env_example
+    assert "SUB2API_GOSUMDB=sum.golang.org" in env_example
     assert "${SUB2API_STATE_ROOT:-./data}/postgres:/var/lib/postgresql" in compose
     assert "${SUB2API_STATE_ROOT:-./data}/postgres:/var/lib/postgresql/data" not in compose
     assert "SUB2API_OPENAI_CODEX_AUTH_FILE: ${SUB2API_OPENAI_CODEX_AUTH_FILE:-/app/data/codex-auth.json}" in compose
