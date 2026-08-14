@@ -14,14 +14,14 @@ def test_headroom_image_builds_from_stgmt_fork_ref() -> None:
     compose = read("docker-compose.yml")
 
     assert "ARG HEADROOM_GIT_REPO=https://github.com/stgmt/headroom.git" in dockerfile
-    assert "ARG HEADROOM_GIT_REF=301e387425e69b930e065c11bc2970be00105eb9" in dockerfile
+    assert "ARG HEADROOM_GIT_REF=df029ae44661593bfb538f240bbdfc17333d87d6" in dockerfile
     assert "ARG HEADROOM_RUST_TOOLCHAIN=1.88.0" in dockerfile
     assert "build-essential curl pkg-config" in dockerfile
     assert '--default-toolchain "${HEADROOM_RUST_TOOLCHAIN}"' in dockerfile
     assert "git+${HEADROOM_GIT_REPO}@${HEADROOM_GIT_REF}" in dockerfile
     assert "headroom-ai[proxy,code,relevance,html,spreadsheet,otel,reports,mcp]==" not in dockerfile
     assert "HEADROOM_GIT_REPO: ${HEADROOM_GIT_REPO:-https://github.com/stgmt/headroom.git}" in compose
-    assert "HEADROOM_GIT_REF: ${HEADROOM_GIT_REF:-301e387425e69b930e065c11bc2970be00105eb9}" in compose
+    assert "HEADROOM_GIT_REF: ${HEADROOM_GIT_REF:-df029ae44661593bfb538f240bbdfc17333d87d6}" in compose
     assert "HEADROOM_RUST_TOOLCHAIN: ${HEADROOM_RUST_TOOLCHAIN:-1.88.0}" in compose
     assert "stop_grace_period: 90s" in compose
 
@@ -51,7 +51,7 @@ def test_setup_script_preserves_fork_source_values() -> None:
     text = setup.read_text(encoding="utf-8")
 
     assert '$HeadroomGitRepo = "https://github.com/stgmt/headroom.git"' in text
-    assert '$HeadroomGitRef = "301e387425e69b930e065c11bc2970be00105eb9"' in text
+    assert '$HeadroomGitRef = "df029ae44661593bfb538f240bbdfc17333d87d6"' in text
     assert '$HeadroomRustToolchain = "1.88.0"' in text
     assert '$Sub2apiGitRepo = "https://github.com/stgmt/sub2api.git"' in text
     assert 'Set-DotEnvValue $envMap "HEADROOM_GIT_REPO" $HeadroomGitRepo' in text
@@ -84,10 +84,10 @@ def test_fullpower_profile_tracks_both_forks() -> None:
 
     assert profile["proxy"]["headroom"]["fork"] == "https://github.com/stgmt/headroom"
     assert profile["proxy"]["headroom"]["git_repo"] == "https://github.com/stgmt/headroom.git"
-    assert profile["proxy"]["headroom"]["git_ref"] == "301e387425e69b930e065c11bc2970be00105eb9"
+    assert profile["proxy"]["headroom"]["git_ref"] == "df029ae44661593bfb538f240bbdfc17333d87d6"
     assert profile["proxy"]["headroom"]["upstream_429_hold_enabled"] is True
-    assert profile["proxy"]["headroom"]["upstream_429_max_wait_seconds"] == 21600
-    assert profile["proxy"]["headroom"]["upstream_transient_max_wait_seconds"] == 90
+    assert profile["proxy"]["headroom"]["upstream_429_max_wait_seconds"] == 86400
+    assert profile["proxy"]["headroom"]["upstream_transient_max_wait_seconds"] == 86400
     assert profile["proxy"]["headroom"]["upstream_429_heartbeat_seconds"] == 15
     assert profile["proxy"]["headroom"]["rust_toolchain"] == "1.88.0"
     assert profile["proxy"]["sub2api"]["fork"] == "https://github.com/stgmt/sub2api"
@@ -145,11 +145,13 @@ def test_normal_autostart_cannot_recreate_a_live_stream() -> None:
     scripts = (ROOT / "../../backend/docs/skills/sub2api-claude-code-codex/scripts").resolve()
     start = (scripts / "start-sub2api-proxy-stack.ps1").read_text(encoding="utf-8")
     ensure = (scripts / "ensure-sub2api-proxy-stack.ps1").read_text(encoding="utf-8")
+    policy = (scripts / "proxy-stack-recovery-policy.ps1").read_text(encoding="utf-8")
 
     assert '[switch]$ForceRecreate' in start
     assert '$recreateFlag = if ($ForceRecreate) { "--force-recreate" } else { "--no-recreate" }' in start
     assert 'up -d --remove-orphans $recreateFlag' in start
-    assert 'ForceRecreate = $true' in ensure
+    assert '\n    ForceRecreate = $true' not in ensure
+    assert '$startParams.ForceRecreate = $true' in ensure
     assert 'SSE/tool turn' in start
     assert 'function Invoke-HeadroomStatsProbe' in ensure
     assert 'function Get-ActiveHeadroomState' in ensure
@@ -159,6 +161,10 @@ def test_normal_autostart_cannot_recreate_a_live_stream() -> None:
     assert 'active_state_unproven' in ensure
     assert 'active -eq 0' in ensure
     assert 'missing_or_stopped' in ensure
+    assert 'if (-not $Lifecycle.known)' in policy
+    assert 'bridge_recovery_started' in ensure
+    assert 'Test-Sub2apiDnsRoute' in ensure
+    assert '[switch]$AllowWslRestart' in start
     assert "Where-Object { ([string]$_).Trim() -match '^/' }" in ensure
     assert 'function Get-HeadroomImageState' in ensure
     assert 'function Invoke-HeadroomIdleRollout' in ensure
@@ -294,23 +300,29 @@ def test_headroom_holds_long_upstream_rate_limit_windows() -> None:
         "HEADROOM_UPSTREAM_429_HOLD_ENABLED: "
         "${HEADROOM_UPSTREAM_429_HOLD_ENABLED:-1}" in compose
     )
-    assert "HEADROOM_UPSTREAM_429_MAX_WAIT_SECONDS:-21600" in compose
-    assert "HEADROOM_UPSTREAM_TRANSIENT_MAX_WAIT_SECONDS:-90" in compose
+    assert "HEADROOM_UPSTREAM_429_MAX_WAIT_SECONDS:-86400" in compose
+    assert "HEADROOM_UPSTREAM_TRANSIENT_MAX_WAIT_SECONDS:-86400" in compose
     assert "HEADROOM_UPSTREAM_429_HEARTBEAT_SECONDS:-15" in compose
     assert "HEADROOM_UPSTREAM_429_HOLD_ENABLED=1" in env_example
-    assert "HEADROOM_UPSTREAM_429_MAX_WAIT_SECONDS=21600" in env_example
-    assert "HEADROOM_UPSTREAM_TRANSIENT_MAX_WAIT_SECONDS=90" in env_example
+    assert "HEADROOM_UPSTREAM_429_MAX_WAIT_SECONDS=86400" in env_example
+    assert "HEADROOM_UPSTREAM_TRANSIENT_MAX_WAIT_SECONDS=86400" in env_example
+    assert compose.count("SUB2API_PRIMARY_DNS:-1.1.1.1") == 2
+    assert compose.count("SUB2API_FALLBACK_DNS:-8.8.8.8") == 2
+    assert "SUB2API_PRIMARY_DNS=1.1.1.1" in env_example
+    assert "SUB2API_FALLBACK_DNS=8.8.8.8" in env_example
     assert "HEADROOM_UPSTREAM_RECOVERY_HOLD_STATUSES:-429,502,503,504,529" in compose
     assert "HEADROOM_UPSTREAM_RECOVERY_HOLD_STATUSES=429,502,503,504,529" in env_example
     assert '[string]$HeadroomUpstream429HoldEnabled = "1"' in setup
-    assert "[int]$HeadroomUpstream429MaxWaitSeconds = 21600" in setup
-    assert "[int]$HeadroomUpstreamTransientMaxWaitSeconds = 90" in setup
+    assert "[int]$HeadroomUpstream429MaxWaitSeconds = 86400" in setup
+    assert "[int]$HeadroomUpstreamTransientMaxWaitSeconds = 86400" in setup
     assert (
         '[string]$HeadroomUpstreamRecoveryHoldStatuses = "429,502,503,504,529"'
         in setup
     )
     assert 'Set-DotEnvValue $envMap "HEADROOM_UPSTREAM_429_HOLD_ENABLED"' in setup
     assert 'Set-DotEnvValue $envMap "HEADROOM_UPSTREAM_TRANSIENT_MAX_WAIT_SECONDS"' in setup
+    assert 'Set-DotEnvValue $envMap "SUB2API_PRIMARY_DNS"' in setup
+    assert 'Set-DotEnvValue $envMap "SUB2API_FALLBACK_DNS"' in setup
     assert (
         'Set-DotEnvValue $envMap "HEADROOM_UPSTREAM_RECOVERY_HOLD_STATUSES"'
         in setup
@@ -321,7 +333,7 @@ def test_headroom_holds_long_upstream_rate_limit_windows() -> None:
     ).resolve().read_text(encoding="utf-8")
     assert "function Test-HeadroomUpstream429HoldProfile" in verifier
     assert "HEADROOM_UPSTREAM_429_HOLD_ENABLED=1" in verifier
-    assert "max wait must be at least 21600 seconds" in verifier
+    assert "max waits must both be at least 86400 seconds" in verifier
     assert "runtime.upstream_recovery" in verifier
     assert "transport_failures_total" in verifier
     assert "Test-HeadroomUpstream429HoldProfile" in verifier

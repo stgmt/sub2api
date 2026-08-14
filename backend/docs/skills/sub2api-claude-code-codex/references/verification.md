@@ -2,6 +2,17 @@
 
 Commands and expected evidence for health checks, Claude Code probes, usage_logs, compact routing, and context display verification.
 
+Provider DNS must work in WSL and inside both proxy containers before a Claude probe:
+
+```powershell
+wsl.exe -d Ubuntu-24.04 -- getent ahostsv4 chatgpt.com
+wsl.exe -d Ubuntu-24.04 -- docker exec sub2api-codex getent ahostsv4 chatgpt.com
+wsl.exe -d Ubuntu-24.04 -- docker exec headroom-sub2api getent ahostsv4 chatgpt.com
+& "$HOME\.codex\skills\sub2api-claude-code-codex\scripts\repair-wsl-dns.ps1" -ProfileDir <runtime-profile> -RepairContainers -CheckOnly
+```
+
+All four checks must succeed. `docker exec ... cat /etc/resolv.conf` should show Docker's `127.0.0.11` service resolver and the inspect/generated comments must identify external servers from `SUB2API_PRIMARY_DNS` and `SUB2API_FALLBACK_DNS`. A recovery proof is a held `claude --bare --strict-mcp-config --mcp-config '{"mcpServers":{}}' --print` request completing after DNS restoration while `/health.runtime.upstream_recovery.recoveries_total` increases and `timeouts_total` does not.
+
 ## Contents
 
 - [Verification](#verification)

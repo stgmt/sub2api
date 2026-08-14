@@ -16,7 +16,9 @@ param(
   [ValidateSet("ssh", "none")]
   [string]$HyperVRemoteConfigMode = "ssh",
   [bool]$RequireHyperVBridge = $false,
-  [string]$CodexAuthFile = ""
+  [string]$CodexAuthFile = "",
+  [ValidatePattern('^[A-Za-z0-9.-]+$')]
+  [string]$DnsProbeHost = "chatgpt.com"
 )
 
 $ErrorActionPreference = "Stop"
@@ -25,6 +27,11 @@ if (Get-Variable PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyCo
 }
 
 $ScriptDir = Split-Path -Parent $PSCommandPath
+$recoveryPolicyScript = Join-Path $ScriptDir "proxy-stack-recovery-policy.ps1"
+if (-not (Test-Path -LiteralPath $recoveryPolicyScript)) {
+  throw "Recovery policy script not found: $recoveryPolicyScript"
+}
+. $recoveryPolicyScript
 
 function Resolve-ProfileDir {
   if ($ProfileDir.Trim()) {
@@ -352,24 +359,38 @@ function Get-ActiveHeadroomState {
 function Get-StackLifecycleState {
   $names = @("headroom-sub2api", "sub2api-codex")
   $records = @{}
+  $known = $false
+  $errorText = $null
+  $oldErrorActionPreference = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
   try {
-    $lines = @(& wsl.exe -d $Distro -- docker inspect -f '{{.Name}}|{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' @names 2>$null)
+    $lines = @(& wsl.exe -d $Distro -- docker ps -a --format '{{.Names}}|{{.State}}|{{.Status}}' 2>&1)
+    $exitCode = $LASTEXITCODE
+    $known = ($exitCode -eq 0)
+    if (-not $known) { $errorText = (($lines -join [Environment]::NewLine) -replace "`0", "").Trim() }
     foreach ($line in $lines) {
       $parts = (($line -as [string]) -split '\|', 3)
-      if ($parts.Count -ge 3) {
-        $name = $parts[0].TrimStart('/')
-        $records[$name] = [ordered]@{ status = $parts[1]; health = $parts[2] }
+      if ($known -and $parts.Count -ge 3 -and $names -contains $parts[0]) {
+        $health = if ($parts[2] -match '\((healthy|unhealthy|starting)\)') { $Matches[1] } else { "none" }
+        $records[$parts[0]] = [ordered]@{ status = $parts[1]; health = $health; summary = $parts[2] }
       }
     }
-  } catch { }
+  } catch {
+    $known = $false
+    $errorText = $_.Exception.Message
+  } finally {
+    $ErrorActionPreference = $oldErrorActionPreference
+  }
 
   $headroom = if ($records.ContainsKey('headroom-sub2api')) { $records['headroom-sub2api'] } else { $null }
   $sub2api = if ($records.ContainsKey('sub2api-codex')) { $records['sub2api-codex'] } else { $null }
   return [ordered]@{
+    known = $known
+    error = $errorText
     headroom = $headroom
     sub2api = $sub2api
-    both_running = ($null -ne $headroom -and $headroom.status -eq 'running' -and $null -ne $sub2api -and $sub2api.status -eq 'running')
-    missing_or_stopped = ($null -eq $headroom -or $headroom.status -ne 'running' -or $null -eq $sub2api -or $sub2api.status -ne 'running')
+    both_running = ($known -and $null -ne $headroom -and $headroom.status -eq 'running' -and $null -ne $sub2api -and $sub2api.status -eq 'running')
+    missing_or_stopped = ($known -and ($null -eq $headroom -or $headroom.status -ne 'running' -or $null -eq $sub2api -or $sub2api.status -ne 'running'))
   }
 }
 
@@ -425,6 +446,26 @@ function Get-WslIpv4 {
     return ((($output -join " ").Trim() -split "\s+") | Where-Object { $_ -match "^\d+\.\d+\.\d+\.\d+$" } | Select-Object -First 1)
   } finally {
     $ErrorActionPreference = $oldErrorActionPreference
+  }
+}
+
+function Test-Sub2apiDnsRoute {
+  $watch = [Diagnostics.Stopwatch]::StartNew()
+  $oldErrorActionPreference = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  try {
+    $output = @(& wsl.exe -d $Distro -- docker exec sub2api-codex getent ahostsv4 $DnsProbeHost 2>&1)
+    $exitCode = $LASTEXITCODE
+    $text = (($output -join [Environment]::NewLine) -replace "`0", "").Trim()
+    return [ordered]@{
+      host = $DnsProbeHost
+      ok = ($exitCode -eq 0 -and $text.Length -gt 0)
+      elapsed_ms = [Math]::Round($watch.Elapsed.TotalMilliseconds)
+      error = if ($exitCode -eq 0) { $null } else { $text }
+    }
+  } finally {
+    $ErrorActionPreference = $oldErrorActionPreference
+    $watch.Stop()
   }
 }
 
@@ -488,14 +529,16 @@ function Get-RequiredRouteState {
     $bridgeOk = ($null -ne $bridge -and $bridge.ok)
   }
   $gpu = Test-HeadroomGpuRoute
+  $dns = Test-Sub2apiDnsRoute
 
   return [ordered]@{
-    ok = ($sameHost.ok -and $bridgeOk -and $gpu.ok)
+    ok = ($sameHost.ok -and $bridgeOk -and $gpu.ok -and $dns.ok)
     same_host = $sameHost
     bridge = $bridge
     bridge_required = $RequireHyperVBridge
     wsl_ip = $wslIp
     gpu = $gpu
+    dns = $dns
   }
 }
 
@@ -559,6 +602,10 @@ $startScript = Join-Path $ScriptDir "start-sub2api-proxy-stack.ps1"
 if (-not (Test-Path -LiteralPath $startScript)) {
   throw "Start script not found: $startScript"
 }
+$dnsRepairScript = Join-Path $ScriptDir "repair-wsl-dns.ps1"
+if (-not (Test-Path -LiteralPath $dnsRepairScript)) {
+  throw "DNS repair script not found: $dnsRepairScript"
+}
 
 $mutex = [Threading.Mutex]::new($false, "Local\sub2api-codex-proxy-stack-self-heal")
 $mutexHeld = $false
@@ -572,6 +619,20 @@ try {
 
   $codexAuthSync = Sync-CodexAuthFile -ProfileRoot $Root -EnvMap $envMap
   $before = Get-RequiredRouteState
+  $dnsRepair = $null
+  if (-not $before.dns.ok) {
+    $dnsOutput = @(& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $dnsRepairScript -ProfileDir $Root -Distro $Distro -ProbeHost $DnsProbeHost -RepairContainers 2>&1)
+    $dnsExitCode = $LASTEXITCODE
+    $dnsText = (($dnsOutput -join [Environment]::NewLine) -replace "`0", "").Trim()
+    if ($dnsExitCode -eq 0) {
+      $dnsRepair = $dnsText | ConvertFrom-Json
+      Write-SelfHealEvent -Event "dns_repaired" -Data @{ result = $dnsRepair }
+      $before = Get-RequiredRouteState
+    } else {
+      $dnsRepair = [ordered]@{ status = "failed"; error = $dnsText }
+      Write-SelfHealEvent -Event "dns_repair_failed" -Data @{ result = $dnsRepair }
+    }
+  }
   if ($before.ok) {
     $imageState = Get-HeadroomImageState
     $imageRollout = $null
@@ -607,8 +668,37 @@ try {
     }
     $providerRoute = Invoke-ProviderRouteReconcile -ProfileRoot $Root
     Save-State -Status "healthy" -LastEventAt $lastEventAt
-    [pscustomobject]@{ status = "healthy"; recovered = $false; routes = $before; codex_auth = $codexAuthSync; provider_route = $providerRoute; headroom_image = $imageState; headroom_image_rollout = $imageRollout } | ConvertTo-Json -Compress -Depth 10
+    [pscustomobject]@{ status = "healthy"; recovered = $false; routes = $before; dns_repair = $dnsRepair; codex_auth = $codexAuthSync; provider_route = $providerRoute; headroom_image = $imageState; headroom_image_rollout = $imageRollout } | ConvertTo-Json -Compress -Depth 10
     exit 0
+  }
+
+  $bridgeOnlyFailure = ($before.same_host.ok -and $before.dns.ok -and $before.gpu.ok -and $before.bridge_required -and $null -ne $before.bridge -and -not $before.bridge.ok)
+  if ($bridgeOnlyFailure) {
+    Write-SelfHealEvent -Event "bridge_recovery_started" -Data @{ routes = $before }
+    $bridgeParams = @{
+      ProfileDir = $Root
+      ProjectName = $ProjectName
+      Distro = $Distro
+      HeadroomPort = $HeadroomPort
+      Sub2apiPort = $Sub2apiPort
+      HyperVVmName = $HyperVVmName
+      HyperVVmSshUser = $HyperVVmSshUser
+      HyperVVmSshKey = $HyperVVmSshKey
+      HyperVSwitchName = $HyperVSwitchName
+      HyperVRemoteConfigMode = $HyperVRemoteConfigMode
+    }
+    if ($RepoRoot.Trim()) { $bridgeParams.RepoRoot = $RepoRoot }
+    & $startScript @bridgeParams
+    $afterBridge = Get-RequiredRouteState
+    if ($afterBridge.ok) {
+      $providerRoute = Invoke-ProviderRouteReconcile -ProfileRoot $Root
+      Save-State -Status "healthy" -LastEventAt (Get-Date).ToUniversalTime().ToString("o")
+      Write-SelfHealEvent -Event "bridge_recovered" -Data @{ routes_before = $before; routes_after = $afterBridge; compose_policy = "--no-recreate" }
+      [pscustomobject]@{ status = "healthy"; recovered = $true; recovery = "bridge-only"; routes = $afterBridge; provider_route = $providerRoute } | ConvertTo-Json -Compress -Depth 10
+      exit 0
+    }
+    Write-SelfHealEvent -Event "bridge_recovery_failed" -Data @{ routes_before = $before; routes_after = $afterBridge }
+    $before = $afterBridge
   }
 
   Save-State -Status "recovering" -LastEventAt (Get-Date).ToUniversalTime().ToString("o")
@@ -621,12 +711,12 @@ try {
   # one of the required containers is actually stopped/missing.
   $activeState = Get-ActiveHeadroomState
   $lifecycle = Get-StackLifecycleState
-  $recreateAllowed = (($activeState.ok -and $activeState.active_known -and $activeState.active -eq 0) -or $lifecycle.missing_or_stopped)
-  if (-not $recreateAllowed) {
-    $reason = if ($activeState.ok -and $activeState.active_known -and $activeState.active -gt 0) { "active_proxy_requests" } else { "active_state_unproven" }
+  $recoveryDecision = Get-ProxyStackRecoveryDecision -ActiveState $activeState -Lifecycle $lifecycle
+  if ($recoveryDecision.action -eq "defer") {
+    $reason = $recoveryDecision.reason
     Save-State -Status "deferred" -LastEventAt (Get-Date).ToUniversalTime().ToString("o")
-    Write-SelfHealEvent -Event "recovery_deferred" -Data @{ reason = $reason; active = $activeState; lifecycle = $lifecycle; routes = $before }
-    [pscustomobject]@{ status = "deferred"; recovered = $false; reason = $reason; active = $activeState; lifecycle = $lifecycle; routes = $before } | ConvertTo-Json -Compress -Depth 10
+    Write-SelfHealEvent -Event "recovery_deferred" -Data @{ reason = $reason; decision = $recoveryDecision; active = $activeState; lifecycle = $lifecycle; routes = $before }
+    [pscustomobject]@{ status = "deferred"; recovered = $false; reason = $reason; decision = $recoveryDecision; active = $activeState; lifecycle = $lifecycle; routes = $before } | ConvertTo-Json -Compress -Depth 10
     exit 0
   }
 
@@ -641,7 +731,9 @@ try {
     HyperVVmSshKey = $HyperVVmSshKey
     HyperVSwitchName = $HyperVSwitchName
     HyperVRemoteConfigMode = $HyperVRemoteConfigMode
-    ForceRecreate = $true
+  }
+  if ($recoveryDecision.force_recreate) {
+    $startParams.ForceRecreate = $true
   }
   if ($RepoRoot.Trim()) { $startParams.RepoRoot = $RepoRoot }
 

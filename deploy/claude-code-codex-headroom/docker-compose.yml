@@ -12,18 +12,21 @@ services:
         HEADROOM_VERSION: ${HEADROOM_VERSION:-0.31.0}
         HEADROOM_PYTHON_VERSION: ${HEADROOM_PYTHON_VERSION:-3.12}
         HEADROOM_GIT_REPO: ${HEADROOM_GIT_REPO:-https://github.com/stgmt/headroom.git}
-        HEADROOM_GIT_REF: ${HEADROOM_GIT_REF:-301e387425e69b930e065c11bc2970be00105eb9}
+        HEADROOM_GIT_REF: ${HEADROOM_GIT_REF:-df029ae44661593bfb538f240bbdfc17333d87d6}
         HEADROOM_RUST_TOOLCHAIN: ${HEADROOM_RUST_TOOLCHAIN:-1.88.0}
         HEADROOM_TORCH_VERSION: ${HEADROOM_TORCH_VERSION:-2.11.0+cu128}
         HEADROOM_TORCH_INDEX_URL: ${HEADROOM_TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu128}
     image: headroom-sub2api:${HEADROOM_VERSION:-0.31.0}
     container_name: headroom-sub2api
     restart: unless-stopped
+    dns:
+      - ${SUB2API_PRIMARY_DNS:-1.1.1.1}
+      - ${SUB2API_FALLBACK_DNS:-8.8.8.8}
     stop_grace_period: 90s
     gpus: all
     labels:
       org.opencontainers.image.source: ${HEADROOM_GIT_REPO:-https://github.com/stgmt/headroom.git}
-      org.opencontainers.image.revision: ${HEADROOM_GIT_REF:-301e387425e69b930e065c11bc2970be00105eb9}
+      org.opencontainers.image.revision: ${HEADROOM_GIT_REF:-df029ae44661593bfb538f240bbdfc17333d87d6}
       stgmt.sub2api.profile: claude-code-codex-headroom
     depends_on:
       sub2api:
@@ -70,8 +73,8 @@ services:
       # multi-minute/hour Retry-After window. Headroom emits Anthropic SSE ping
       # events and serializes upstream probes instead of returning the 429.
       HEADROOM_UPSTREAM_429_HOLD_ENABLED: ${HEADROOM_UPSTREAM_429_HOLD_ENABLED:-1}
-      HEADROOM_UPSTREAM_429_MAX_WAIT_SECONDS: ${HEADROOM_UPSTREAM_429_MAX_WAIT_SECONDS:-21600}
-      HEADROOM_UPSTREAM_TRANSIENT_MAX_WAIT_SECONDS: ${HEADROOM_UPSTREAM_TRANSIENT_MAX_WAIT_SECONDS:-90}
+      HEADROOM_UPSTREAM_429_MAX_WAIT_SECONDS: ${HEADROOM_UPSTREAM_429_MAX_WAIT_SECONDS:-86400}
+      HEADROOM_UPSTREAM_TRANSIENT_MAX_WAIT_SECONDS: ${HEADROOM_UPSTREAM_TRANSIENT_MAX_WAIT_SECONDS:-86400}
       HEADROOM_UPSTREAM_429_HEARTBEAT_SECONDS: ${HEADROOM_UPSTREAM_429_HEARTBEAT_SECONDS:-15}
       HEADROOM_UPSTREAM_429_DEFAULT_RETRY_SECONDS: ${HEADROOM_UPSTREAM_429_DEFAULT_RETRY_SECONDS:-30}
       HEADROOM_UPSTREAM_RECOVERY_HOLD_STATUSES: ${HEADROOM_UPSTREAM_RECOVERY_HOLD_STATUSES:-429,502,503,504,529}
@@ -135,6 +138,9 @@ services:
     image: ${SUB2API_IMAGE:-sub2api-codex:local-token-usage}
     container_name: sub2api-codex
     restart: unless-stopped
+    dns:
+      - ${SUB2API_PRIMARY_DNS:-1.1.1.1}
+      - ${SUB2API_FALLBACK_DNS:-8.8.8.8}
     stop_grace_period: 90s
     labels:
       org.opencontainers.image.source: ${SUB2API_GIT_REPO:-https://github.com/stgmt/sub2api.git}

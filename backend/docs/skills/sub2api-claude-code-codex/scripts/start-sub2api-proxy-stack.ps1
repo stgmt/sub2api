@@ -9,6 +9,7 @@ param(
   [int]$HealthWaitSeconds = 90,
   [int]$WslRetrySeconds = 120,
   [switch]$ForceRecreate,
+  [switch]$AllowWslRestart,
   [string]$HyperVVmName = "",
   [string]$HyperVVmSshUser = "",
   [string]$HyperVVmSshKey = "",
@@ -151,6 +152,11 @@ function Invoke-LoggedNative {
 
 function Repair-WslAttachBusy {
   param([int]$Attempt)
+
+  if (-not $AllowWslRestart) {
+    Write-StackLog "WSL attach self-heal skipped on attempt ${Attempt}: destructive restart is not explicitly allowed"
+    return
+  }
 
   $now = Get-Date
   if (($now - $script:LastWslAttachSelfHealAt).TotalSeconds -lt 20) {

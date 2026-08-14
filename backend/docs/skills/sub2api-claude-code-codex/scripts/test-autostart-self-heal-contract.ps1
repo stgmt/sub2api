@@ -3,6 +3,10 @@ param(
   [string]$HiddenLauncherPath = (Join-Path $PSScriptRoot "run-hidden.vbs"),
   [string]$EnsurePath = (Join-Path $PSScriptRoot "ensure-sub2api-proxy-stack.ps1"),
   [string]$StartPath = (Join-Path $PSScriptRoot "start-sub2api-proxy-stack.ps1"),
+  [string]$SetupPath = (Join-Path $PSScriptRoot "setup-sub2api-claude-code.ps1"),
+  [string]$DnsRepairPath = (Join-Path $PSScriptRoot "repair-wsl-dns.ps1"),
+  [string]$DnsPolicyPath = (Join-Path $PSScriptRoot "proxy-dns-policy.ps1"),
+  [string]$RecoveryPolicyPath = (Join-Path $PSScriptRoot "proxy-stack-recovery-policy.ps1"),
   [string]$VerifierPath = (Join-Path $PSScriptRoot "verify-claude-code-sub2api.ps1")
 )
 
@@ -18,11 +22,22 @@ function Assert-NotContains {
   if ($Text.Contains($Needle)) { throw $Message }
 }
 
+function Assert-Equal {
+  param($Actual, $Expected, [string]$Message)
+  if ($Actual -ne $Expected) { throw "$Message; expected '$Expected', got '$Actual'" }
+}
+
 $installer = Get-Content -Raw -LiteralPath $InstallerPath
 $hiddenLauncher = Get-Content -Raw -LiteralPath $HiddenLauncherPath
 $ensure = Get-Content -Raw -LiteralPath $EnsurePath
 $start = Get-Content -Raw -LiteralPath $StartPath
+$setup = Get-Content -Raw -LiteralPath $SetupPath
+$dnsRepair = Get-Content -Raw -LiteralPath $DnsRepairPath
+$dnsPolicy = Get-Content -Raw -LiteralPath $DnsPolicyPath
+$recoveryPolicy = Get-Content -Raw -LiteralPath $RecoveryPolicyPath
 $verifier = Get-Content -Raw -LiteralPath $VerifierPath
+. $RecoveryPolicyPath
+. $DnsPolicyPath
 
 Assert-Contains $installer 'ensure-sub2api-proxy-stack.ps1' "Scheduled Task must call the health-first ensure script"
 Assert-Contains $installer 'New-ScheduledTaskTrigger -AtLogOn' "Scheduled Task must retain logon startup"
@@ -68,10 +83,63 @@ Assert-Contains $ensure 'recovery_failed' "Self-heal must fail closed after an u
 Assert-Contains $ensure '$rawActive = [int]$proxyInbound.active' "Self-heal must preserve the raw Headroom activity gauge"
 Assert-Contains $ensure 'active = [Math]::Max(0, $rawActive - 1)' "Self-heal must subtract its own /stats observer request before deciding whether traffic is idle"
 Assert-Contains $ensure 'observer_adjustment = 1' "Self-heal must expose the observer adjustment in its proof payload"
+Assert-Contains $recoveryPolicy 'if (-not $Lifecycle.known)' "Unknown Docker lifecycle must never authorize a recreate"
+Assert-Contains $ensure "docker ps -a --format" "Lifecycle observation must distinguish Docker transport failure from missing containers"
+Assert-NotContains $ensure "`n    ForceRecreate = `$true" "Missing/stopped containers must be started without forcing recreation of healthy peers"
+Assert-Contains $ensure '$startParams.ForceRecreate = $true' "Only a proven-idle running stack may opt into force recreation"
+Assert-Contains $ensure 'bridge_recovery_started' "A bridge-only outage must take the non-recreating repair path"
+Assert-Contains $ensure 'compose_policy = "--no-recreate"' "Bridge repair must prove the safe compose policy"
+Assert-Contains $ensure 'Test-Sub2apiDnsRoute' "Self-heal must probe the provider DNS route, not only local HTTP health"
+Assert-Contains $ensure 'dns_repaired' "Self-heal must make successful DNS repair observable"
+Assert-Contains $ensure 'dns_repair_failed' "Self-heal must make failed DNS repair observable"
+Assert-Contains $dnsRepair 'Resolve-ProxyDnsSettings' "DNS repair must use the shared profile-aware resolver policy"
+Assert-Contains $dnsPolicy 'SUB2API_PRIMARY_DNS' "DNS policy must use the profile primary resolver"
+Assert-Contains $dnsPolicy 'SUB2API_FALLBACK_DNS' "DNS policy must use the profile fallback resolver"
+Assert-Contains $dnsRepair 'wsl:/etc/resolv.conf' "DNS repair must restore the missing WSL resolver file"
+Assert-Contains $dnsRepair 'nameserver 127.0.0.11' "Container repair must retain Docker service discovery"
+Assert-Contains $dnsRepair 'container:${container}:/etc/resolv.conf' "Container repair must report every in-place repair"
+Assert-Contains $setup '[string]$Sub2apiPrimaryDns = "auto"' "Setup must not overwrite routed DNS with a hard-coded public resolver"
+Assert-Contains $setup 'Resolve-ProxyDnsSettings' "Setup must resolve DNS through the shared preservation policy"
+Assert-Contains $setup 'Set-DotEnvValue $envMap "SUB2API_PRIMARY_DNS" $resolvedDns.primary' "Setup must persist the resolved primary DNS"
+Assert-Contains $dnsPolicy 'Get-NetRoute' "DNS policy must discover the active Windows route for a new profile"
+Assert-Contains $dnsPolicy 'existing_profile' "DNS policy must preserve a previously verified profile resolver"
+
+$existingDns = [ordered]@{ SUB2API_PRIMARY_DNS = "192.168.1.1"; SUB2API_FALLBACK_DNS = "9.9.9.9" }
+$dnsDecision = Resolve-ProxyDnsSettings -ExistingMap $existingDns
+Assert-Equal $dnsDecision.primary "192.168.1.1" "Automatic setup must preserve the existing primary resolver"
+Assert-Equal $dnsDecision.fallback "9.9.9.9" "Automatic setup must preserve the existing fallback resolver"
+Assert-Equal $dnsDecision.primary_source "existing_profile" "Preserved primary DNS needs an explicit source"
+$dnsDecision = Resolve-ProxyDnsSettings -RequestedPrimary "10.10.10.10" -RequestedFallback "8.8.4.4" -ExistingMap $existingDns
+Assert-Equal $dnsDecision.primary "10.10.10.10" "An explicit primary resolver must override the existing profile"
+Assert-Equal $dnsDecision.fallback "8.8.4.4" "An explicit fallback resolver must override the existing profile"
+$invalidDnsRejected = $false
+try { Resolve-ProxyDnsSettings -RequestedPrimary "127.0.0.1" -ExistingMap @{} | Out-Null } catch { $invalidDnsRejected = $true }
+Assert-Equal $invalidDnsRejected $true "Loopback DNS must be rejected before writing the compose profile"
+
+$zeroActive = [pscustomobject]@{ ok = $true; active_known = $true; active = 0 }
+$busy = [pscustomobject]@{ ok = $true; active_known = $true; active = 3 }
+$unknownActive = [pscustomobject]@{ ok = $false; active_known = $false; active = $null }
+$unknownLifecycle = [pscustomobject]@{ known = $false; missing_or_stopped = $false; both_running = $false }
+$missingLifecycle = [pscustomobject]@{ known = $true; missing_or_stopped = $true; both_running = $false }
+$runningLifecycle = [pscustomobject]@{ known = $true; missing_or_stopped = $false; both_running = $true }
+
+$decision = Get-ProxyStackRecoveryDecision -ActiveState $zeroActive -Lifecycle $unknownLifecycle
+Assert-Equal $decision.action "defer" "Unknown Docker state must defer even when Headroom reports zero active requests"
+Assert-Equal $decision.reason "lifecycle_state_unproven" "Unknown Docker state needs an explicit reason"
+$decision = Get-ProxyStackRecoveryDecision -ActiveState $unknownActive -Lifecycle $missingLifecycle
+Assert-Equal $decision.action "start-missing" "A proven missing container must use non-recreating startup"
+Assert-Equal $decision.force_recreate $false "Missing-container recovery must not recreate healthy peers"
+$decision = Get-ProxyStackRecoveryDecision -ActiveState $zeroActive -Lifecycle $runningLifecycle
+Assert-Equal $decision.action "recreate-idle" "A proven-idle fully running stack may be recreated"
+Assert-Equal $decision.force_recreate $true "Idle running-stack recovery must opt in explicitly"
+$decision = Get-ProxyStackRecoveryDecision -ActiveState $busy -Lifecycle $runningLifecycle
+Assert-Equal $decision.reason "active_proxy_requests" "Active traffic must defer recovery"
 Assert-Contains $start 'Sync-SelfHealScheduledTask' "Legacy logon-only tasks must self-upgrade from their existing elevated action"
 Assert-Contains $start 'actionUsesHiddenLauncher' "Legacy direct PowerShell tasks must self-upgrade to the zero-window launcher"
 Assert-Contains $start 'upgrading legacy or focus-stealing autostart task to repeating zero-window self-heal' "Legacy task migration must be observable"
 Assert-Contains $start 'Hyper-V guest config update skipped by mode=none' "Bridge-only Windows mode must remain observable"
+Assert-Contains $start '[switch]$AllowWslRestart' "Destructive WSL restart must require an explicit operator switch"
+Assert-Contains $start 'destructive restart is not explicitly allowed' "Scheduled recovery must explain why WSL restart was refused"
 Assert-Contains $start 'HEADROOM_REQUIRE_CUDA' "GPU-required profiles must be explicit in the starter"
 Assert-Contains $start 'refusing CPU fallback' "GPU-required profiles must fail closed instead of starting CPU Headroom"
 Assert-Contains $verifier 'ensure-sub2api-proxy-stack\.ps1' "Verifier must reject the legacy start-script action"

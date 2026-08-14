@@ -32,7 +32,7 @@ param(
   [string]$HeadroomVersion = "0.31.0",
   [string]$HeadroomPythonVersion = "3.12",
   [string]$HeadroomGitRepo = "https://github.com/stgmt/headroom.git",
-  [string]$HeadroomGitRef = "301e387425e69b930e065c11bc2970be00105eb9",
+  [string]$HeadroomGitRef = "df029ae44661593bfb538f240bbdfc17333d87d6",
   [string]$HeadroomRustToolchain = "1.88.0",
   [ValidateSet("auto", "cpu", "cuda")]
   [string]$HeadroomAccelerator = "auto",
@@ -51,9 +51,9 @@ param(
   [ValidateSet("0", "1")]
   [string]$HeadroomUpstream429HoldEnabled = "1",
   [ValidateRange(60, 86400)]
-  [int]$HeadroomUpstream429MaxWaitSeconds = 21600,
-  [ValidateRange(1, 3600)]
-  [int]$HeadroomUpstreamTransientMaxWaitSeconds = 90,
+  [int]$HeadroomUpstream429MaxWaitSeconds = 86400,
+  [ValidateRange(1, 86400)]
+  [int]$HeadroomUpstreamTransientMaxWaitSeconds = 86400,
   [ValidateRange(1, 300)]
   [int]$HeadroomUpstream429HeartbeatSeconds = 15,
   [ValidateRange(1, 3600)]
@@ -73,6 +73,8 @@ param(
   [string]$Sub2apiGitRepo = "https://github.com/stgmt/sub2api.git",
   [string]$Sub2apiGitRef = "",
   [string]$Sub2apiServerShutdownTimeout = "85s",
+  [string]$Sub2apiPrimaryDns = "auto",
+  [string]$Sub2apiFallbackDns = "auto",
   [string]$ApiKey = "",
   [switch]$ForceRegenerateSecrets,
   [switch]$SkipDockerUp,
@@ -87,6 +89,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+$dnsPolicyPath = Join-Path $PSScriptRoot "proxy-dns-policy.ps1"
+if (-not (Test-Path -LiteralPath $dnsPolicyPath)) { throw "Missing DNS policy helper: $dnsPolicyPath" }
+. $dnsPolicyPath
 
 # Claude Code should use Headroom, not the direct sub2api admin/diagnostic port:
 #   Claude Code -> http://127.0.0.1:8787 -> Headroom -> http://sub2api:8080
@@ -324,6 +330,8 @@ function Write-DotEnv([System.Collections.IDictionary]$Map, [string]$Path) {
     "SUB2API_BUILD_CONTEXT",
     "SUB2API_DOCKERFILE",
     "SUB2API_OPENAI_CODEX_AUTH_FILE",
+    "SUB2API_PRIMARY_DNS",
+    "SUB2API_FALLBACK_DNS",
     "TZ",
     "RUN_MODE",
     "SIMPLE_MODE_CONFIRM",
@@ -387,6 +395,7 @@ if (-not (Test-Path -LiteralPath $composePath)) {
 
 $ClaudeBaseUrl = if ($BaseUrl.Trim()) { $BaseUrl.Trim().TrimEnd("/") } else { "http://127.0.0.1`:$HeadroomPort" }
 $envMap = Read-DotEnv -Path $envPath
+$resolvedDns = Resolve-ProxyDnsSettings -RequestedPrimary $Sub2apiPrimaryDns -RequestedFallback $Sub2apiFallbackDns -ExistingMap $envMap
 $existingHeadroomAccelerator = if ($envMap.Contains("HEADROOM_ACCELERATOR")) { [string]$envMap["HEADROOM_ACCELERATOR"] } else { "" }
 $resolvedHeadroomAccelerator = Resolve-HeadroomAccelerator $HeadroomAccelerator $existingHeadroomAccelerator
 $headroomDockerTarget = if ($resolvedHeadroomAccelerator -eq "cuda") { "gpu" } else { "cpu" }
@@ -487,6 +496,8 @@ Set-DotEnvValue $envMap "SUB2API_BUILD_CONTEXT" "../.."
 Set-DotEnvValue $envMap "SUB2API_DOCKERFILE" "Dockerfile"
 Set-DotEnvValue $envMap "SUB2API_OPENAI_CODEX_AUTH_FILE" "/app/data/codex-auth.json"
 Set-DotEnvValue $envMap "SUB2API_SERVER_SHUTDOWN_TIMEOUT" $Sub2apiServerShutdownTimeout
+Set-DotEnvValue $envMap "SUB2API_PRIMARY_DNS" $resolvedDns.primary
+Set-DotEnvValue $envMap "SUB2API_FALLBACK_DNS" $resolvedDns.fallback
 Set-DotEnvValue $envMap "TZ" $TimeZone
 Set-DotEnvValue $envMap "RUN_MODE" "simple"
 Set-DotEnvValue $envMap "SIMPLE_MODE_CONFIRM" "true"

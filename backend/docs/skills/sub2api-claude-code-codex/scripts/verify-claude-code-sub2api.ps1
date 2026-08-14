@@ -280,10 +280,12 @@ function Test-HeadroomUpstream429HoldProfile([string]$Url) {
   }
 
   $maxWaitMatch = [regex]::Match($envOutput, "(?m)^HEADROOM_UPSTREAM_429_MAX_WAIT_SECONDS=(\d+)$")
+  $transientMaxWaitMatch = [regex]::Match($envOutput, "(?m)^HEADROOM_UPSTREAM_TRANSIENT_MAX_WAIT_SECONDS=(\d+)$")
   $heartbeatMatch = [regex]::Match($envOutput, "(?m)^HEADROOM_UPSTREAM_429_HEARTBEAT_SECONDS=(\d+)$")
   $holdStatusesMatch = [regex]::Match($envOutput, "(?m)^HEADROOM_UPSTREAM_RECOVERY_HOLD_STATUSES=([^\r\n]+)$")
-  if (-not $maxWaitMatch.Success -or [int]$maxWaitMatch.Groups[1].Value -lt 21600) {
-    throw "Unsafe Headroom subscription recovery: max wait must be at least 21600 seconds."
+  if (-not $maxWaitMatch.Success -or [int]$maxWaitMatch.Groups[1].Value -lt 86400 -or
+      -not $transientMaxWaitMatch.Success -or [int]$transientMaxWaitMatch.Groups[1].Value -lt 86400) {
+    throw "Unsafe Headroom recovery: max waits must both be at least 86400 seconds."
   }
   if (-not $heartbeatMatch.Success -or [int]$heartbeatMatch.Groups[1].Value -gt 30) {
     throw "Unsafe Headroom subscription recovery: heartbeat must be configured at 30 seconds or less."
@@ -308,7 +310,7 @@ function Test-HeadroomUpstream429HoldProfile([string]$Url) {
       throw "Headroom /health runtime.upstream_recovery is missing $field."
     }
   }
-  Write-Host "Headroom upstream recovery hold: enabled, max_wait=$($maxWaitMatch.Groups[1].Value)s heartbeat=$($heartbeatMatch.Groups[1].Value)s statuses=$($holdStatuses -join ',') active=$($recovery.active_holds) cooling_routes=$($recovery.cooling_routes) recovered=$($recovery.recoveries_total)"
+  Write-Host "Headroom upstream recovery hold: enabled, max_wait=$($maxWaitMatch.Groups[1].Value)s transient_max_wait=$($transientMaxWaitMatch.Groups[1].Value)s heartbeat=$($heartbeatMatch.Groups[1].Value)s statuses=$($holdStatuses -join ',') active=$($recovery.active_holds) cooling_routes=$($recovery.cooling_routes) recovered=$($recovery.recoveries_total)"
 }
 
 function Test-HeadroomClaudeStreamRecoveryProfile([string]$Url) {
