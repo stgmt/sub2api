@@ -364,7 +364,7 @@ function Get-StackLifecycleState {
   $oldErrorActionPreference = $ErrorActionPreference
   $ErrorActionPreference = "Continue"
   try {
-    $lines = @(& wsl.exe -d $Distro -- docker ps -a --format '{{.Names}}|{{.State}}|{{.Status}}' 2>&1)
+    $lines = @(& wsl.exe -d $Distro -- bash -lc "docker ps -a --format '{{.Names}}|{{.State}}|{{.Status}}'" 2>&1)
     $exitCode = $LASTEXITCODE
     $known = ($exitCode -eq 0)
     if (-not $known) { $errorText = (($lines -join [Environment]::NewLine) -replace "`0", "").Trim() }
@@ -396,8 +396,8 @@ function Get-StackLifecycleState {
 
 function Get-HeadroomImageState {
   try {
-    $configured = ((@(& wsl.exe -d $Distro -- docker inspect -f '{{.Config.Image}}' headroom-sub2api 2>$null)) -join "").Trim()
-    $runningId = ((@(& wsl.exe -d $Distro -- docker inspect -f '{{.Image}}' headroom-sub2api 2>$null)) -join "").Trim()
+    $configured = ((@(& wsl.exe -d $Distro -- bash -lc "docker inspect -f '{{.Config.Image}}' headroom-sub2api" 2>$null)) -join "").Trim()
+    $runningId = ((@(& wsl.exe -d $Distro -- bash -lc "docker inspect -f '{{.Image}}' headroom-sub2api" 2>$null)) -join "").Trim()
     if (-not $configured -or -not $runningId) {
       return [ordered]@{ ok = $false; drift = $false; target_available = $false; error = "Headroom container image metadata is unavailable" }
     }
@@ -487,7 +487,7 @@ function Test-HeadroomGpuRoute {
   }
 
   try {
-    $probe = @(& wsl.exe -d $Distro -- docker inspect headroom-sub2api --format '{{json .HostConfig.DeviceRequests}}' 2>$null)
+    $probe = @(& wsl.exe -d $Distro -- bash -lc "docker inspect headroom-sub2api --format '{{json .HostConfig.DeviceRequests}}'" 2>$null)
     $raw = (($probe -join ' ') -replace '\s+', '').Trim()
     $ok = -not [string]::IsNullOrWhiteSpace($raw) -and $raw -ne 'null' -and $raw -ne '[]'
     return [ordered]@{ required = $true; ok = $ok; device_requests = if ($ok) { 'present' } else { $raw } }

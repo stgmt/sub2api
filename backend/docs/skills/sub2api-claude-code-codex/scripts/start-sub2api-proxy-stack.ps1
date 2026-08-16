@@ -376,7 +376,7 @@ function Sync-HyperVHeadroomBridge {
 
   $vmIp = Get-HyperVVmIpv4 -VmName $HyperVVmName -SwitchIp $switchIp
   if ([string]::IsNullOrWhiteSpace($vmIp)) {
-    throw "could not determine IPv4 for Hyper-V VM '$HyperVVmName'"
+    Write-StackLog "VM IPv4 lookup failed for '$HyperVVmName'; continuing without per-VM firewall RemoteAddress (bridge still listens on switch IP)"
   }
 
   foreach ($entry in @(Get-V4ToV4PortProxyEntries)) {
@@ -393,12 +393,36 @@ function Sync-HyperVHeadroomBridge {
     "connectaddress=$WslIp", "connectport=$HeadroomPort"
   ) -Description "create Hyper-V to WSL Headroom portproxy"
 
+  # iphlpsvc caches portproxy listeners: after the Default Switch subnet
+  # changes (e.g. vEthernet (Default Switch) re-created on host reboot) the
+  # service can keep LISTENING on the old dead listenaddress and never bind
+  # the new one, leaving the bridge silently down while `netsh show all`
+  # already lists the new entry. Restart the service so the new listener
+  # actually binds. Runs elevated (self-heal task runs Highest).
+  try {
+    Restart-Service iphlpsvc -Force -ErrorAction Stop
+    Start-Sleep -Seconds 2
+    Write-StackLog "restarted iphlpsvc after portproxy sync (switchIp=$switchIp)"
+  } catch {
+    Write-StackLog "iphlpsvc restart skipped: $($_.Exception.Message)"
+  }
+
   $firewallRuleName = "Headroom-HyperV-VM-$HeadroomPort"
   Get-NetFirewallRule -DisplayName $firewallRuleName -ErrorAction SilentlyContinue |
     Remove-NetFirewallRule -ErrorAction SilentlyContinue
-  New-NetFirewallRule -DisplayName $firewallRuleName -Direction Inbound -Action Allow `
-    -Protocol TCP -LocalAddress $switchIp -LocalPort $HeadroomPort -RemoteAddress $vmIp `
-    -Profile Any | Out-Null
+  $fwParams = @{
+    DisplayName = $firewallRuleName
+    Direction = "Inbound"
+    Action = "Allow"
+    Protocol = "TCP"
+    LocalAddress = $switchIp
+    LocalPort = $HeadroomPort
+    Profile = "Any"
+  }
+  if (-not [string]::IsNullOrWhiteSpace($vmIp)) {
+    $fwParams.RemoteAddress = $vmIp
+  }
+  New-NetFirewallRule @fwParams | Out-Null
 
   $vmBaseUrl = "http://${switchIp}:$HeadroomPort"
   Write-StackLog "Hyper-V Headroom bridge: vm=$HyperVVmName vmIp=$vmIp switchIp=$switchIp wslIp=$WslIp"
