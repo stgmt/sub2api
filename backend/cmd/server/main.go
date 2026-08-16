@@ -97,6 +97,19 @@ func main() {
 		// Check if auto-setup is enabled (for Docker deployment)
 		if setup.AutoSetupEnabled() {
 			log.Println("Auto setup mode enabled...")
+			// Same dependency race guard as runMainServer: postgres/redis may
+			// still be booting when the container starts.
+			dbHost, dbPort := dbHostFromEnv()
+			redisHost, redisPort := redisHostFromEnv()
+			if err := waitForDependencies(
+				os.Getenv,
+				dbHost,
+				dbPort,
+				redisHost,
+				redisPort,
+			); err != nil {
+				log.Fatalf("Failed to wait for dependencies: %v", err)
+			}
 			if err := setup.AutoSetupFromEnv(); err != nil {
 				log.Fatalf("Auto setup failed: %v", err)
 			}
@@ -159,6 +172,22 @@ func runMainServer() {
 	}
 	if cfg.RunMode == config.RunModeSimple {
 		log.Println("⚠️  WARNING: Running in SIMPLE mode - billing and quota checks are DISABLED")
+	}
+
+	// Close the startup race with postgres/redis after a Docker daemon
+	// restart: compose `depends_on: service_healthy` only gates `docker
+	// compose up`, while `restart: unless-stopped` starts all containers
+	// concurrently. Without this wait the server could crash on
+	// "acquire migrations lock: dial tcp ... connection refused" and burn
+	// restart cycles while postgres was still booting.
+	if err := waitForDependencies(
+		os.Getenv,
+		cfg.Database.Host,
+		cfg.Database.Port,
+		cfg.Redis.Host,
+		cfg.Redis.Port,
+	); err != nil {
+		log.Fatalf("Failed to wait for dependencies: %v", err)
 	}
 
 	buildInfo := handler.BuildInfo{
