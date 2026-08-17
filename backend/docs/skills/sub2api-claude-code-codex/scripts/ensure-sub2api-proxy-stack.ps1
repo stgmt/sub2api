@@ -94,6 +94,13 @@ function Invoke-ProviderRouteReconcile {
   try {
     $routeState = Get-Content -Raw -LiteralPath $routeStatePath | ConvertFrom-Json
     $generation = [string]$routeState.generation
+    $bridgeEnv = Read-EnvFile -Path (Join-Path $ProfileRoot "hyperv-bridge.env")
+    $configuredWindowsGuestName = if ($bridgeEnv.ContainsKey("HEADROOM_HYPERV_WINDOWS_GUEST_NAME")) {
+      [string]$bridgeEnv["HEADROOM_HYPERV_WINDOWS_GUEST_NAME"]
+    } else { "" }
+    $configuredWindowsGuestCredentialBlob = if ($bridgeEnv.ContainsKey("HEADROOM_HYPERV_WINDOWS_GUEST_CREDENTIAL_BLOB")) {
+      [string]$bridgeEnv["HEADROOM_HYPERV_WINDOWS_GUEST_CREDENTIAL_BLOB"]
+    } else { "" }
     $settingsPath = Join-Path $HOME ".claude\settings.json"
     $localGeneration = ""
     if (Test-Path -LiteralPath $settingsPath) {
@@ -101,7 +108,12 @@ function Invoke-ProviderRouteReconcile {
     }
     $localDrift = $generation -ne $localGeneration
     $pendingNodes = @($routeState.nodes.PSObject.Properties | Where-Object { [string]$_.Value.status -ne "synced" }).Count
-    if (-not $localDrift -and $pendingNodes -eq 0) {
+    $windowsNode = @($routeState.nodes.PSObject.Properties | Where-Object { $_.Name -eq "windows_hyperv" } | Select-Object -First 1)
+    $windowsGuestDrift = $false
+    if ($configuredWindowsGuestName.Trim() -and $configuredWindowsGuestCredentialBlob.Trim()) {
+      $windowsGuestDrift = $windowsNode.Count -eq 0 -or [string]$windowsNode[0].Value.name -ne $configuredWindowsGuestName.Trim()
+    }
+    if (-not $localDrift -and $pendingNodes -eq 0 -and -not $windowsGuestDrift) {
       return [pscustomobject]@{ status = "synced"; generation = $generation; attempted = $false }
     }
 
@@ -111,7 +123,7 @@ function Invoke-ProviderRouteReconcile {
         $attemptState = Get-Content -Raw -LiteralPath $attemptStatePath | ConvertFrom-Json
         $lastAttempt = [DateTimeOffset]::Parse([string]$attemptState.attempted_at)
         $sameGeneration = [string]$attemptState.generation -eq $generation
-        if ($sameGeneration -and ([DateTimeOffset]::UtcNow - $lastAttempt.ToUniversalTime()).TotalMinutes -lt $ProviderReconcileMinutes) {
+        if (-not $windowsGuestDrift -and $sameGeneration -and ([DateTimeOffset]::UtcNow - $lastAttempt.ToUniversalTime()).TotalMinutes -lt $ProviderReconcileMinutes) {
           return [pscustomobject]@{ status = "throttled"; generation = $generation; pending_nodes = $pendingNodes; attempted = $false }
         }
       } catch { }
@@ -129,7 +141,14 @@ function Invoke-ProviderRouteReconcile {
     }
 
     Write-Utf8NoBom -Path $attemptStatePath -Content (([ordered]@{ attempted_at = [DateTimeOffset]::UtcNow.ToString("o"); generation = $generation } | ConvertTo-Json -Compress) + [Environment]::NewLine)
-    $output = @(& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $controller[0] reconcile -RuntimeRoot $ProfileRoot 2>&1)
+    $controllerArgs = @("reconcile", "-RuntimeRoot", $ProfileRoot)
+    if ($configuredWindowsGuestName.Trim() -and $configuredWindowsGuestCredentialBlob.Trim()) {
+      $controllerArgs += @(
+        "-WindowsGuestName", $configuredWindowsGuestName.Trim(),
+        "-WindowsGuestCredentialBlob", $configuredWindowsGuestCredentialBlob.Trim()
+      )
+    }
+    $output = @(& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $controller[0] @controllerArgs 2>&1)
     if ($LASTEXITCODE -ne 0) { throw ($output -join [Environment]::NewLine) }
     $result = $output -join [Environment]::NewLine | ConvertFrom-Json
     Write-SelfHealEvent -Event "provider_route_reconciled" -Data @{ generation = $generation; active_profile = $result.active_profile }
@@ -147,6 +166,7 @@ function Write-HyperVInventorySnapshot {
     $vms = foreach ($vm in (Get-VM -ErrorAction Stop)) {
       $adapters = @(Get-VMNetworkAdapter -VMName $vm.Name -ErrorAction SilentlyContinue)
       $services = @(Get-VMIntegrationService -VMName $vm.Name -ErrorAction SilentlyContinue)
+      $disks = @(Get-VMHardDiskDrive -VMName $vm.Name -ErrorAction SilentlyContinue)
       [ordered]@{
         name = $vm.Name
         state = [string]$vm.State
@@ -154,6 +174,14 @@ function Write-HyperVInventorySnapshot {
         generation = $vm.Generation
         automatic_start_action = [string]$vm.AutomaticStartAction
         addresses = @($adapters | ForEach-Object { @($_.IPAddresses) } | Where-Object { $_ })
+        hard_disks = @($disks | ForEach-Object {
+          [ordered]@{
+            controller_type = $_.ControllerType
+            controller_number = $_.ControllerNumber
+            controller_location = $_.ControllerLocation
+            path = $_.Path
+          }
+        })
         adapters = @($adapters | ForEach-Object {
           [ordered]@{
             switch = $_.SwitchName
@@ -176,6 +204,73 @@ function Write-HyperVInventorySnapshot {
     } | ConvertTo-Json -Depth 8) + [Environment]::NewLine)
   } catch {
     Write-SelfHealEvent -Event "hyperv_inventory_failed" -Data @{ error = $_.Exception.Message }
+  }
+}
+
+function Invoke-OfflineWindowsGuestRouteRepair {
+  param([string]$RequestPath)
+
+  $request = Get-Content -Raw -LiteralPath $RequestPath | ConvertFrom-Json
+  $vmName = [string]$request.vm_name
+  $vhdPath = [string]$request.vhd_path
+  $guestUser = if ([string]$request.guest_user) { [string]$request.guest_user } else { "admin" }
+  $baseUrl = if ([string]$request.base_url) { [string]$request.base_url } else { "http://172.22.128.1:8787" }
+  if (-not $vmName -or -not (Test-Path -LiteralPath $vhdPath)) { throw "Offline guest repair request is invalid" }
+
+  Import-Module Hyper-V -ErrorAction Stop
+  $vm = Get-VM -Name $vmName -ErrorAction Stop
+  $wasRunning = $vm.State -eq "Running"
+  if ($wasRunning) {
+    Stop-VM -Name $vmName -Force -ErrorAction Stop
+    $deadline = (Get-Date).AddMinutes(2)
+    do { Start-Sleep -Seconds 2; $vm = Get-VM -Name $vmName } while ($vm.State -ne "Off" -and (Get-Date) -lt $deadline)
+    if ($vm.State -ne "Off") { throw "VM did not stop for offline guest repair: $($vm.State)" }
+  }
+
+  $mounted = $false
+  $driveRoot = $null
+  $disk = $null
+  $partition = $null
+  $addedAccessPath = $false
+  $mount = $null
+  try {
+    $mount = Mount-VHD -Path $vhdPath -Passthru -ErrorAction Stop
+    $mounted = $true
+    $disk = Get-Disk -Number $mount.DiskNumber -ErrorAction Stop
+    $partition = @(Get-Partition -DiskNumber $disk.Number | Where-Object { $_.Type -notin @("Reserved", "Recovery") } | Sort-Object Size -Descending | Select-Object -First 1)
+    if ($partition.Count -eq 0) { throw "No usable guest partition found on disk $($disk.Number)" }
+    $driveRoot = @($partition[0].AccessPaths | Where-Object { $_ -match '^[A-Z]:\\$' } | Select-Object -First 1)
+    if (-not $driveRoot) {
+      $used = @(Get-PSDrive -PSProvider FileSystem | ForEach-Object Name)
+      $letter = @([char[]]("DEFGHIJKLMNOPQRSTUVWXYZ") | ForEach-Object { [string]$_ } | Where-Object { $_ -notin $used } | Select-Object -First 1)
+      if (-not $letter) { throw "No free drive letter for guest VHDX" }
+      $driveRoot = "$letter`:\"
+      Add-PartitionAccessPath -DiskNumber $disk.Number -PartitionNumber $partition[0].PartitionNumber -AccessPath $driveRoot -ErrorAction Stop
+      $addedAccessPath = $true
+    }
+    $claudeDir = Join-Path $driveRoot "Users\$guestUser\.claude"
+    New-Item -ItemType Directory -Force -Path $claudeDir | Out-Null
+    $settingsPath = Join-Path $claudeDir "settings.json"
+    $settings = if (Test-Path -LiteralPath $settingsPath) { try { Get-Content -Raw -LiteralPath $settingsPath | ConvertFrom-Json } catch { [pscustomobject]@{} } } else { [pscustomobject]@{} }
+    if (-not $settings.PSObject.Properties["env"]) { $settings | Add-Member -NotePropertyName env -NotePropertyValue ([pscustomobject]@{}) }
+    foreach ($pair in @(@("ANTHROPIC_BASE_URL", $baseUrl), @("ANTHROPIC_AUTH_TOKEN", "unused"))) {
+      if (-not $settings.env.PSObject.Properties[$pair[0]]) { $settings.env | Add-Member -NotePropertyName $pair[0] -NotePropertyValue $pair[1] } else { $settings.env.($pair[0]) = $pair[1] }
+    }
+    $settings | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $settingsPath -Encoding utf8
+    $proofPath = Join-Path $driveRoot "Users\$guestUser\headroom-route-offline-proof.txt"
+    Set-Content -LiteralPath $proofPath -Value ("HEADROOM_OFFLINE_ROUTE_APPLIED`nbase_url=$baseUrl`napplied_at=$((Get-Date).ToUniversalTime().ToString('o'))") -Encoding utf8
+    if ($addedAccessPath) { Remove-PartitionAccessPath -DiskNumber $disk.Number -PartitionNumber $partition[0].PartitionNumber -AccessPath $driveRoot -ErrorAction SilentlyContinue }
+    Dismount-VHD -Path $vhdPath -ErrorAction Stop
+    $mounted = $false
+    if ($wasRunning) { Start-VM -Name $vmName -ErrorAction Stop | Out-Null }
+    Move-Item -LiteralPath $RequestPath -Destination ($RequestPath -replace '\.request\.json$','.done.json') -Force
+    Write-SelfHealEvent -Event "offline_guest_route_repaired" -Data @{ vm = $vmName; base_url = $baseUrl; settings = "Users\$guestUser\.claude\settings.json" }
+    return [pscustomobject]@{ status = "repaired"; vm = $vmName; base_url = $baseUrl; restarted = $wasRunning }
+  } catch {
+    if ($addedAccessPath -and $disk -and $partition -and $driveRoot) { Remove-PartitionAccessPath -DiskNumber $disk.Number -PartitionNumber $partition[0].PartitionNumber -AccessPath $driveRoot -ErrorAction SilentlyContinue }
+    if ($mounted) { Dismount-VHD -Path $vhdPath -ErrorAction SilentlyContinue }
+    if ($wasRunning -and (Get-VM -Name $vmName).State -eq "Off") { Start-VM -Name $vmName -ErrorAction SilentlyContinue | Out-Null }
+    throw
   }
 }
 
@@ -614,6 +709,13 @@ try {
   $mutexHeld = $mutex.WaitOne([TimeSpan]::FromSeconds(1))
   if (-not $mutexHeld) {
     Write-SelfHealEvent -Event "check_skipped" -Data @{ reason = "another watchdog instance is active" }
+    exit 0
+  }
+
+  $offlineGuestRepairRequest = Join-Path $LogDir "ghost-offline-route.request.json"
+  if (Test-Path -LiteralPath $offlineGuestRepairRequest) {
+    $repair = Invoke-OfflineWindowsGuestRouteRepair -RequestPath $offlineGuestRepairRequest
+    $repair | ConvertTo-Json -Compress -Depth 6
     exit 0
   }
 
