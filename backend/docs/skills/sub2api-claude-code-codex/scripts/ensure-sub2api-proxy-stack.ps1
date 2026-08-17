@@ -274,6 +274,250 @@ function Invoke-OfflineWindowsGuestRouteRepair {
   }
 }
 
+function Invoke-OfflineWindowsGuestSshSetup {
+  param([string]$RequestPath)
+
+  $request = Get-Content -Raw -LiteralPath $RequestPath | ConvertFrom-Json
+  $vmName = [string]$request.vm_name
+  $vhdPath = [string]$request.vhd_path
+  $guestUser = if ([string]$request.guest_user) { [string]$request.guest_user } else { "admin" }
+  $packageRoot = [string]$request.package_root
+  $publicKeyPath = [string]$request.public_key_path
+  $hostKeyRoot = [string]$request.host_key_root
+  if (-not $vmName -or -not (Test-Path -LiteralPath $vhdPath) -or -not (Test-Path -LiteralPath (Join-Path $packageRoot "sshd.exe")) -or -not (Test-Path -LiteralPath $publicKeyPath) -or -not (Test-Path -LiteralPath (Join-Path $hostKeyRoot "ssh_host_ed25519_key"))) {
+    throw "Offline SSH request is invalid or missing OpenSSH/key material"
+  }
+
+  Import-Module Hyper-V -ErrorAction Stop
+  $vm = Get-VM -Name $vmName -ErrorAction Stop
+  $wasRunning = $vm.State -eq "Running"
+  if ($wasRunning) {
+    Stop-VM -Name $vmName -Force -ErrorAction Stop
+    $deadline = (Get-Date).AddMinutes(2)
+    do { Start-Sleep -Seconds 2; $vm = Get-VM -Name $vmName } while ($vm.State -ne "Off" -and (Get-Date) -lt $deadline)
+    if ($vm.State -ne "Off") { throw "VM did not stop for offline SSH setup: $($vm.State)" }
+  }
+
+  $mounted = $false
+  $disk = $null
+  $partition = $null
+  $driveRoot = $null
+  $addedAccessPath = $false
+  $hiveLoaded = $false
+  try {
+    $mount = Mount-VHD -Path $vhdPath -Passthru -ErrorAction Stop
+    $mounted = $true
+    $disk = Get-Disk -Number $mount.DiskNumber -ErrorAction Stop
+    $partition = @(Get-Partition -DiskNumber $disk.Number | Where-Object { $_.Type -notin @("Reserved", "Recovery") } | Sort-Object Size -Descending | Select-Object -First 1)
+    if ($partition.Count -eq 0) { throw "No usable guest partition found for offline SSH setup" }
+    $driveRoot = $partition[0].AccessPaths | Where-Object { $_ -match '^[A-Z]:\\$' } | Select-Object -First 1 -ExpandProperty ToString
+    if (-not $driveRoot -or -not (Test-Path -LiteralPath $driveRoot)) {
+      $used = @(Get-PSDrive -PSProvider FileSystem | ForEach-Object Name)
+      $letter = @([char[]]("DEFGHIJKLMNOPQRSTUVWXYZ") | ForEach-Object { [string]$_ } | Where-Object { $_ -notin $used -and -not (Test-Path -LiteralPath "$_`:\") } | Select-Object -First 1)
+      if (-not $letter) { throw "No free drive letter for offline SSH setup" }
+      $driveRoot = "$letter`:\"
+      Add-PartitionAccessPath -DiskNumber $disk.Number -PartitionNumber $partition[0].PartitionNumber -AccessPath $driveRoot -ErrorAction Stop
+      $addedAccessPath = $true
+    }
+
+    $openSshDir = Join-Path $driveRoot "Windows\System32\OpenSSH"
+    New-Item -ItemType Directory -Force -Path $openSshDir | Out-Null
+    Get-ChildItem -LiteralPath $packageRoot -Force | ForEach-Object {
+      $packageTarget = Join-Path $openSshDir $_.Name
+      if (-not (Test-Path -LiteralPath $packageTarget)) {
+        Copy-Item -LiteralPath $_.FullName -Destination $packageTarget -Recurse -Force
+      }
+    }
+    $programSshDir = Join-Path $driveRoot "ProgramData\ssh"
+    New-Item -ItemType Directory -Force -Path $programSshDir | Out-Null
+    foreach ($hostKeyName in @("ssh_host_ed25519_key", "ssh_host_ed25519_key.pub", "ssh_host_rsa_key", "ssh_host_rsa_key.pub")) {
+      $hostKeyTarget = Join-Path $programSshDir $hostKeyName
+      if (-not (Test-Path -LiteralPath $hostKeyTarget)) {
+        Copy-Item -LiteralPath (Join-Path $hostKeyRoot $hostKeyName) -Destination $hostKeyTarget -Force
+      }
+    }
+    $moduliTarget = Join-Path $programSshDir "moduli"
+    if (-not (Test-Path -LiteralPath $moduliTarget)) { Copy-Item -LiteralPath (Join-Path $packageRoot "moduli") -Destination $moduliTarget -Force }
+
+    $authorizedDir = Join-Path $driveRoot "Users\$guestUser\.ssh"
+    New-Item -ItemType Directory -Force -Path $authorizedDir | Out-Null
+    $authorizedPath = Join-Path $authorizedDir "authorized_keys"
+    if (-not (Test-Path -LiteralPath $authorizedPath)) { Copy-Item -LiteralPath $publicKeyPath -Destination $authorizedPath -Force }
+    $administratorsAuthorizedPath = Join-Path $programSshDir "administrators_authorized_keys"
+    if (-not (Test-Path -LiteralPath $administratorsAuthorizedPath)) { Copy-Item -LiteralPath $publicKeyPath -Destination $administratorsAuthorizedPath -Force }
+    $config = @(
+      "Port 22",
+      "ListenAddress 0.0.0.0",
+      "PubkeyAuthentication yes",
+      "PasswordAuthentication no",
+      "AuthorizedKeysFile .ssh/authorized_keys",
+      "HostKey __PROGRAMDATA__/ssh/ssh_host_ed25519_key",
+      "HostKey __PROGRAMDATA__/ssh/ssh_host_rsa_key",
+      "Subsystem sftp sftp-server.exe"
+    ) -join [Environment]::NewLine
+    $sshdConfigPath = Join-Path $programSshDir "sshd_config"
+    if (-not (Test-Path -LiteralPath $sshdConfigPath)) {
+      Set-Content -LiteralPath $sshdConfigPath -Value ($config + [Environment]::NewLine) -Encoding ascii
+    }
+    $bootstrapScriptPath = Join-Path $programSshDir "bootstrap-sshd.ps1"
+    if (-not (Test-Path -LiteralPath $bootstrapScriptPath)) {
+      $bootstrapScript = @(
+        '$ErrorActionPreference = "SilentlyContinue"',
+        'New-NetFirewallRule -Name "OpenSSH-Server-In-TCP" -DisplayName "OpenSSH Server (SSH)" -Enabled True -Direction Inbound -Protocol TCP -LocalPort 22 -Action Allow -Profile Any -ErrorAction SilentlyContinue | Out-Null',
+        'Set-NetFirewallRule -DisplayName "OpenSSH Server (SSH)" -Enabled True -Action Allow -Profile Any -ErrorAction SilentlyContinue',
+        'Set-Service -Name sshd -StartupType Automatic -ErrorAction SilentlyContinue',
+        'Start-Service -Name sshd -ErrorAction SilentlyContinue'
+      ) -join [Environment]::NewLine
+      Set-Content -LiteralPath $bootstrapScriptPath -Value ($bootstrapScript + [Environment]::NewLine) -Encoding ascii
+    }
+    $softwareHivePath = Join-Path $driveRoot "Windows\System32\config\SOFTWARE"
+    & reg.exe load HKLM\OfflineGhostSoftware $softwareHivePath | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+      $runKey = 'HKLM\OfflineGhostSoftware\Microsoft\Windows\CurrentVersion\Run'
+      & reg.exe add $runKey /v OpenSSHBootstrap /t REG_SZ /d 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File C:\ProgramData\ssh\bootstrap-sshd.ps1' /f | Out-Null
+      & reg.exe unload HKLM\OfflineGhostSoftware | Out-Null
+    }
+    & icacls.exe $programSshDir /inheritance:r /grant '*S-1-5-18:(OI)(CI)(F)' '*S-1-5-32-544:(OI)(CI)(F)' /T /C | Out-Null
+    & icacls.exe $authorizedDir /inheritance:r /grant '*S-1-5-18:(OI)(CI)(F)' '*S-1-5-32-544:(OI)(CI)(F)' /T /C | Out-Null
+
+    & reg.exe load HKLM\OfflineGhostSystem (Join-Path $driveRoot "Windows\System32\config\SYSTEM") | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Could not load guest SYSTEM hive for offline SSH setup" }
+    $hiveLoaded = $true
+    foreach ($controlSet in @("ControlSet001", "ControlSet002", "ControlSet003", "ControlSet004")) {
+      $serviceKey = "HKLM\OfflineGhostSystem\$controlSet\Services\sshd"
+      & reg.exe add $serviceKey /v ImagePath /t REG_EXPAND_SZ /d '"C:\Windows\System32\OpenSSH\sshd.exe" -E C:\ProgramData\ssh\sshd.log' /f | Out-Null
+      & reg.exe add $serviceKey /v DisplayName /t REG_SZ /d 'OpenSSH SSH Server' /f | Out-Null
+      & reg.exe add $serviceKey /v Description /t REG_SZ /d 'SSH protocol based service' /f | Out-Null
+      & reg.exe add $serviceKey /v ObjectName /t REG_SZ /d LocalSystem /f | Out-Null
+      & reg.exe add $serviceKey /v ErrorControl /t REG_DWORD /d 1 /f | Out-Null
+      & reg.exe add $serviceKey /v RequiredPrivileges /t REG_MULTI_SZ /d 'SeAssignPrimaryTokenPrivilege\0SeTcbPrivilege\0SeBackupPrivilege\0SeRestorePrivilege\0SeImpersonatePrivilege\0' /f | Out-Null
+      & reg.exe add $serviceKey /v Start /t REG_DWORD /d 2 /f | Out-Null
+      & reg.exe add $serviceKey /v Type /t REG_DWORD /d 16 /f | Out-Null
+      $bootstrapKey = "HKLM\OfflineGhostSystem\$controlSet\Services\OpenSSHFirewallBootstrap"
+      & reg.exe add $bootstrapKey /v ImagePath /t REG_EXPAND_SZ /d 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File C:\ProgramData\ssh\bootstrap-sshd.ps1' /f | Out-Null
+      & reg.exe add $bootstrapKey /v DisplayName /t REG_SZ /d 'OpenSSH Firewall Bootstrap' /f | Out-Null
+      & reg.exe add $bootstrapKey /v ObjectName /t REG_SZ /d LocalSystem /f | Out-Null
+      & reg.exe add $bootstrapKey /v ErrorControl /t REG_DWORD /d 1 /f | Out-Null
+      & reg.exe add $bootstrapKey /v Start /t REG_DWORD /d 2 /f | Out-Null
+      & reg.exe add $bootstrapKey /v Type /t REG_DWORD /d 16 /f | Out-Null
+      $firewallKey = "HKLM\OfflineGhostSystem\$controlSet\Services\SharedAccess\Parameters\FirewallPolicy\FirewallRules"
+      & reg.exe add $firewallKey /v '{8B7B9B1A-5C4D-4DF4-9B7B-0F0E3C4A6B22}' /t REG_SZ /d 'v2.30|Action=Allow|Active=TRUE|Dir=In|Protocol=6|Profile=Domain|Profile=Private|Profile=Public|LPort=22|App=%SystemRoot%\System32\OpenSSH\sshd.exe|Name=OpenSSH-Server-In-TCP|' /f | Out-Null
+      & reg.exe add $firewallKey /v 'sshd-tcpm' /t REG_SZ /d 'v2.30|Action=Allow|Active=TRUE|Dir=In|Protocol=6|LPort=22|App=%SystemRoot%\system32\OpenSSH\sshd.exe|Name=OpenSSH Server (sshd) tcp|Desc=Inbound TCP rule for OpenSSH SSH Server (sshd) over port 22.|' /f | Out-Null
+    }
+    $binaryInstalled = Test-Path -LiteralPath (Join-Path $openSshDir "sshd.exe")
+    $sshdLogPath = Join-Path $programSshDir "sshd.log"
+    $sshdLogTail = if (Test-Path -LiteralPath $sshdLogPath) { (Get-Content -LiteralPath $sshdLogPath -Tail 20 -ErrorAction SilentlyContinue) -join " | " } else { $null }
+    $systemEventLogPath = Join-Path $driveRoot "Windows\System32\winevt\Logs\System.evtx"
+    $serviceEventTail = if (Test-Path -LiteralPath $systemEventLogPath) { @(& wevtutil.exe qe $systemEventLogPath /lf:true /f:text /c:80 2>$null | Select-String -Pattern 'sshd|OpenSSH|Service Control Manager|error' | Select-Object -Last 12) -join " | " } else { $null }
+    & reg.exe unload HKLM\OfflineGhostSystem | Out-Null
+    $hiveLoaded = $false
+    if ($addedAccessPath) { Remove-PartitionAccessPath -DiskNumber $disk.Number -PartitionNumber $partition[0].PartitionNumber -AccessPath $driveRoot -ErrorAction SilentlyContinue }
+    Dismount-VHD -Path $vhdPath -ErrorAction Stop
+    $mounted = $false
+    if ($wasRunning) { Start-VM -Name $vmName -ErrorAction Stop | Out-Null }
+    if (-not $binaryInstalled) { throw "OpenSSH package copy did not produce sshd.exe in the guest system directory" }
+    Move-Item -LiteralPath $RequestPath -Destination ($RequestPath -replace '\.request\.json$','.done.json') -Force
+    Write-SelfHealEvent -Event "offline_guest_ssh_configured" -Data @{ vm = $vmName; user = $guestUser; port = 22; public_key = "installed"; sshd_exe = $true; guest_drive = $driveRoot; sshd_log_tail = $sshdLogTail; service_event_tail = $serviceEventTail }
+    return [pscustomobject]@{ status = "configured"; vm = $vmName; port = 22; restarted = $wasRunning }
+  } catch {
+    if ($hiveLoaded) { & reg.exe unload HKLM\OfflineGhostSystem | Out-Null }
+    if ($addedAccessPath -and $disk -and $partition -and $driveRoot) { Remove-PartitionAccessPath -DiskNumber $disk.Number -PartitionNumber $partition[0].PartitionNumber -AccessPath $driveRoot -ErrorAction SilentlyContinue }
+    if ($mounted) { Dismount-VHD -Path $vhdPath -ErrorAction SilentlyContinue }
+    if ($wasRunning -and (Get-VM -Name $vmName).State -eq "Off") { Start-VM -Name $vmName -ErrorAction SilentlyContinue | Out-Null }
+    throw
+  }
+}
+
+function Invoke-PowerShellDirectWindowsGuestSshRepair {
+  param([string]$RequestPath)
+
+  $request = Get-Content -Raw -LiteralPath $RequestPath | ConvertFrom-Json
+  $vmName = [string]$request.vm_name
+  $guestUser = if ([string]$request.guest_user) { [string]$request.guest_user } else { "admin" }
+  $password = [string]$request.password
+  if (-not $vmName -or -not $password) { throw "PowerShell Direct SSH request is missing vm_name or password" }
+
+  $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
+  $credential = [pscredential]::new($guestUser, $securePassword)
+  $result = Invoke-Command -VMName $vmName -Credential $credential -ScriptBlock {
+    $ErrorActionPreference = "Stop"
+    $rule = Get-NetFirewallRule -DisplayName "OpenSSH-Server-In-TCP" -ErrorAction SilentlyContinue
+    if (-not $rule) {
+      New-NetFirewallRule -Name "OpenSSH-Server-In-TCP" -DisplayName "OpenSSH-Server-In-TCP" -Description "Allow SSH server inbound TCP 22" -Direction Inbound -Protocol TCP -LocalPort 22 -Action Allow -Profile Any | Out-Null
+    } else {
+      Set-NetFirewallRule -DisplayName "OpenSSH-Server-In-TCP" -Enabled True -Action Allow -Profile Any | Out-Null
+    }
+    Set-Service -Name sshd -StartupType Automatic
+    Start-Service -Name sshd
+    $service = Get-Service -Name sshd
+    [pscustomobject]@{ user = [Environment]::UserName; computer = $env:COMPUTERNAME; service = $service.Status.ToString(); firewall = $true }
+  }
+  $donePath = $RequestPath -replace '\.request\.json$','.done.json'
+  $safeRequest = [ordered]@{ vm_name = $vmName; guest_user = $guestUser; action = "start-sshd" }
+  $safeRequest | ConvertTo-Json | Set-Content -LiteralPath $donePath -Encoding utf8
+  Remove-Item -LiteralPath $RequestPath -Force
+  Write-SelfHealEvent -Event "powershell_direct_guest_ssh_repaired" -Data @{ vm = $vmName; user = $guestUser; service = $result.service; firewall = $true }
+  return $result
+}
+
+function Invoke-OfflineWindowsGuestSshAudit {
+  param([string]$RequestPath)
+
+  $request = Get-Content -Raw -LiteralPath $RequestPath | ConvertFrom-Json
+  $vmName = [string]$request.vm_name
+  $vhdPath = [string]$request.vhd_path
+  if (-not $vmName -or -not (Test-Path -LiteralPath $vhdPath)) { throw "Offline SSH audit request is invalid" }
+  $wasRunning = ((Get-VM -Name $vmName -ErrorAction Stop).State -eq "Running")
+  $mounted = $false
+  $hiveLoaded = $false
+  $disk = $null
+  $driveRoot = $null
+  try {
+    if ($wasRunning) { Stop-VM -Name $vmName -Force -ErrorAction Stop | Out-Null }
+    $disk = Mount-VHD -Path $vhdPath -Passthru -ErrorAction Stop
+    $mounted = $true
+    $partition = Get-Disk -Number $disk.DiskNumber | Get-Partition | Where-Object { $_.Type -notin @("Reserved", "Recovery") -and $_.Size -gt 20GB } | Sort-Object Size -Descending | Select-Object -First 1
+    if (-not $partition) { throw "Could not find guest Windows partition" }
+    $driveRoot = (Get-Volume -Partition $partition).DriveLetter + ":\"
+    $systemHive = Join-Path $driveRoot "Windows\System32\config\SYSTEM"
+    $registryError = $null
+    & reg.exe load HKLM\OfflineGhostAuditSystem $systemHive | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+      $hiveLoaded = $true
+      $select = (& reg.exe query HKLM\OfflineGhostAuditSystem\Select /v Current 2>$null) -join " "
+      $serviceValues = foreach ($controlSet in @("ControlSet001", "ControlSet002", "ControlSet003", "ControlSet004")) {
+        $key = "HKLM\OfflineGhostAuditSystem\$controlSet\Services\sshd"
+        if (Test-Path "Registry::$key") { [pscustomobject]@{ control_set = $controlSet; values = ((& reg.exe query $key 2>$null) -join " | ") } }
+      }
+    } else {
+      $registryError = "SYSTEM hive could not be loaded"
+      $select = ""
+      $serviceValues = @()
+    }
+    $result = [ordered]@{
+      vm = $vmName
+      selected_control_set = $select.Trim()
+      registry_error = $registryError
+      sshd_exe = Test-Path (Join-Path $driveRoot "Windows\System32\OpenSSH\sshd.exe")
+      sshd_config = Test-Path (Join-Path $driveRoot "ProgramData\ssh\sshd_config")
+      administrators_authorized_keys = Test-Path (Join-Path $driveRoot "ProgramData\ssh\administrators_authorized_keys")
+      host_ed25519 = Test-Path (Join-Path $driveRoot "ProgramData\ssh\ssh_host_ed25519_key")
+      service_registry = $serviceValues
+      system_log = Test-Path (Join-Path $driveRoot "Windows\System32\winevt\Logs\System.evtx")
+    }
+    $donePath = $RequestPath -replace '\.request\.json$','.done.json'
+    $result | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $donePath -Encoding utf8
+    Remove-Item -LiteralPath $RequestPath -Force
+    Write-SelfHealEvent -Event "offline_guest_ssh_audited" -Data $result
+    return [pscustomobject]$result
+  } finally {
+    if ($hiveLoaded) { & reg.exe unload HKLM\OfflineGhostAuditSystem | Out-Null }
+    if ($driveRoot -and $disk) { Remove-PartitionAccessPath -DiskNumber $disk.Number -PartitionNumber $partition.PartitionNumber -AccessPath $driveRoot -ErrorAction SilentlyContinue }
+    if ($mounted) { Dismount-VHD -Path $vhdPath -ErrorAction SilentlyContinue }
+    if ($wasRunning) { Start-VM -Name $vmName -ErrorAction SilentlyContinue | Out-Null }
+  }
+}
+
 function Resolve-StateRootPath {
   param([string]$ProfileRoot, [hashtable]$EnvMap)
 
@@ -716,6 +960,24 @@ try {
   if (Test-Path -LiteralPath $offlineGuestRepairRequest) {
     $repair = Invoke-OfflineWindowsGuestRouteRepair -RequestPath $offlineGuestRepairRequest
     $repair | ConvertTo-Json -Compress -Depth 6
+    exit 0
+  }
+  $offlineGuestSshRequest = Join-Path $LogDir "ghost-offline-ssh.request.json"
+  if (Test-Path -LiteralPath $offlineGuestSshRequest) {
+    $sshSetup = Invoke-OfflineWindowsGuestSshSetup -RequestPath $offlineGuestSshRequest
+    $sshSetup | ConvertTo-Json -Compress -Depth 6
+    exit 0
+  }
+  $directGuestSshRequest = Join-Path $LogDir "ghost-powershell-direct-ssh.request.json"
+  if (Test-Path -LiteralPath $directGuestSshRequest) {
+    $directRepair = Invoke-PowerShellDirectWindowsGuestSshRepair -RequestPath $directGuestSshRequest
+    $directRepair | ConvertTo-Json -Compress -Depth 6
+    exit 0
+  }
+  $offlineGuestSshAuditRequest = Join-Path $LogDir "ghost-offline-ssh-audit.request.json"
+  if (Test-Path -LiteralPath $offlineGuestSshAuditRequest) {
+    $sshAudit = Invoke-OfflineWindowsGuestSshAudit -RequestPath $offlineGuestSshAuditRequest
+    $sshAudit | ConvertTo-Json -Compress -Depth 8
     exit 0
   }
 
