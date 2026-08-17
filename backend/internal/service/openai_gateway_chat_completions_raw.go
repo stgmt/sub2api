@@ -163,6 +163,11 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	upstreamReq = upstreamReq.WithContext(WithHTTPUpstreamProfile(upstreamReq.Context(), HTTPUpstreamProfileOpenAI))
 	upstreamReq.Header.Set("Content-Type", "application/json")
 	upstreamReq.Header.Set("Authorization", "Bearer "+token)
+	if account.Platform == PlatformGrok && xai.IsCLIProxyBaseURL(account.GetGrokBaseURL()) {
+		upstreamReq.Header.Set("X-XAI-Token-Auth", "xai-grok-cli")
+		upstreamReq.Header.Set("x-grok-client-version", account.GetGrokClientVersion())
+		upstreamReq.Header.Set("x-grok-model-override", upstreamModel)
+	}
 	if clientStream {
 		upstreamReq.Header.Set("Accept", "text/event-stream")
 	} else {

@@ -23,10 +23,14 @@ const (
 	DefaultTokenURL     = OAuthIssuer + "/oauth2/token"
 	DefaultBaseURL      = "https://api.x.ai/v1"
 	DefaultCLIBaseURL   = "https://cli-chat-proxy.grok.com/v1"
-	DefaultClientID     = "b1a00492-073a-47ea-816f-4c329264a828"
-	DefaultScope        = "openid profile email offline_access grok-cli:access api:access"
-	DefaultRedirectURI  = "http://127.0.0.1:56121/callback"
-	SessionTTL          = 30 * time.Minute
+	// DefaultCLIClientVersion is the Grok Build version installed on the host
+	// that owns the subscription token. The CLI proxy rejects unidentified
+	// clients before it evaluates the bearer token.
+	DefaultCLIClientVersion = "1.0.4"
+	DefaultClientID         = "b1a00492-073a-47ea-816f-4c329264a828"
+	DefaultScope            = "openid profile email offline_access grok-cli:access api:access"
+	DefaultRedirectURI      = "http://127.0.0.1:56121/callback"
+	SessionTTL              = 30 * time.Minute
 
 	EnvAuthorizeURL               = "XAI_OAUTH_AUTHORIZE_URL"
 	EnvTokenURL                   = "XAI_OAUTH_TOKEN_URL"
@@ -158,6 +162,13 @@ func EffectiveBaseURL(override string) string {
 		return strings.TrimRight(trimmed, "/")
 	}
 	return strings.TrimRight(envOrDefault(EnvBaseURL, DefaultBaseURL), "/")
+}
+
+// IsCLIProxyBaseURL identifies the xAI OAuth subscription proxy used by Grok
+// Build. API-key traffic and explicit custom upstreams keep their own headers.
+func IsCLIProxyBaseURL(baseURL string) bool {
+	normalized, err := ValidateBaseURL(baseURL)
+	return err == nil && normalized == DefaultCLIBaseURL
 }
 
 func ValidatedBaseURL(override string) (string, error) {

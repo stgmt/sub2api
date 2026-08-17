@@ -227,7 +227,11 @@ func wrapUsageRecordTaskContext(parent context.Context, task service.UsageRecord
 	}
 }
 
-func openAICompatibleRequestPlatform(apiKey *service.APIKey) string {
+func openAICompatibleRequestPlatform(apiKey *service.APIKey, requestedModel string) string {
+	model := strings.ToLower(strings.TrimSpace(requestedModel))
+	if strings.HasPrefix(model, "grok-") || model == "grok" || model == "grok-build" {
+		return service.PlatformGrok
+	}
 	if apiKey != nil && apiKey.Group != nil && apiKey.Group.Platform == service.PlatformGrok {
 		return service.PlatformGrok
 	}
@@ -430,7 +434,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 
 	// Get subscription info (may be nil)
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
-	requestPlatform := openAICompatibleRequestPlatform(apiKey)
+	requestPlatform := openAICompatibleRequestPlatform(apiKey, reqModel)
 
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	routingStart := time.Now()
@@ -871,7 +875,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	}
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
-	requestPlatform := openAICompatibleRequestPlatform(apiKey)
+	requestPlatform := openAICompatibleRequestPlatform(apiKey, reqModel)
 
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	routingStart := time.Now()
@@ -1628,7 +1632,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	}
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
-	requestPlatform := openAICompatibleRequestPlatform(apiKey)
+	requestPlatform := openAICompatibleRequestPlatform(apiKey, reqModel)
 	requiredTransport := service.OpenAIUpstreamTransportResponsesWebsocketV2Ingress
 	if requestPlatform == service.PlatformGrok {
 		requiredTransport = service.OpenAIUpstreamTransportHTTPSSE

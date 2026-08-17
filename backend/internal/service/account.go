@@ -1429,6 +1429,19 @@ func (a *Account) GetGrokRefreshToken() string {
 	return a.GetCredential("refresh_token")
 }
 
+// GetGrokClientVersion returns the Grok Build version used for subscription
+// proxy authentication. Keep it in account credentials so an upgraded CLI can
+// be rolled out without changing the upstream API implementation.
+func (a *Account) GetGrokClientVersion() string {
+	if !a.IsGrok() {
+		return ""
+	}
+	if version := strings.TrimSpace(a.GetCredential("client_version")); version != "" {
+		return version
+	}
+	return xai.DefaultCLIClientVersion
+}
+
 func (a *Account) GetOpenAIIDToken() string {
 	if !a.IsOpenAIOAuth() {
 		return ""

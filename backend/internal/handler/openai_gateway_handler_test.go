@@ -94,6 +94,17 @@ func TestOpenAIHandleStreamingAwareError_JSONEscaping(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatibleRequestPlatformUsesSelectedModel(t *testing.T) {
+	require.Equal(t, service.PlatformGrok, openAICompatibleRequestPlatform(nil, "grok-4.6"))
+	require.Equal(t, service.PlatformGrok, openAICompatibleRequestPlatform(nil, "grok-build"))
+	require.Equal(t, service.PlatformOpenAI, openAICompatibleRequestPlatform(nil, "gpt-5.6-luna"))
+}
+
+func TestModelOwner(t *testing.T) {
+	require.Equal(t, "xai", modelOwner("grok-4.6"))
+	require.Equal(t, "openai", modelOwner("gpt-5.6-luna"))
+}
+
 func TestResolveOpenAIMessagesMetadataSession_DoesNotDerivePromptCacheKey(t *testing.T) {
 	body := []byte(`{"model":"claude-sonnet-4-5","metadata":{"user_id":"claude-code-session"},"messages":[{"role":"user","content":"hello"}]}`)
 
@@ -457,7 +468,7 @@ func TestResolveOpenAIMessagesDispatchMappedModel(t *testing.T) {
 				Platform: service.PlatformGrok,
 			},
 		}
-		require.Equal(t, "grok-4.3", resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-sonnet-4-5"))
+		require.Equal(t, "grok-4.6", resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-sonnet-4-5"))
 		require.Empty(t, resolveOpenAIMessagesDispatchMappedModel(apiKey, "grok"))
 	})
 

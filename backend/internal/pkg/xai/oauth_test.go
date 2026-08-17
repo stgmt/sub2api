@@ -207,9 +207,9 @@ func TestDefaultModelMappingIncludesGrokAliases(t *testing.T) {
 	t.Parallel()
 
 	mapping := DefaultModelMapping()
-	require.Equal(t, "grok-4.3", mapping["grok"])
-	require.Equal(t, "grok-4.3", mapping["grok-latest"])
-	require.Equal(t, "grok-build-0.1", mapping["grok-build"])
+	require.Equal(t, "grok-4.6", mapping["grok"])
+	require.Equal(t, "grok-4.6", mapping["grok-latest"])
+	require.Equal(t, "grok-4.6", mapping["grok-build"])
 	require.Equal(t, "grok-composer-2.5-fast", mapping["grok-composer"])
 	require.Equal(t, "grok-4.20-0309-reasoning", mapping["grok-4.20-reasoning"])
 	require.Equal(t, "grok-4.20-0309-non-reasoning", mapping["grok-4.20-non-reasoning"])
@@ -220,4 +220,10 @@ func TestDefaultModelMappingIncludesGrokAliases(t *testing.T) {
 	require.Equal(t, "grok-imagine-edit", mapping["grok-imagine-edit"])
 	require.Equal(t, "grok-imagine-video", mapping["grok-imagine-video"])
 	require.Equal(t, "grok-imagine-video-1.5", mapping["grok-imagine-video-1.5"])
+}
+
+func TestIsCLIProxyBaseURL(t *testing.T) {
+	require.True(t, IsCLIProxyBaseURL(DefaultCLIBaseURL))
+	require.True(t, IsCLIProxyBaseURL(DefaultCLIBaseURL+"/"))
+	require.False(t, IsCLIProxyBaseURL(DefaultBaseURL))
 }

@@ -113,15 +113,18 @@ func TestBuildGrokResponsesRequestUsesAccountBaseURLAndBearerToken(t *testing.T)
 		Platform: PlatformGrok,
 		Type:     AccountTypeOAuth,
 		Credentials: map[string]any{
-			"base_url": "https://xai.test/v1/",
+			"base_url": xai.DefaultCLIBaseURL + "/",
 		},
 	}
 
 	req, err := buildGrokResponsesRequest(context.Background(), nil, account, []byte(`{"model":"grok-4.3"}`), "access-token")
 	require.NoError(t, err)
 	require.Equal(t, http.MethodPost, req.Method)
-	require.Equal(t, "https://xai.test/v1/responses", req.URL.String())
+	require.Equal(t, xai.DefaultCLIBaseURL+"/responses", req.URL.String())
 	require.Equal(t, "Bearer access-token", req.Header.Get("Authorization"))
+	require.Equal(t, "xai-grok-cli", req.Header.Get("X-XAI-Token-Auth"))
+	require.Equal(t, xai.DefaultCLIClientVersion, req.Header.Get("x-grok-client-version"))
+	require.Equal(t, "grok-4.3", req.Header.Get("x-grok-model-override"))
 	require.Equal(t, "application/json", req.Header.Get("Content-Type"))
 	require.Contains(t, req.Header.Get("Accept"), "text/event-stream")
 
@@ -548,6 +551,9 @@ func TestForwardAsChatCompletionsForGrokUsesXAIChatCompletionsAndSnapshots(t *te
 	require.NoError(t, err)
 	require.Equal(t, xai.DefaultCLIBaseURL+"/chat/completions", upstream.lastReq.URL.String())
 	require.Equal(t, "Bearer access-token", upstream.lastReq.Header.Get("Authorization"))
+	require.Equal(t, "xai-grok-cli", upstream.lastReq.Header.Get("X-XAI-Token-Auth"))
+	require.Equal(t, xai.DefaultCLIClientVersion, upstream.lastReq.Header.Get("x-grok-client-version"))
+	require.Equal(t, "grok-4.3", upstream.lastReq.Header.Get("x-grok-model-override"))
 	require.Equal(t, "grok-4.3", gjson.GetBytes(upstream.lastBody, "model").String())
 	require.Equal(t, "grok", result.Model)
 	require.Equal(t, "grok-4.3", result.UpstreamModel)

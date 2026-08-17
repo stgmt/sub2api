@@ -235,7 +235,10 @@ func (s *GrokOAuthService) BuildAccountCredentials(tokenInfo *GrokTokenInfo) map
 	if tokenInfo.EntitlementStatus != "" {
 		creds["entitlement_status"] = tokenInfo.EntitlementStatus
 	}
-	creds["base_url"] = xai.DefaultBaseURL
+	// Grok Build OAuth credentials are subscription credentials and must use
+	// the CLI proxy rather than the separately billed xAI API endpoint.
+	creds["base_url"] = xai.DefaultCLIBaseURL
+	creds["client_version"] = xai.DefaultCLIClientVersion
 	return creds
 }
 

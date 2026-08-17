@@ -1,18 +1,19 @@
 [CmdletBinding()]
 param(
   [Parameter(Position = 0)]
-  [ValidateSet("status", "anthropic", "qwen", "alibaba", "chatgpt", "hybrid", "reconcile", "verify")]
+  [ValidateSet("status", "anthropic", "qwen", "alibaba", "chatgpt", "grok", "openai-grok", "hybrid", "reconcile", "verify")]
   [string]$Command = "status",
   [string]$RuntimeRoot = "C:\Users\stigm\Documents\Codex\2026-07-07\new-chat\work\sub2api-runtime",
   [string]$AdminBaseUrl = "http://127.0.0.1:18081",
   [string]$HeadroomBaseUrl = "http://127.0.0.1:8787",
-  [string]$StableKeyName = "claude-code-codex-sub2api",
+  [string]$StableKeyName = "claude-code-codex-openai-grok",
   [string]$ClaudeCredentialsPath = "$HOME\.claude\.credentials.json",
   [string]$CodexAuthPath = "$HOME\.codex\auth.json",
   [string]$WslDistro = "Ubuntu-24.04",
   [string]$LinuxGuestVmName = "devcontainer-ubuntu-2404",
   [string]$LinuxGuest = "migration@172.20.36.35",
   [string]$LinuxGuestKey = "C:\Migration\devcontainer-vm-key",
+  [string]$GrokAuthPath = "$HOME\.grok\auth.json",
   [string]$WindowsGuestName = "win10-ltsc-docker",
   [string]$WindowsGuestCredentialBlob = "C:\Migration\native-windows-port\secrets\win10-ltsc-docker-admin.dpapi",
   [string[]]$ManagedFleetKeyNames = @("claude-win10-chatgpt-only"),
@@ -99,6 +100,8 @@ function Read-Profile([string]$Name) {
     "qwen-only" { "qwen-only.v1.json" }
     "alibaba" { "alibaba-qwen-deepseek-flash.v1.json" }
     "chatgpt-only" { "chatgpt-only.v5.json" }
+    "grok-build-only" { "grok-build-only.v1.json" }
+    "openai-grok-composite" { "openai-grok-composite.v1.json" }
     "hybrid-current" { "hybrid-current.v2.json" }
     default { throw "Unknown provider profile: $Name" }
   }
@@ -435,6 +438,95 @@ WHERE id = $accountId;
   return $account
 }
 
+function Get-GrokSourceCredentials {
+  if (-not (Test-Path -LiteralPath $GrokAuthPath)) {
+    throw "Grok Build auth file not found: $GrokAuthPath"
+  }
+  $auth = Get-Content -Raw -LiteralPath $GrokAuthPath | ConvertFrom-Json
+  $candidate = @($auth.PSObject.Properties | Where-Object {
+      $_.Value -and $_.Value.key -and $_.Value.refresh_token
+    } | Select-Object -First 1)
+  if ($candidate.Count -ne 1) {
+    throw "Grok Build auth.json has no refreshable OAuth entry"
+  }
+  $entry = $candidate[0].Value
+  $clientVersion = "1.0.4"
+  $grokCommand = Get-Command grok.exe -ErrorAction SilentlyContinue
+  if ($grokCommand) {
+    $versionOutput = @(& $grokCommand.Source --version 2>$null)
+    $match = [regex]::Match(($versionOutput -join " "), '(?<!\d)(\d+\.\d+\.\d+)(?!\d)')
+    if ($match.Success) { $clientVersion = $match.Groups[1].Value }
+  }
+  $clientId = if ($entry.oidc_client_id) { [string]$entry.oidc_client_id } else { "b1a00492-073a-47ea-816f-4c329264a828" }
+  return [pscustomobject]@{
+    Credentials = @{
+      access_token = [string]$entry.key
+      refresh_token = [string]$entry.refresh_token
+      token_type = "Bearer"
+      client_id = $clientId
+      base_url = "https://cli-chat-proxy.grok.com/v1"
+      client_version = $clientVersion
+      expires_at = if ($entry.expires_at) { $entry.expires_at } else { $null }
+    }
+    ClientVersion = $clientVersion
+  }
+}
+
+function Ensure-GrokAccount($Profile, [int64]$GroupId) {
+  $account = Get-AccountByName $Profile.account_name
+  $source = $null
+  try {
+    $source = Get-GrokSourceCredentials
+  } catch {
+    if ($null -eq $account) { throw }
+    Write-Verbose "Local Grok Build auth unavailable; preserving sub2api-owned OAuth credentials."
+  }
+  if ($null -eq $account) {
+    $body = @{
+      name = $Profile.account_name
+      notes = "Managed by sub2api-claude-code-codex from the local Grok Build subscription."
+      platform = "grok"
+      type = "oauth"
+      credentials = $source.Credentials
+      concurrency = 1
+      priority = 1
+      rate_multiplier = 1.0
+      load_factor = 100
+      group_ids = @($GroupId)
+      auto_pause_on_expired = $false
+      confirm_mixed_channel_risk = $true
+    }
+    Invoke-AdminApi "Post" "/api/v1/admin/accounts" $body | Out-Null
+    $account = Get-AccountByName $Profile.account_name
+    if ($null -eq $account) { throw "Grok Build OAuth account was not created" }
+  }
+  if ([string]$account.platform -ne "grok" -or [string]$account.type -ne "oauth") {
+    throw "Grok Build account '$($Profile.account_name)' must be a Grok OAuth account"
+  }
+  if ($source) {
+    Invoke-AdminApi "Post" "/api/v1/admin/accounts/$($account.id)/apply-oauth-credentials" @{
+      type = "oauth"
+      credentials = $source.Credentials
+    } | Out-Null
+  }
+  Invoke-AdminApi "Put" "/api/v1/admin/accounts/$($account.id)" @{
+    name = $Profile.account_name
+    type = "oauth"
+    status = "active"
+    schedulable = $true
+    concurrency = 1
+    priority = 1
+    rate_multiplier = 1.0
+    load_factor = 100
+    group_ids = @($GroupId)
+    auto_pause_on_expired = $false
+    confirm_mixed_channel_risk = $true
+  } | Out-Null
+  $accountId = [int64]$account.id
+  Invoke-PostgresSql "INSERT INTO account_groups (account_id, group_id) VALUES ($accountId, $GroupId) ON CONFLICT (account_id, group_id) DO NOTHING; DELETE FROM account_groups WHERE group_id = $GroupId AND account_id <> $accountId;" | Out-Null
+  return $account
+}
+
 function Ensure-HybridAccounts($Profile, [int64]$GroupId) {
   $openAI = Get-AccountByName $Profile.expected_account_name
   $alibaba = Get-AccountByName $Profile.secondary_account_name
@@ -447,6 +539,20 @@ function Ensure-HybridAccounts($Profile, [int64]$GroupId) {
   $openAIId = [int64]$openAI.id
   $alibabaId = [int64]$alibaba.id
   Invoke-PostgresSql "INSERT INTO account_groups (account_id, group_id) VALUES ($openAIId, $GroupId), ($alibabaId, $GroupId) ON CONFLICT (account_id, group_id) DO NOTHING; DELETE FROM account_groups WHERE group_id = $GroupId AND account_id NOT IN ($openAIId, $alibabaId);" | Out-Null
+}
+
+function Ensure-OpenAIGrokAccounts($Profile, [int64]$GroupId) {
+  $openAI = Get-AccountByName $Profile.expected_account_name
+  $grok = Get-AccountByName $Profile.secondary_account_name
+  if ($null -eq $openAI -or [string]$openAI.platform -ne "openai" -or [string]$openAI.type -ne "oauth") {
+    throw "Composite OpenAI OAuth account '$($Profile.expected_account_name)' is unavailable or invalid"
+  }
+  if ($null -eq $grok -or [string]$grok.platform -ne "grok" -or [string]$grok.type -ne "oauth") {
+    throw "Composite Grok OAuth account '$($Profile.secondary_account_name)' is unavailable or invalid"
+  }
+  $openAIId = [int64]$openAI.id
+  $grokId = [int64]$grok.id
+  Invoke-PostgresSql "INSERT INTO account_groups (account_id, group_id) VALUES ($openAIId, $GroupId), ($grokId, $GroupId) ON CONFLICT (account_id, group_id) DO NOTHING; DELETE FROM account_groups WHERE group_id = $GroupId AND account_id NOT IN ($openAIId, $grokId);" | Out-Null
 }
 
 function Set-StableKeyGroup([int64]$KeyId, [int64]$GroupId) {
@@ -474,6 +580,7 @@ function Invoke-HeadroomProbe($Profile, $StableKey) {
   if ([int]$response.StatusCode -lt 200 -or [int]$response.StatusCode -ge 300) { throw "Headroom probe returned HTTP $($response.StatusCode)" }
 
   $startedSql = ConvertTo-SqlLiteral $requestStarted.ToString("o")
+  $probeModelSql = ConvertTo-SqlLiteral ([string]$Profile.main_model)
   $proofRows = @()
   for ($attempt = 0; $attempt -lt 10 -and $proofRows.Count -eq 0; $attempt++) {
     if ($attempt -gt 0) { Start-Sleep -Milliseconds 500 }
@@ -488,6 +595,7 @@ FROM (
   JOIN accounts a ON a.id = u.account_id
   WHERE u.api_key_id = $($StableKey.Id)
     AND u.created_at >= '$startedSql'::timestamptz
+    AND u.requested_model = '$probeModelSql'
   ORDER BY u.id DESC
   LIMIT 1
 ) proof;
@@ -672,7 +780,7 @@ function Reconcile-Fleet($ProfileRecord, [string]$Generation) {
 }
 
 function Get-ProfileForGroup([string]$GroupName) {
-  foreach ($name in @("anthropic-only", "qwen-only", "alibaba", "chatgpt-only", "hybrid-current")) {
+  foreach ($name in @("anthropic-only", "qwen-only", "alibaba", "chatgpt-only", "grok-build-only", "openai-grok-composite", "hybrid-current")) {
     $record = Read-Profile $name
     if ($record.Data.group_name -eq $GroupName) { return $record }
   }
@@ -724,6 +832,10 @@ function Invoke-Switch([string]$ProfileName) {
     Ensure-QwenAccount $profile ([int64]$targetGroup.id) | Out-Null
   } elseif ($ProfileName -eq "chatgpt-only") {
     Ensure-ChatGPTAccount $profile ([int64]$targetGroup.id) | Out-Null
+  } elseif ($ProfileName -eq "grok-build-only") {
+    Ensure-GrokAccount $profile ([int64]$targetGroup.id) | Out-Null
+  } elseif ($ProfileName -eq "openai-grok-composite") {
+    Ensure-OpenAIGrokAccounts $profile ([int64]$targetGroup.id)
   } elseif ($ProfileName -eq "hybrid-current") {
     Ensure-HybridAccounts $profile ([int64]$targetGroup.id)
   }
@@ -829,6 +941,8 @@ switch ($Command) {
   "qwen" { Invoke-Switch "qwen-only" }
   "alibaba" { Invoke-Switch "alibaba" }
   "chatgpt" { Invoke-Switch "chatgpt-only" }
+  "grok" { Invoke-Switch "grok-build-only" }
+  "openai-grok" { Invoke-Switch "openai-grok-composite" }
   "hybrid" { Invoke-Switch "hybrid-current" }
   "reconcile" { Invoke-Reconcile }
   "verify" { Invoke-Verify }

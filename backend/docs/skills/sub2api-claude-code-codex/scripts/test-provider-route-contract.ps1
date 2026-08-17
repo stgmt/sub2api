@@ -12,6 +12,7 @@ $chatgptProfile = Join-Path $skillRoot "profiles\chatgpt-only.v5.json"
 $hybridProfile = Join-Path $skillRoot "profiles\hybrid-current.v2.json"
 $qwenProfile = Join-Path $skillRoot "profiles\qwen-only.v1.json"
 $alibabaProfile = Join-Path $skillRoot "profiles\alibaba-qwen-deepseek-flash.v1.json"
+$grokProfile = Join-Path $skillRoot "profiles\grok-build-only.v1.json"
 $temp = Join-Path ([IO.Path]::GetTempPath()) ("sub2api-provider-route-test-" + [guid]::NewGuid())
 
 function Assert-True([bool]$Condition, [string]$Message) {
@@ -123,6 +124,7 @@ try {
   $hybrid = Get-Content -Raw $hybridProfile | ConvertFrom-Json
   $qwen = Get-Content -Raw $qwenProfile | ConvertFrom-Json
   $alibaba = Get-Content -Raw $alibabaProfile | ConvertFrom-Json
+  $grok = Get-Content -Raw $grokProfile | ConvertFrom-Json
   Assert-True ($anthropic.group.platform -eq "openai") "Anthropic-only dispatcher group must remain OpenAI-shaped"
   Assert-True ($anthropic.group.allow_messages_dispatch -eq $true) "Anthropic-only group must dispatch /v1/messages"
 Assert-True (@($anthropic.group.messages_dispatch_model_config.model_fallbacks.PSObject.Properties).Count -eq 0) "Anthropic-only fallbacks must be empty"
@@ -185,6 +187,15 @@ Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof cont
   Assert-True (@($qwen.group.messages_dispatch_model_config.model_fallbacks.PSObject.Properties).Count -eq 0) "Qwen-only must not fall back to GPT or Claude"
   Assert-True (@($qwen.group.models_list_config.models).Count -eq 1 -and $qwen.group.models_list_config.models[0] -eq "qwen3.8-max-preview") "Qwen-only picker must publish only Qwen 3.8 Max"
   Assert-True ($alibaba.main_model -eq "qwen3.8-max-preview") "Alibaba main must use Qwen 3.8 Max"
+  Assert-True ($grok.expected_provider -eq "grok") "Grok profile must name the Grok provider"
+  Assert-True ($grok.expected_account_type -eq "oauth") "Grok profile must require OAuth account"
+  Assert-True ($grok.main_model -eq "grok-4.6") "Grok profile main must use Grok 4.6"
+  Assert-True ($grok.agent_model -eq "grok-4.6") "Grok delegated model must use Grok 4.6"
+  Assert-True ($grok.group.messages_dispatch_model_config.compact_mapped_model -eq "grok-4.5") "Grok compact must use Grok 4.5"
+  Assert-True (@($grok.group.messages_dispatch_model_config.model_fallbacks.PSObject.Properties).Count -eq 0) "Grok generic fallbacks must remain empty"
+  Assert-True (@($grok.group.messages_dispatch_model_config.automatic_model_fallbacks.PSObject.Properties).Count -eq 0) "Grok automatic fallbacks must remain empty"
+  Assert-True (@($grok.group.models_list_config.models) -contains "grok-4.6") "Grok catalog must publish Grok 4.6"
+  Assert-True (@($grok.group.models_list_config.models) -contains "grok-4.5") "Grok catalog must publish Grok 4.5"
   Assert-True ($alibaba.agent_model -eq "deepseek-v4-flash-0731") "Alibaba delegated model must use the live DeepSeek V4 Flash ID"
   Assert-True ($alibaba.agent_effort -eq "high") "Alibaba delegated model must use high effort"
   Assert-True ($alibaba.group.messages_dispatch_model_config.plan_mapped_model -eq "qwen3.8-max-preview") "Alibaba Plan must use Qwen 3.8 Max"
@@ -212,6 +223,7 @@ Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof cont
   Assert-True ($controllerText.Contains('--profile-path')) "Linux reconcile must use the applier's canonical profile argument"
   Assert-True ($controllerText.Contains('probeNonce')) "Switch and rollback probes must bypass Headroom response-cache reuse"
   Assert-True ($controllerText.Contains('"chatgpt" { Invoke-Switch "chatgpt-only" }')) "Controller must expose the ChatGPT-only switch"
+  Assert-True ($controllerText.Contains('"grok" { Invoke-Switch "grok-build-only" }')) "Controller must expose the Grok Build switch"
   Assert-True ($controllerText.Contains('"qwen" { Invoke-Switch "qwen-only" }')) "Controller must expose the Qwen-only switch"
   Assert-True ($controllerText.Contains('"alibaba" { Invoke-Switch "alibaba" }')) "Controller must expose the Alibaba Qwen + DeepSeek Flash switch"
   Assert-True ($controllerText.Contains('"alibaba" { "alibaba-qwen-deepseek-flash.v1.json" }')) "Controller must resolve the Alibaba profile snapshot"
@@ -276,6 +288,7 @@ Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof cont
   Assert-True (Test-Path -LiteralPath (Join-Path $installedSkill 'profiles\chatgpt-only.v5.json')) "Installer must copy ChatGPT-only profile v5"
   Assert-True (Test-Path -LiteralPath (Join-Path $installedSkill 'profiles\qwen-only.v1.json')) "Installer must copy Qwen-only profile v1"
   Assert-True (Test-Path -LiteralPath (Join-Path $installedSkill 'profiles\alibaba-qwen-deepseek-flash.v1.json')) "Installer must copy the Alibaba profile"
+  Assert-True (Test-Path -LiteralPath (Join-Path $installedSkill 'profiles\grok-build-only.v1.json')) "Installer must copy the Grok Build profile"
   Assert-True (-not (Test-Path -LiteralPath (Join-Path $installedSkill 'profiles\chatgpt-only.v3.json'))) "Installer must remove legacy ChatGPT-only profile v3"
   Assert-True (-not (Test-Path -LiteralPath (Join-Path $installedSkill 'profiles\chatgpt-only.v4.json'))) "Installer must remove legacy ChatGPT-only profile v4"
   Assert-True (-not (Test-Path -LiteralPath (Join-Path $installedSkill 'profiles\chatgpt-only.v2.json'))) "Installer must remove legacy ChatGPT-only profile v2"
@@ -285,7 +298,7 @@ Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof cont
   Assert-True (-not (Test-Path -LiteralPath $legacyProfileV3)) "Installer must remove stale Anthropic profile v3"
   Assert-True (-not (Test-Path -LiteralPath $legacySkill)) "Installer must remove the managed standalone provider skill"
 
-  [pscustomobject]@{ status = "PASS"; assertions = 152; profiles = @("anthropic-only", "qwen-only", "alibaba", "chatgpt-only", "hybrid-current") } | ConvertTo-Json -Compress
+  [pscustomobject]@{ status = "PASS"; assertions = 162; profiles = @("anthropic-only", "qwen-only", "alibaba", "chatgpt-only", "grok-build-only", "hybrid-current") } | ConvertTo-Json -Compress
 } finally {
   Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
 }

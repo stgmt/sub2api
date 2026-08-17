@@ -10,6 +10,8 @@ type Model struct {
 }
 
 var defaultModels = []Model{
+	{ID: "grok-4.6", Object: "model", OwnedBy: "xai", DisplayName: "Grok 4.6"},
+	{ID: "grok-4.5", Object: "model", OwnedBy: "xai", DisplayName: "Grok 4.5"},
 	{ID: "grok-4.3", Object: "model", OwnedBy: "xai", DisplayName: "Grok 4.3"},
 	{ID: "grok-build-0.1", Object: "model", OwnedBy: "xai", DisplayName: "Grok Build 0.1"},
 	{ID: "grok-composer-2.5-fast", Object: "model", OwnedBy: "xai", DisplayName: "Grok Composer 2.5 Fast"},
@@ -44,9 +46,9 @@ func DefaultModelMapping() map[string]string {
 	for _, model := range defaultModels {
 		mapping[model.ID] = model.ID
 	}
-	mapping["grok"] = "grok-4.3"
-	mapping["grok-latest"] = "grok-4.3"
-	mapping["grok-build"] = "grok-build-0.1"
+	mapping["grok"] = "grok-4.6"
+	mapping["grok-latest"] = "grok-4.6"
+	mapping["grok-build"] = "grok-4.6"
 	mapping["grok-composer"] = "grok-composer-2.5-fast"
 	mapping["grok-4.20-reasoning"] = "grok-4.20-0309-reasoning"
 	mapping["grok-4.20-non-reasoning"] = "grok-4.20-0309-non-reasoning"

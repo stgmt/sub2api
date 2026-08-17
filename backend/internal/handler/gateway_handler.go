@@ -1087,7 +1087,7 @@ func writeOpenAIModelsList(c *gin.Context, modelIDs []string) {
 			ID:          modelID,
 			Object:      "model",
 			Created:     1704067200,
-			OwnedBy:     "openai",
+			OwnedBy:     modelOwner(modelID),
 			Type:        "model",
 			DisplayName: modelID,
 		})
@@ -1096,6 +1096,13 @@ func writeOpenAIModelsList(c *gin.Context, modelIDs []string) {
 		"object": "list",
 		"data":   models,
 	})
+}
+
+func modelOwner(modelID string) string {
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(modelID)), "grok-") {
+		return "xai"
+	}
+	return "openai"
 }
 
 func customModelsListSource(platform string, availableModels, fallbackModels []string) []string {

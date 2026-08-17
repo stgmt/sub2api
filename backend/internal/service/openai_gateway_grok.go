@@ -37,7 +37,7 @@ func (s *OpenAIGatewayService) forwardGrokResponses(
 
 	upstreamModel := account.GetMappedModel(originalModel)
 	if strings.TrimSpace(upstreamModel) == "" {
-		upstreamModel = "grok-4.3"
+		upstreamModel = "grok-4.6"
 	}
 	patchedBody, err := patchGrokResponsesBody(body, upstreamModel)
 	if err != nil {
@@ -625,6 +625,13 @@ func buildGrokResponsesRequest(ctx context.Context, c *gin.Context, account *Acc
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
 	req.Header.Set("User-Agent", "sub2api-grok/1.0")
+	if xai.IsCLIProxyBaseURL(account.GetGrokBaseURL()) {
+		req.Header.Set("X-XAI-Token-Auth", "xai-grok-cli")
+		req.Header.Set("x-grok-client-version", account.GetGrokClientVersion())
+		if model := gjson.GetBytes(body, "model").String(); strings.TrimSpace(model) != "" {
+			req.Header.Set("x-grok-model-override", model)
+		}
+	}
 	if c != nil {
 		if v := c.GetHeader("OpenAI-Beta"); strings.TrimSpace(v) != "" {
 			req.Header.Set("OpenAI-Beta", v)
