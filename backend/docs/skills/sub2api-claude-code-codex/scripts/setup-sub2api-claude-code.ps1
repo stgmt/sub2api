@@ -440,6 +440,7 @@ Set-DotEnvValue $envMap "HEADROOM_TORCH_VERSION" $HeadroomTorchVersion
 Set-DotEnvValue $envMap "HEADROOM_TORCH_INDEX_URL" $HeadroomTorchIndexUrl
 Set-DotEnvValue $envMap "HEADROOM_BIND_HOST" $HeadroomBindHost
 Set-DotEnvValue $envMap "HEADROOM_PORT" ([string]$HeadroomPort)
+Set-DotEnvValue $envMap "OPENAI_TARGET_API_URL" "http://sub2api:8080"
 Set-DotEnvValue $envMap "SUB2API_STATE_ROOT" $StateRoot
 Set-DotEnvValue $envMap "HEADROOM_SAVINGS_PROFILE" $HeadroomSavingsProfile
 Set-DotEnvValue $envMap "HEADROOM_TARGET_RATIO" $HeadroomTargetRatio
