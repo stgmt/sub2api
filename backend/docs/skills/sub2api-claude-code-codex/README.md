@@ -37,10 +37,18 @@ This bundle intentionally does not contain real OAuth tokens, API keys, refresh 
 Default local chain:
 
 ```text
-Claude Code -> http://127.0.0.1:8787 -> Headroom -> http://sub2api:8080 -> sub2api -> OpenAI/Codex OAuth
+Claude Code/DSH -> http://127.0.0.1:8787 -> Headroom -> http://sub2api:8080 -> sub2api -> provider-aware account routing
 ```
 
 The direct sub2api port `http://127.0.0.1:18081` is kept for the admin UI, diagnostics, and non-Claude clients. Claude Code should use Headroom on `8787`.
+
+The default OpenAI-only key remains valid for Claude Code. For DSH's mixed
+catalog, `scripts/sync-dsh-composite-key.ps1` binds `HEAD_API_KEY` to the
+separate `headroom-openai-grok-composite` key. GPT/Codex IDs then use the
+ChatGPT subscription account and `grok-*` IDs use the existing Grok Build CLI
+login from `%USERPROFILE%\\.grok\\auth.json`; no second authorization flow is
+needed. `scripts/sync-grok-build-auth.ps1` is also called by setup and the
+repeating stack watchdog, and never logs token values.
 
 Install the bundled route controller with `scripts/install-claude-route.ps1`, then use `claude-route status|anthropic|qwen|alibaba|chatgpt|hybrid|reconcile|verify`. The `alibaba` toggle routes main/Plan to Qwen 3.8 Max high and compact/delegated work to DeepSeek V4 Flash high, with DeepSeek Pro and cross-provider fallback blocked. No separate provider-switcher skill is required.
 
