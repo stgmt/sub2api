@@ -78,6 +78,11 @@ param(
   [string]$GrokBuildAuthFile = "",
   [string]$GrokAccountName = "grok-build-subscription",
   [string]$GrokCliBaseUrl = "https://cli-chat-proxy.grok.com/v1",
+  [string]$ClinePassAuthFile = "",
+  [string]$ClinePassAccountName = "cline-pass-subscription",
+  [string]$ClinePassGroupName = "headroom-openai-grok-composite",
+  [string]$ClinePassBaseUrl = "https://api.cline.bot/api/v1",
+  [string]$DshSettingsPath = "",
   [string]$ApiKey = "",
   [switch]$ForceRegenerateSecrets,
   [switch]$SkipDockerUp,
@@ -408,10 +413,28 @@ if ($envMap.ContainsKey("SUB2API_GROK_ACCOUNT_NAME") -and $GrokAccountName -eq "
   $effectiveGrokAccountName = [string]$envMap["SUB2API_GROK_ACCOUNT_NAME"]
 }
 $effectiveGrokCliBaseUrl = if ($GrokCliBaseUrl.Trim()) { $GrokCliBaseUrl.Trim().TrimEnd("/") } else { "https://cli-chat-proxy.grok.com/v1" }
-if ($envMap.ContainsKey("SUB2API_GROK_CLI_BASE_URL") -and $GrokCliBaseUrl -eq "https://cli-chat-proxy.grok.com/v1") {
-  $effectiveGrokCliBaseUrl = [string]$envMap["SUB2API_GROK_CLI_BASE_URL"]
-}
-$resolvedDns = Resolve-ProxyDnsSettings -RequestedPrimary $Sub2apiPrimaryDns -RequestedFallback $Sub2apiFallbackDns -ExistingMap $envMap
+  if ($envMap.ContainsKey("SUB2API_GROK_CLI_BASE_URL") -and $GrokCliBaseUrl -eq "https://cli-chat-proxy.grok.com/v1") {
+    $effectiveGrokCliBaseUrl = [string]$envMap["SUB2API_GROK_CLI_BASE_URL"]
+  }
+  $effectiveClinePassAuthFile = if ($ClinePassAuthFile.Trim()) {
+    $ClinePassAuthFile.Trim()
+  } elseif ($envMap.ContainsKey("SUB2API_CLINE_PASS_AUTH_FILE")) {
+    [string]$envMap["SUB2API_CLINE_PASS_AUTH_FILE"]
+  } else { "" }
+  $effectiveClinePassAccountName = if ($ClinePassAccountName.Trim()) { $ClinePassAccountName.Trim() } else { "cline-pass-subscription" }
+  if ($envMap.ContainsKey("SUB2API_CLINE_PASS_ACCOUNT_NAME") -and $ClinePassAccountName -eq "cline-pass-subscription") {
+    $effectiveClinePassAccountName = [string]$envMap["SUB2API_CLINE_PASS_ACCOUNT_NAME"]
+  }
+  $effectiveClinePassGroupName = if ($ClinePassGroupName.Trim()) { $ClinePassGroupName.Trim() } else { "headroom-openai-grok-composite" }
+  if ($envMap.ContainsKey("SUB2API_CLINE_PASS_GROUP_NAME") -and $ClinePassGroupName -eq "headroom-openai-grok-composite") {
+    $effectiveClinePassGroupName = [string]$envMap["SUB2API_CLINE_PASS_GROUP_NAME"]
+  }
+  $effectiveClinePassBaseUrl = if ($ClinePassBaseUrl.Trim()) { $ClinePassBaseUrl.Trim().TrimEnd("/") } else { "https://api.cline.bot/api/v1" }
+  if ($envMap.ContainsKey("SUB2API_CLINE_PASS_BASE_URL") -and $ClinePassBaseUrl -eq "https://api.cline.bot/api/v1") {
+    $effectiveClinePassBaseUrl = [string]$envMap["SUB2API_CLINE_PASS_BASE_URL"]
+  }
+  $effectiveDshSettingsPath = if ($DshSettingsPath.Trim()) { $DshSettingsPath.Trim() } else { "" }
+  $resolvedDns = Resolve-ProxyDnsSettings -RequestedPrimary $Sub2apiPrimaryDns -RequestedFallback $Sub2apiFallbackDns -ExistingMap $envMap
 $existingHeadroomAccelerator = if ($envMap.Contains("HEADROOM_ACCELERATOR")) { [string]$envMap["HEADROOM_ACCELERATOR"] } else { "" }
 $resolvedHeadroomAccelerator = Resolve-HeadroomAccelerator $HeadroomAccelerator $existingHeadroomAccelerator
 $headroomDockerTarget = if ($resolvedHeadroomAccelerator -eq "cuda") { "gpu" } else { "cpu" }
@@ -515,6 +538,10 @@ Set-DotEnvValue $envMap "SUB2API_OPENAI_CODEX_AUTH_FILE" "/app/data/codex-auth.j
 if ($effectiveGrokBuildAuthFile.Trim()) { Set-DotEnvValue $envMap "SUB2API_GROK_BUILD_AUTH_FILE" $effectiveGrokBuildAuthFile }
 Set-DotEnvValue $envMap "SUB2API_GROK_ACCOUNT_NAME" $effectiveGrokAccountName
 Set-DotEnvValue $envMap "SUB2API_GROK_CLI_BASE_URL" $effectiveGrokCliBaseUrl
+if ($effectiveClinePassAuthFile.Trim()) { Set-DotEnvValue $envMap "SUB2API_CLINE_PASS_AUTH_FILE" $effectiveClinePassAuthFile }
+Set-DotEnvValue $envMap "SUB2API_CLINE_PASS_ACCOUNT_NAME" $effectiveClinePassAccountName
+Set-DotEnvValue $envMap "SUB2API_CLINE_PASS_GROUP_NAME" $effectiveClinePassGroupName
+Set-DotEnvValue $envMap "SUB2API_CLINE_PASS_BASE_URL" $effectiveClinePassBaseUrl
 Set-DotEnvValue $envMap "SUB2API_SERVER_SHUTDOWN_TIMEOUT" $Sub2apiServerShutdownTimeout
 Set-DotEnvValue $envMap "SUB2API_PRIMARY_DNS" $resolvedDns.primary
 Set-DotEnvValue $envMap "SUB2API_FALLBACK_DNS" $resolvedDns.fallback
@@ -626,7 +653,7 @@ if (-not $SkipDockerUp) {
 }
 
 $grokBuildAuthSync = Join-Path $PSScriptRoot "sync-grok-build-auth.ps1"
-if (Test-Path -LiteralPath $grokBuildAuthSync) {
+  if (Test-Path -LiteralPath $grokBuildAuthSync) {
   try {
     $grokSyncParams = @{
       Distro = $WslDistro
@@ -642,6 +669,26 @@ if (Test-Path -LiteralPath $grokBuildAuthSync) {
     & $grokBuildAuthSync @grokSyncParams
   } catch {
     Write-Warning "Grok Build auth was not synced into sub2api: $($_.Exception.Message)"
+  }
+
+  $clinePassAuthSync = Join-Path $PSScriptRoot "sync-cline-pass-auth.ps1"
+  if (Test-Path -LiteralPath $clinePassAuthSync) {
+    try {
+      $clineSyncParams = @{
+        Distro = $WslDistro
+        PostgresContainer = "sub2api-codex-postgres"
+        DatabaseUser = if ($envMap.ContainsKey("POSTGRES_USER") -and $envMap["POSTGRES_USER"].Trim()) { $envMap["POSTGRES_USER"] } else { "sub2api" }
+        DatabaseName = if ($envMap.ContainsKey("POSTGRES_DB") -and $envMap["POSTGRES_DB"].Trim()) { $envMap["POSTGRES_DB"] } else { "sub2api" }
+        AccountName = $effectiveClinePassAccountName
+        GroupName = $effectiveClinePassGroupName
+        ClineBaseUrl = $effectiveClinePassBaseUrl
+      }
+      if ($effectiveClinePassAuthFile.Trim()) { $clineSyncParams.AuthFile = $effectiveClinePassAuthFile }
+      if ($effectiveDshSettingsPath.Trim()) { $clineSyncParams.DshSettingsPath = $effectiveDshSettingsPath }
+      & $clinePassAuthSync @clineSyncParams
+    } catch {
+      Write-Warning "Cline Pass auth was not synced into sub2api: $($_.Exception.Message)"
+    }
   }
 }
 

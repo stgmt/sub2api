@@ -652,6 +652,41 @@ function Sync-GrokBuildAuth {
   }
 }
 
+function Sync-ClinePassAuth {
+  $syncScript = Join-Path $ScriptDir "sync-cline-pass-auth.ps1"
+  if (-not (Test-Path -LiteralPath $syncScript)) {
+    return [ordered]@{ status = "disabled"; reason = "Cline Pass sync script is missing"; provider = "cline-pass"; auth_source = "cline_pass_cli" }
+  }
+
+  $syncParams = @{
+    Distro = $Distro
+    PostgresContainer = "sub2api-codex-postgres"
+    DatabaseUser = if ($envMap.ContainsKey("POSTGRES_USER") -and $envMap["POSTGRES_USER"].Trim()) { $envMap["POSTGRES_USER"] } else { "sub2api" }
+    DatabaseName = if ($envMap.ContainsKey("POSTGRES_DB") -and $envMap["POSTGRES_DB"].Trim()) { $envMap["POSTGRES_DB"] } else { "sub2api" }
+    AccountName = if ($envMap.ContainsKey("SUB2API_CLINE_PASS_ACCOUNT_NAME") -and $envMap["SUB2API_CLINE_PASS_ACCOUNT_NAME"].Trim()) { $envMap["SUB2API_CLINE_PASS_ACCOUNT_NAME"] } else { "cline-pass-subscription" }
+    GroupName = if ($envMap.ContainsKey("SUB2API_CLINE_PASS_GROUP_NAME") -and $envMap["SUB2API_CLINE_PASS_GROUP_NAME"].Trim()) { $envMap["SUB2API_CLINE_PASS_GROUP_NAME"] } else { "headroom-openai-grok-composite" }
+    ClineBaseUrl = if ($envMap.ContainsKey("SUB2API_CLINE_PASS_BASE_URL") -and $envMap["SUB2API_CLINE_PASS_BASE_URL"].Trim()) { $envMap["SUB2API_CLINE_PASS_BASE_URL"] } else { "https://api.cline.bot/api/v1" }
+  }
+  if ($envMap.ContainsKey("SUB2API_CLINE_PASS_AUTH_FILE") -and $envMap["SUB2API_CLINE_PASS_AUTH_FILE"].Trim()) {
+    $syncParams.AuthFile = $envMap["SUB2API_CLINE_PASS_AUTH_FILE"]
+  }
+
+  try {
+    $raw = @(& $syncScript @syncParams 2>&1)
+    $jsonLine = @($raw | ForEach-Object { [string]$_ } | Where-Object { $_.Trim().StartsWith("{") } | Select-Object -Last 1)
+    if ($jsonLine.Count -eq 0) { throw "Cline Pass sync returned no status payload" }
+    $result = $jsonLine[0] | ConvertFrom-Json
+    $resultMap = @{}
+    foreach ($property in $result.PSObject.Properties) { $resultMap[$property.Name] = $property.Value }
+    Write-SelfHealEvent -Event "cline_pass_auth_sync" -Data $resultMap
+    return $result
+  } catch {
+    $failure = [ordered]@{ status = "error"; reason = $_.Exception.Message; provider = "cline-pass"; auth_source = "cline_pass_cli" }
+    Write-SelfHealEvent -Event "cline_pass_auth_sync_failed" -Data $failure
+    return [pscustomobject]$failure
+  }
+}
+
 function Invoke-HealthProbe {
   param([string]$Url)
 
@@ -1019,6 +1054,7 @@ try {
 
   $codexAuthSync = Sync-CodexAuthFile -ProfileRoot $Root -EnvMap $envMap
   $grokAuthSync = Sync-GrokBuildAuth
+  $clinePassAuthSync = Sync-ClinePassAuth
   $before = Get-RequiredRouteState
   $dnsRepair = $null
   if (-not $before.dns.ok) {
@@ -1063,13 +1099,13 @@ try {
         $writeHeartbeat = $true
       }
     }
-    if ($writeHeartbeat) {
-      Write-SelfHealEvent -Event "healthy" -Data @{ routes = $before; codex_auth = $codexAuthSync; grok_auth = $grokAuthSync }
+      if ($writeHeartbeat) {
+        Write-SelfHealEvent -Event "healthy" -Data @{ routes = $before; codex_auth = $codexAuthSync; grok_auth = $grokAuthSync; cline_pass_auth = $clinePassAuthSync }
       $lastEventAt = (Get-Date).ToUniversalTime().ToString("o")
     }
     $providerRoute = Invoke-ProviderRouteReconcile -ProfileRoot $Root
     Save-State -Status "healthy" -LastEventAt $lastEventAt
-    [pscustomobject]@{ status = "healthy"; recovered = $false; routes = $before; dns_repair = $dnsRepair; codex_auth = $codexAuthSync; grok_auth = $grokAuthSync; provider_route = $providerRoute; headroom_image = $imageState; headroom_image_rollout = $imageRollout } | ConvertTo-Json -Compress -Depth 10
+    [pscustomobject]@{ status = "healthy"; recovered = $false; routes = $before; dns_repair = $dnsRepair; codex_auth = $codexAuthSync; grok_auth = $grokAuthSync; cline_pass_auth = $clinePassAuthSync; provider_route = $providerRoute; headroom_image = $imageState; headroom_image_rollout = $imageRollout } | ConvertTo-Json -Compress -Depth 10
     exit 0
   }
 
@@ -1095,7 +1131,7 @@ try {
       $providerRoute = Invoke-ProviderRouteReconcile -ProfileRoot $Root
       Save-State -Status "healthy" -LastEventAt (Get-Date).ToUniversalTime().ToString("o")
       Write-SelfHealEvent -Event "bridge_recovered" -Data @{ routes_before = $before; routes_after = $afterBridge; compose_policy = "--no-recreate" }
-      [pscustomobject]@{ status = "healthy"; recovered = $true; recovery = "bridge-only"; routes = $afterBridge; grok_auth = $grokAuthSync; provider_route = $providerRoute } | ConvertTo-Json -Compress -Depth 10
+      [pscustomobject]@{ status = "healthy"; recovered = $true; recovery = "bridge-only"; routes = $afterBridge; grok_auth = $grokAuthSync; cline_pass_auth = $clinePassAuthSync; provider_route = $providerRoute } | ConvertTo-Json -Compress -Depth 10
       exit 0
     }
     Write-SelfHealEvent -Event "bridge_recovery_failed" -Data @{ routes_before = $before; routes_after = $afterBridge }
@@ -1103,7 +1139,7 @@ try {
   }
 
   Save-State -Status "recovering" -LastEventAt (Get-Date).ToUniversalTime().ToString("o")
-  Write-SelfHealEvent -Event "recovery_started" -Data @{ routes = $before; codex_auth = $codexAuthSync; grok_auth = $grokAuthSync }
+    Write-SelfHealEvent -Event "recovery_started" -Data @{ routes = $before; codex_auth = $codexAuthSync; grok_auth = $grokAuthSync; cline_pass_auth = $clinePassAuthSync }
 
   # A failed health probe is not proof that a compose recreate is safe. The
   # compose project contains both proxies, so recreating it can terminate a
@@ -1147,7 +1183,7 @@ try {
       $providerRoute = Invoke-ProviderRouteReconcile -ProfileRoot $Root
       Save-State -Status "healthy" -LastEventAt (Get-Date).ToUniversalTime().ToString("o")
       Write-SelfHealEvent -Event "recovered" -Data @{ routes_before = $before; routes_after = $after }
-      [pscustomobject]@{ status = "healthy"; recovered = $true; routes = $after; grok_auth = $grokAuthSync; provider_route = $providerRoute } | ConvertTo-Json -Compress -Depth 8
+        [pscustomobject]@{ status = "healthy"; recovered = $true; routes = $after; grok_auth = $grokAuthSync; cline_pass_auth = $clinePassAuthSync; provider_route = $providerRoute } | ConvertTo-Json -Compress -Depth 8
       exit 0
     }
     Start-Sleep -Seconds 3
