@@ -153,6 +153,28 @@ func TestForwardAsRawChatCompletions_PreservesDeepSeekReasoningContentNonStreami
 	require.Equal(t, "final answer", gjson.Get(rec.Body.String(), "choices.0.message.content").String())
 }
 
+func TestBufferRawChatCompletionsUnwrapsClinePassEnvelope(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_cline_envelope"}},
+		Body:       io.NopCloser(strings.NewReader(`{"success":true,"data":{"id":"chatcmpl_cline","object":"chat.completion","model":"deepseek/deepseek-v4-flash","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":16,"completion_tokens":32,"total_tokens":48}}}`)),
+	}
+
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig()}
+	result, err := svc.bufferRawChatCompletions(c, resp, "cline-pass/deepseek-v4-flash", "cline-pass/deepseek-v4-flash", "deepseek/deepseek-v4-flash", nil, nil, time.Now())
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 16, result.Usage.InputTokens)
+	require.Equal(t, 32, result.Usage.OutputTokens)
+	require.Equal(t, "ok", gjson.Get(rec.Body.String(), "choices.0.message.content").String())
+	require.False(t, gjson.Get(rec.Body.String(), "success").Exists())
+}
+
 func TestForwardAsRawChatCompletions_PreservesDeepSeekReasoningContentStreaming(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

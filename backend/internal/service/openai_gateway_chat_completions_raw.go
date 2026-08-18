@@ -511,6 +511,11 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 		}
 		return nil, fmt.Errorf("read upstream body: %w", err)
 	}
+	// Cline Pass returns a successful non-stream response as
+	// {"success":true,"data":{<chat-completion>}}. Keep the normal raw
+	// passthrough for every other provider, but expose the inner standard
+	// Chat Completions payload to the client and usage parser.
+	respBody = unwrapOpenAIChatCompletionsEnvelope(respBody)
 
 	var ccResp apicompat.ChatCompletionsResponse
 	var usage OpenAIUsage
@@ -546,6 +551,14 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 		Stream:          false,
 		Duration:        time.Since(startTime),
 	}, nil
+}
+
+func unwrapOpenAIChatCompletionsEnvelope(body []byte) []byte {
+	inner := gjson.GetBytes(body, "data")
+	if !inner.Exists() || inner.Type != gjson.JSON || !gjson.GetBytes([]byte(inner.Raw), "choices").Exists() {
+		return body
+	}
+	return []byte(inner.Raw)
 }
 
 // buildOpenAIChatCompletionsURL 拼接上游 Chat Completions 端点 URL。
