@@ -60,6 +60,26 @@ installed Cline catalog. The composite API key remains the only key that DSH
 needs; the Cline WorkOS credential is stored only inside sub2api's managed
 account.
 
+## DSH effort picker
+
+DSH does not infer effort choices from the gateway's `/v1/models` response.
+Its `llm.models` catalog only exposes a picker when a model entry declares
+`reasoningEfforts`, and the selected value is sent as the provider's native
+reasoning control. The managed composite catalog therefore declares:
+
+| Model | DSH choices | Wire field |
+| --- | --- | --- |
+| `grok-4.6` | `low`, `medium`, `high` | `reasoning.effort` |
+| `grok-4.5` | `low`, `medium`, `high` | `reasoning.effort` |
+| `gpt-5.6-luna` | `low`, `medium`, `high`, `xhigh`, `max` | `reasoning.effort` |
+
+The Grok levels follow xAI's Responses contract; `xhigh` and `max` are not
+advertised for Grok. The declaration is maintained by
+`scripts/sync-cline-pass-auth.ps1`, so a Cline catalog refresh keeps the
+effort picker instead of reverting to context-only model entries. DSH reads
+the settings on the next catalog refresh; no sub2api rebuild is needed for
+this client-side metadata change.
+
 ## Operations
 
 ```powershell

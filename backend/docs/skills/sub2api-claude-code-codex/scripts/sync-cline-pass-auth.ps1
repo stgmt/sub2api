@@ -60,6 +60,15 @@ $ClinePassModelCatalog = [ordered]@{
   "cline-pass/glm-5.3" = @{ name = "cline-pass/glm-5.3"; context = 128000 }
 }
 
+# DSH only renders an effort picker when a model entry declares the levels it
+# can send. Keep these declarations beside the catalog sync so a later Cline
+# refresh cannot silently remove the picker from the composite route.
+$DshReasoningCatalog = [ordered]@{
+  "grok-4.6" = "low: low, medium: medium, high: high"
+  "grok-4.5" = "low: low, medium: medium, high: high"
+  "gpt-5.6-luna" = "low: low, medium: medium, high: high, xhigh: xhigh, max: max"
+}
+
 # sub2api treats an OpenAI API-key account with no model_mapping as a
 # universal account. Keep Cline Pass isolated from the GPT accounts by making
 # the discovered catalog an explicit account-level model whitelist.
@@ -346,7 +355,7 @@ function Resolve-DshSettingsFile {
 function Sync-DshModelCatalog {
   $path = Resolve-DshSettingsFile
   if (-not $path -or -not (Test-Path -LiteralPath $path)) {
-    return [ordered]@{ status = "missing"; path = $path; added = 0; model_count = $ClinePassModelCatalog.Count }
+    return [ordered]@{ status = "missing"; path = $path; added = 0; effort_models = @(); model_count = $ClinePassModelCatalog.Count }
   }
 
   $lines = [System.Collections.Generic.List[string]]::new()
@@ -355,25 +364,25 @@ function Sync-DshModelCatalog {
   for ($i = 0; $i -lt $lines.Count; $i++) {
     if ($lines[$i] -match '^\s*apiKeyEnv:\s*HEAD_API_KEY\s*,?\s*$') { $headIndex = $i; break }
   }
-  if ($headIndex -lt 0) { return [ordered]@{ status = "skipped"; reason = "HEAD_API_KEY provider not found"; path = $path; added = 0; model_count = $ClinePassModelCatalog.Count } }
+  if ($headIndex -lt 0) { return [ordered]@{ status = "skipped"; reason = "HEAD_API_KEY provider not found"; path = $path; added = 0; effort_models = @(); model_count = $ClinePassModelCatalog.Count } }
 
   $modelsIndex = -1
   for ($i = $headIndex + 1; $i -lt [Math]::Min($lines.Count, $headIndex + 80); $i++) {
     if ($lines[$i] -match '^\s*models:\s*$') { $modelsIndex = $i; break }
   }
-  if ($modelsIndex -lt 0) { return [ordered]@{ status = "skipped"; reason = "HEAD_API_KEY model list not found"; path = $path; added = 0; model_count = $ClinePassModelCatalog.Count } }
+  if ($modelsIndex -lt 0) { return [ordered]@{ status = "skipped"; reason = "HEAD_API_KEY model list not found"; path = $path; added = 0; effort_models = @(); model_count = $ClinePassModelCatalog.Count } }
 
   $openIndex = -1
   for ($i = $modelsIndex + 1; $i -lt [Math]::Min($lines.Count, $modelsIndex + 8); $i++) {
     if ($lines[$i] -match '^\s*\[\s*$') { $openIndex = $i; break }
   }
-  if ($openIndex -lt 0) { return [ordered]@{ status = "skipped"; reason = "HEAD_API_KEY model list is not flow-style YAML"; path = $path; added = 0; model_count = $ClinePassModelCatalog.Count } }
+  if ($openIndex -lt 0) { return [ordered]@{ status = "skipped"; reason = "HEAD_API_KEY model list is not flow-style YAML"; path = $path; added = 0; effort_models = @(); model_count = $ClinePassModelCatalog.Count } }
 
   $closeIndex = -1
   for ($i = $openIndex + 1; $i -lt $lines.Count; $i++) {
     if ($lines[$i] -match '^\s*\]\s*$') { $closeIndex = $i; break }
   }
-  if ($closeIndex -lt 0) { return [ordered]@{ status = "skipped"; reason = "HEAD_API_KEY model list has no closing bracket"; path = $path; added = 0; model_count = $ClinePassModelCatalog.Count } }
+  if ($closeIndex -lt 0) { return [ordered]@{ status = "skipped"; reason = "HEAD_API_KEY model list has no closing bracket"; path = $path; added = 0; effort_models = @(); model_count = $ClinePassModelCatalog.Count } }
 
   $body = ($lines | Select-Object -Skip ($openIndex + 1) -First ($closeIndex - $openIndex - 1)) -join "`n"
   $indent = if ($lines[$closeIndex] -match '^(\s*)') { $Matches[1] + "  " } else { "              " }
@@ -388,10 +397,77 @@ function Sync-DshModelCatalog {
     $added++
   }
 
+  $changed = $added -gt 0
+  $effortModels = [System.Collections.Generic.List[string]]::new()
+  foreach ($pair in $DshReasoningCatalog.GetEnumerator()) {
+    $escapedId = [regex]::Escape($pair.Key)
+    for ($i = $openIndex + 1; $i -lt $closeIndex; $i++) {
+      $line = ([string]$lines[$i]).TrimEnd()
+      if ($line -notmatch "(?:^|\s|\{)id:\s*$escapedId(?:,|\s*$)") { continue }
+      $reasoning = "reasoningEfforts: { $($pair.Value) }"
+
+      # DSH may rewrite a flow entry into a multi-line mapping. Handle both
+      # that form and the compact one-line form emitted by this sync script.
+      if ($line -match 'reasoningEfforts:\s*\{[^{}]*\}') {
+        $updated = [regex]::Replace($line, 'reasoningEfforts:\s*\{[^{}]*\}', $reasoning)
+        if ($updated -ne $line) {
+          $lines[$i] = $updated
+          $changed = $true
+        }
+        [void]$effortModels.Add($pair.Key)
+        break
+      }
+
+      if ($line -match '}\s*,?$') {
+        $separator = if ($line.EndsWith(',')) { ',' } else { '' }
+        $updated = [regex]::Replace($line.TrimEnd(','), '\s*}$', ", $reasoning }") + $separator
+        if ($updated -ne $line) {
+          $lines[$i] = $updated
+          $changed = $true
+        }
+        [void]$effortModels.Add($pair.Key)
+        break
+      }
+
+      $entryEnd = $closeIndex
+      $entryEffortLine = -1
+      for ($j = $i + 1; $j -lt $closeIndex; $j++) {
+        $candidate = ([string]$lines[$j]).TrimEnd()
+        if ($candidate -match '^\s*reasoningEfforts:\s*\{[^{}]*\}') {
+          $entryEffortLine = $j
+          break
+        }
+        if ($candidate -match '^\s*}\s*,?\s*$') {
+          $entryEnd = $j
+          break
+        }
+      }
+
+      if ($entryEffortLine -ge 0) {
+        $candidate = ([string]$lines[$entryEffortLine]).TrimEnd()
+        $updated = [regex]::Replace($candidate, 'reasoningEfforts:\s*\{[^{}]*\}', $reasoning)
+        if ($updated -ne $candidate) {
+          $lines[$entryEffortLine] = $updated
+          $changed = $true
+        }
+      } else {
+        $propertyIndent = if ($line -match '^(\s*)') { $Matches[1] + '  ' } else { '                  ' }
+        if ($entryEnd -gt $i) {
+          $previous = ([string]$lines[$entryEnd - 1]).TrimEnd()
+          if (-not $previous.EndsWith(',')) { $lines[$entryEnd - 1] = $previous + ',' }
+        }
+        [void]$lines.Insert($entryEnd, $propertyIndent + $reasoning + ',')
+        $closeIndex++
+        $changed = $true
+      }
+      [void]$effortModels.Add($pair.Key)
+      break
+    }
+  }
+
   # Flow-style YAML requires separators between every mapping. Older versions
   # of this helper inserted entries before the closing bracket without adding
   # a comma to the previous last entry, which made DSH reject the catalog.
-  $changed = $added -gt 0
   $entryIndices = @()
   for ($i = $openIndex + 1; $i -lt $closeIndex; $i++) {
     if ($lines[$i] -match '^\s*\{\s*id:') { $entryIndices += $i }
@@ -415,7 +491,7 @@ function Sync-DshModelCatalog {
   if ($changed) {
     [IO.File]::WriteAllLines($path, $lines, [Text.UTF8Encoding]::new($false))
   }
-  return [ordered]@{ status = if ($changed) { "updated" } else { "unchanged" }; path = $path; added = $added; model_count = $ClinePassModelCatalog.Count }
+  return [ordered]@{ status = if ($changed) { "updated" } else { "unchanged" }; path = $path; added = $added; effort_models = @($effortModels); model_count = $ClinePassModelCatalog.Count }
 }
 
 function Invoke-PsqlScript {
