@@ -123,7 +123,7 @@ func TestForwardAsRawChatCompletions_GrokUsesBuildWireModelAndCLIHeaders(t *test
 func TestNormalizeGrokChatTools(t *testing.T) {
 	body := []byte(`{"model":"grok-4.6","tools":[{"type":"function","name":"lookup","description":"Look up a value","parameters":{"type":"object","properties":{"q":{"type":"string"}}},"strict":true}],"tool_choice":{"type":"function","name":"lookup"}}`)
 
-	normalized := normalizeGrokChatTools(body)
+	normalized := normalizeOpenAIChatTools(body)
 	require.Equal(t, "function", gjson.GetBytes(normalized, "tools.0.type").String())
 	require.Equal(t, "lookup", gjson.GetBytes(normalized, "tools.0.function.name").String())
 	require.Equal(t, "Look up a value", gjson.GetBytes(normalized, "tools.0.function.description").String())
@@ -132,7 +132,29 @@ func TestNormalizeGrokChatTools(t *testing.T) {
 	require.Equal(t, "lookup", gjson.GetBytes(normalized, "tool_choice.function.name").String())
 
 	nested := []byte(`{"model":"grok-build","tools":[{"type":"function","function":{"name":"lookup"}}]}`)
-	require.Equal(t, string(nested), string(normalizeGrokChatTools(nested)))
+	require.Equal(t, string(nested), string(normalizeOpenAIChatTools(nested)))
+}
+
+func TestForwardAsRawChatCompletions_NormalizesFlatToolsForAnyOpenAICompatibleAccount(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := []byte(`{"model":"deepseek-v4-pro","messages":[{"role":"user","content":"use the tool"}],"tools":[{"type":"function","name":"lookup","description":"Look up a value","parameters":{"type":"object","properties":{"q":{"type":"string"}}}}],"stream":false}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"id":"chatcmpl_tools","object":"chat.completion","model":"deepseek-v4-pro","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)),
+	}}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+
+	_, err := svc.forwardAsRawChatCompletions(context.Background(), c, rawChatCompletionsTestAccount(), body, "")
+	require.NoError(t, err)
+	require.Equal(t, "function", gjson.GetBytes(upstream.lastBody, "tools.0.type").String())
+	require.Equal(t, "lookup", gjson.GetBytes(upstream.lastBody, "tools.0.function.name").String())
+	require.Equal(t, "object", gjson.GetBytes(upstream.lastBody, "tools.0.function.parameters.type").String())
 }
 
 func TestForwardAsRawChatCompletions_ForcesStreamUsageUpstreamAndPassesUsageDownstream(t *testing.T) {

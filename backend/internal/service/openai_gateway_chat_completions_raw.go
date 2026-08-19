@@ -111,9 +111,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 		return nil, policyErr
 	}
 	upstreamBody = updatedBody
-	if account.Platform == PlatformGrok {
-		upstreamBody = normalizeGrokChatTools(upstreamBody)
-	}
+	upstreamBody = normalizeOpenAIChatTools(upstreamBody)
 
 	// Grok Composer does not accept image_url parts directly, but Grok Build
 	// can describe the images first. Bridge only this exact failure mode.
@@ -149,7 +147,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 		}
 	}
 
-	logger.L().Info("openai chat_completions raw: forwarding without protocol conversion",
+	logger.L().Debug("openai chat_completions raw: forwarding without protocol conversion",
 		zap.Int64("account_id", account.ID),
 		zap.String("original_model", originalModel),
 		zap.String("billing_model", billingModel),
@@ -222,11 +220,6 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 
 		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
-		logger.L().Info("openai chat_completions raw: upstream error",
-			zap.Int64("account_id", account.ID),
-			zap.Int("upstream_status", resp.StatusCode),
-			zap.String("upstream_error_body", truncateString(string(respBody), 1024)),
-		)
 		if account.Platform == PlatformGrok {
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				Platform:           account.Platform,
@@ -294,12 +287,12 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	return result, forwardErr
 }
 
-// normalizeGrokChatTools converts Responses-style function definitions to the
-// nested Chat Completions shape expected by the Grok CLI chat proxy. Headroom
-// can preserve flat definitions such as {type:"function",name:"..."} while
-// forwarding a Chat Completions request; the Grok proxy rejects those with
-// `tools[0]: missing field function`.
-func normalizeGrokChatTools(body []byte) []byte {
+// normalizeOpenAIChatTools converts flat function definitions to the nested
+// Chat Completions shape expected by OpenAI-compatible upstreams. Headroom can
+// preserve flat definitions such as {type:"function",name:"..."} while
+// forwarding a Chat Completions request; compatible upstreams require the
+// function definition under tools[].function.
+func normalizeOpenAIChatTools(body []byte) []byte {
 	tools := gjson.GetBytes(body, "tools")
 	choice := gjson.GetBytes(body, "tool_choice")
 	needsRewrite := false
