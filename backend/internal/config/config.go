@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -833,6 +834,10 @@ type GatewayConfig struct {
 	// 上游错误响应体记录最大字节数（超过会截断）
 	LogUpstreamErrorBodyMaxBytes int `mapstructure:"log_upstream_error_body_max_bytes"`
 
+	// UpstreamRawCapture stores the exact decompressed upstream response bytes
+	// seen by gateway parsers. It is intended for short-lived protocol diagnosis.
+	UpstreamRawCapture GatewayUpstreamRawCaptureConfig `mapstructure:"upstream_raw_capture"`
+
 	// API-key 账号在客户端未提供 anthropic-beta 时，是否按需自动补齐（默认关闭以保持兼容）
 	InjectBetaForAPIKey bool `mapstructure:"inject_beta_for_apikey"`
 
@@ -864,6 +869,15 @@ type GatewayConfig struct {
 	// UserMessageQueue: 用户消息串行队列配置
 	// 对 role:"user" 的真实用户消息实施账号级串行化 + RPM 自适应延迟
 	UserMessageQueue UserMessageQueueConfig `mapstructure:"user_message_queue"`
+}
+
+// GatewayUpstreamRawCaptureConfig controls short-lived raw upstream response
+// capture for every provider using the shared HTTP upstream transport.
+type GatewayUpstreamRawCaptureConfig struct {
+	Enabled                bool   `mapstructure:"enabled"`
+	Directory              string `mapstructure:"directory"`
+	RetentionHours         int    `mapstructure:"retention_hours"`
+	CleanupIntervalMinutes int    `mapstructure:"cleanup_interval_minutes"`
 }
 
 // GatewayOpenAIHTTP2Config OpenAI HTTP 上游协议配置。
@@ -1943,6 +1957,10 @@ func setDefaults() {
 	viper.SetDefault("gateway.openai_response_header_timeout", 120) // 120秒等待 OpenAI/Codex 首个响应头；不限制已建立的流
 	viper.SetDefault("gateway.log_upstream_error_body", true)
 	viper.SetDefault("gateway.log_upstream_error_body_max_bytes", 2048)
+	viper.SetDefault("gateway.upstream_raw_capture.enabled", false)
+	viper.SetDefault("gateway.upstream_raw_capture.directory", "./data/upstream-raw-captures")
+	viper.SetDefault("gateway.upstream_raw_capture.retention_hours", 24)
+	viper.SetDefault("gateway.upstream_raw_capture.cleanup_interval_minutes", 15)
 	viper.SetDefault("gateway.inject_beta_for_apikey", false)
 	viper.SetDefault("gateway.failover_on_400", false)
 	viper.SetDefault("gateway.max_account_switches", 10)
@@ -2867,6 +2885,22 @@ func (c *Config) Validate() error {
 	}
 	if c.Gateway.MaxLineSize != 0 && c.Gateway.MaxLineSize < 1024*1024 {
 		return fmt.Errorf("gateway.max_line_size must be at least 1MB")
+	}
+	if c.Gateway.UpstreamRawCapture.Enabled {
+		directory := strings.TrimSpace(c.Gateway.UpstreamRawCapture.Directory)
+		if directory == "" {
+			return fmt.Errorf("gateway.upstream_raw_capture.directory must not be empty when enabled")
+		}
+		cleanDirectory := filepath.Clean(directory)
+		if cleanDirectory == filepath.VolumeName(cleanDirectory)+string(os.PathSeparator) {
+			return fmt.Errorf("gateway.upstream_raw_capture.directory must not be a filesystem root")
+		}
+		if c.Gateway.UpstreamRawCapture.RetentionHours <= 0 {
+			return fmt.Errorf("gateway.upstream_raw_capture.retention_hours must be positive when enabled")
+		}
+		if c.Gateway.UpstreamRawCapture.CleanupIntervalMinutes <= 0 {
+			return fmt.Errorf("gateway.upstream_raw_capture.cleanup_interval_minutes must be positive when enabled")
+		}
 	}
 	if c.Gateway.UsageRecord.WorkerCount <= 0 {
 		return fmt.Errorf("gateway.usage_record.worker_count must be positive")

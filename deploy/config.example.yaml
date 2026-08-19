@@ -410,6 +410,13 @@ gateway:
   # Max bytes to log from upstream error body
   # 记录上游错误响应体的最大字节数
   log_upstream_error_body_max_bytes: 2048
+  # Store exact decompressed upstream response bytes for short-lived protocol diagnostics.
+  # Files contain model output and tool-call data; keep the directory private.
+  upstream_raw_capture:
+    enabled: false
+    directory: "./data/upstream-raw-captures"
+    retention_hours: 24
+    cleanup_interval_minutes: 15
   # Auto inject anthropic-beta header for API-key accounts when needed (default: off)
   # 需要时自动为 API-key 账户注入 anthropic-beta 头（默认：关闭）
   inject_beta_for_apikey: false

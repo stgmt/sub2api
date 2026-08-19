@@ -44,6 +44,12 @@ def test_sub2api_service_records_fork_provenance() -> None:
     assert "${SUB2API_STATE_ROOT:-./data}/postgres:/var/lib/postgresql/data" not in compose
     assert "SUB2API_OPENAI_CODEX_AUTH_FILE: ${SUB2API_OPENAI_CODEX_AUTH_FILE:-/app/data/codex-auth.json}" in compose
     assert "SUB2API_OPENAI_CODEX_AUTH_FILE=/app/data/codex-auth.json" in env_example
+    assert "GATEWAY_UPSTREAM_RAW_CAPTURE_ENABLED: ${GATEWAY_UPSTREAM_RAW_CAPTURE_ENABLED:-true}" in compose
+    assert "GATEWAY_UPSTREAM_RAW_CAPTURE_DIRECTORY: ${GATEWAY_UPSTREAM_RAW_CAPTURE_DIRECTORY:-/app/data/upstream-raw-captures}" in compose
+    assert "GATEWAY_UPSTREAM_RAW_CAPTURE_RETENTION_HOURS: ${GATEWAY_UPSTREAM_RAW_CAPTURE_RETENTION_HOURS:-24}" in compose
+    assert "GATEWAY_UPSTREAM_RAW_CAPTURE_ENABLED=true" in env_example
+    assert "GATEWAY_UPSTREAM_RAW_CAPTURE_DIRECTORY=/app/data/upstream-raw-captures" in env_example
+    assert "GATEWAY_UPSTREAM_RAW_CAPTURE_RETENTION_HOURS=24" in env_example
 
 
 def test_setup_script_preserves_fork_source_values() -> None:
@@ -59,6 +65,10 @@ def test_setup_script_preserves_fork_source_values() -> None:
     assert 'Set-DotEnvValue $envMap "SUB2API_OPENAI_CODEX_AUTH_FILE" "/app/data/codex-auth.json"' in text
     assert '[string]$Sub2apiServerShutdownTimeout = "85s"' in text
     assert 'Set-DotEnvValue $envMap "SUB2API_SERVER_SHUTDOWN_TIMEOUT" $Sub2apiServerShutdownTimeout' in text
+    assert '[bool]$UpstreamRawCaptureEnabled = $true' in text
+    assert '[int]$UpstreamRawCaptureRetentionHours = 24' in text
+    assert 'Set-DotEnvValue $envMap "GATEWAY_UPSTREAM_RAW_CAPTURE_ENABLED"' in text
+    assert 'Set-DotEnvValue $envMap "GATEWAY_UPSTREAM_RAW_CAPTURE_RETENTION_HOURS"' in text
 
 
 def test_drained_rollout_is_fail_closed_and_observer_aware() -> None:

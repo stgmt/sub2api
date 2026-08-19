@@ -73,6 +73,12 @@ param(
   [string]$Sub2apiGitRepo = "https://github.com/stgmt/sub2api.git",
   [string]$Sub2apiGitRef = "",
   [string]$Sub2apiServerShutdownTimeout = "85s",
+  [bool]$UpstreamRawCaptureEnabled = $true,
+  [string]$UpstreamRawCaptureDirectory = "/app/data/upstream-raw-captures",
+  [ValidateRange(1, 8760)]
+  [int]$UpstreamRawCaptureRetentionHours = 24,
+  [ValidateRange(1, 1440)]
+  [int]$UpstreamRawCaptureCleanupIntervalMinutes = 15,
   [string]$Sub2apiPrimaryDns = "auto",
   [string]$Sub2apiFallbackDns = "auto",
   [string]$GrokBuildAuthFile = "",
@@ -544,6 +550,10 @@ Set-DotEnvValue $envMap "SUB2API_CLINE_PASS_ACCOUNT_NAME" $effectiveClinePassAcc
 Set-DotEnvValue $envMap "SUB2API_CLINE_PASS_GROUP_NAME" $effectiveClinePassGroupName
 Set-DotEnvValue $envMap "SUB2API_CLINE_PASS_BASE_URL" $effectiveClinePassBaseUrl
 Set-DotEnvValue $envMap "SUB2API_SERVER_SHUTDOWN_TIMEOUT" $Sub2apiServerShutdownTimeout
+Set-DotEnvValue $envMap "GATEWAY_UPSTREAM_RAW_CAPTURE_ENABLED" $UpstreamRawCaptureEnabled.ToString().ToLowerInvariant()
+Set-DotEnvValue $envMap "GATEWAY_UPSTREAM_RAW_CAPTURE_DIRECTORY" $UpstreamRawCaptureDirectory
+Set-DotEnvValue $envMap "GATEWAY_UPSTREAM_RAW_CAPTURE_RETENTION_HOURS" $UpstreamRawCaptureRetentionHours
+Set-DotEnvValue $envMap "GATEWAY_UPSTREAM_RAW_CAPTURE_CLEANUP_INTERVAL_MINUTES" $UpstreamRawCaptureCleanupIntervalMinutes
 Set-DotEnvValue $envMap "SUB2API_PRIMARY_DNS" $resolvedDns.primary
 Set-DotEnvValue $envMap "SUB2API_FALLBACK_DNS" $resolvedDns.fallback
 Set-DotEnvValue $envMap "TZ" $TimeZone

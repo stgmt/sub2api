@@ -90,6 +90,22 @@ func TestLoadDefaultSchedulingConfig(t *testing.T) {
 	}
 }
 
+func TestLoadUpstreamRawCaptureConfigFromEnvironment(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	directory := filepath.Join(t.TempDir(), "captures")
+	t.Setenv("GATEWAY_UPSTREAM_RAW_CAPTURE_ENABLED", "true")
+	t.Setenv("GATEWAY_UPSTREAM_RAW_CAPTURE_DIRECTORY", directory)
+	t.Setenv("GATEWAY_UPSTREAM_RAW_CAPTURE_RETENTION_HOURS", "24")
+	t.Setenv("GATEWAY_UPSTREAM_RAW_CAPTURE_CLEANUP_INTERVAL_MINUTES", "15")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.True(t, cfg.Gateway.UpstreamRawCapture.Enabled)
+	require.Equal(t, directory, cfg.Gateway.UpstreamRawCapture.Directory)
+	require.Equal(t, 24, cfg.Gateway.UpstreamRawCapture.RetentionHours)
+	require.Equal(t, 15, cfg.Gateway.UpstreamRawCapture.CleanupIntervalMinutes)
+}
+
 func TestLoadDefaultOpenAIWSConfig(t *testing.T) {
 	resetViperWithJWTSecret(t)
 

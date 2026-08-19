@@ -55,6 +55,8 @@ wsl.exe -- docker exec headroom-sub2api sh -lc "test -x /usr/local/bin/start-hea
 wsl.exe -- docker logs --tail 120 headroom-sub2api
 wsl.exe -- docker inspect headroom-sub2api --format '{{range .Mounts}}{{println .Destination "|" .Type "|" .Name "|" .Source}}{{end}}'
 wsl.exe -- docker inspect sub2api-codex sub2api-codex-postgres sub2api-codex-redis --format '{{.Name}} {{range .Mounts}}{{println .Destination "|" .Type "|" .Source}}{{end}}'
+wsl.exe -- docker inspect sub2api-codex --format '{{range .Config.Env}}{{println .}}{{end}}' | Select-String '^GATEWAY_UPSTREAM_RAW_CAPTURE_'
+wsl.exe -- docker exec sub2api-codex sh -lc 'find /app/data/upstream-raw-captures -maxdepth 2 -type f -printf "%TY-%Tm-%TdT%TH:%TM:%TSZ %m %s %p\n" | sort | tail -n 20'
 wsl.exe -- docker exec headroom-sub2api python -c "import os; p='/root/.headroom/ccr_store.db'; print('CCR_STORE', os.path.exists(p), os.path.getsize(p) if os.path.exists(p) else 0)"
 wsl.exe -- docker exec headroom-sub2api sh -lc "test -S /tmp/headroom-embed-8787.sock && echo SOCKET_OK"
 wsl.exe -- docker exec headroom-sub2api python -c "import os; os.environ['HEADROOM_EMBEDDING_SERVER_SOCKET']='/tmp/headroom-embed-8787.sock'; from headroom.memory.config import MemoryConfig, EmbedderBackend; from headroom.memory.factory import _create_embedder; e=_create_embedder(MemoryConfig(embedder_backend=EmbedderBackend.ONNX)); print(type(e).__module__, type(e).__name__, e.dimension)"
