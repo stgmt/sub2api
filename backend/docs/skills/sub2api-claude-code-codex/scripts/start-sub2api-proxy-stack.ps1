@@ -238,6 +238,20 @@ function Invoke-WslBash {
   throw "WSL stayed locked for $WslRetrySeconds seconds while running: $Command"
 }
 
+function Repair-PausedComposeContainers {
+  param(
+    [string]$WslRoot,
+    [string]$ComposeFiles,
+    [string]$ProjectName
+  )
+
+  $inspect = "cd '$WslRoot' && docker compose --env-file .env -p '$ProjectName' $ComposeFiles config --services | while read service; do cid=`$(docker compose --env-file .env -p '$ProjectName' $ComposeFiles ps -aq `$service); if [ -n `$cid ]; then paused=`$(docker inspect -f '{{.State.Paused}}' `$cid); if [ `$paused = true ]; then echo paused-`$service-`$cid; docker unpause `$cid; fi; fi; done"
+  $result = Invoke-WslBash $inspect
+  if ($result -match "paused-") {
+    Write-StackLog "unpaused paused compose container(s) before compose start"
+  }
+}
+
 function Set-ClaudeBaseUrlFromWsl {
   $ipLine = Invoke-WslBash "hostname -I 2>/dev/null || true"
   $wslIp = ($ipLine -split "\s+" | Where-Object { $_ -match "^\d+\.\d+\.\d+\.\d+$" } | Select-Object -First 1)
@@ -548,6 +562,7 @@ try {
   }
 
   Invoke-WslBash "mkdir -p '$WslStateRoot/headroom' '$WslStateRoot/headroom-cache' '$WslStateRoot/headroom-huggingface' '$WslStateRoot/sub2api' '$WslStateRoot/postgres' '$WslStateRoot/redis'"
+  Repair-PausedComposeContainers -WslRoot $WslRoot -ComposeFiles $ComposeFiles -ProjectName $ProjectName
   # A scheduled health check may call this script while Claude has an active
   # SSE/tool turn. Compose recreates a healthy service when the rendered
   # config hash differs, which tears down that stream. Recovery is the only
