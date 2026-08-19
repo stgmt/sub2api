@@ -64,9 +64,20 @@ $DshExcludedModelPatterns = @(
 # can send. Keep these declarations beside the catalog sync so a later Cline
 # refresh cannot silently remove the picker from the composite route.
 $DshReasoningCatalog = [ordered]@{
+  "gpt-5.6-sol" = "low: low, medium: medium, high: high, xhigh: xhigh, max: max"
+  "gpt-5.6" = "low: low, medium: medium, high: high, xhigh: xhigh, max: max"
   "grok-4.6" = "low: low, medium: medium, high: high"
   "grok-4.5" = "low: low, medium: medium, high: high"
   "gpt-5.6-luna" = "low: low, medium: medium, high: high, xhigh: xhigh, max: max"
+  "cline-pass/qwen3.8-max" = "low: low, medium: medium, xhigh: xhigh"
+  "cline-pass/kimi-k3" = "low: low, high: high, max: max"
+  "cline-pass/minimax-m3" = "off: off, minimal: minimal, low: low, medium: medium, high: high"
+  "cline-pass/deepseek-v4-flash" = "off: off, high: high, max: max"
+  "cline-pass/deepseek-v4-pro" = "off: off, high: high, max: max"
+  "deepseek/deepseek-v4-flash" = "off: off, high: high, max: max"
+  "cline-pass/mimo-v2.5" = "off: off, minimal: minimal, low: low, medium: medium, high: high"
+  "cline-pass/mimo-v2.5-pro" = "off: off, minimal: minimal, low: low, medium: medium, high: high"
+  "cline-pass/glm-5.3" = "high: high, max: max"
 }
 
 # sub2api treats an OpenAI API-key account with no model_mapping as a
