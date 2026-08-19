@@ -87,7 +87,12 @@ try {
   }
 
   $expectedRevision = Read-DotEnvValue -Path $envPath -Name "SUB2API_GIT_REF"
-  $runningRevision = (& wsl.exe -d $WslDistro -- docker inspect $Sub2apiContainer --format '{{index .Config.Labels "org.opencontainers.image.revision"}}').Trim()
+  $labelsJson = (& wsl.exe -d $WslDistro -- docker inspect $Sub2apiContainer --format "{{json .Config.Labels}}")
+  if ($LASTEXITCODE -ne 0 -or -not $labelsJson) {
+    throw "Could not inspect labels for $Sub2apiContainer"
+  }
+  $labels = $labelsJson | ConvertFrom-Json
+  $runningRevision = [string]$labels.'org.opencontainers.image.revision'
   if ($LASTEXITCODE -ne 0 -or $runningRevision -ne $expectedRevision) {
     throw "Running revision '$runningRevision' does not match expected '$expectedRevision'"
   }
