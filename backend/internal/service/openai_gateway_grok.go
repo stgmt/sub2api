@@ -20,7 +20,28 @@ import (
 const (
 	grokComposerImageBridgeVisionModel     = "grok-build-0.1"
 	grokComposerImageBridgeMaxOutputTokens = 512
+	grokClientVersion                      = "1.0.4"
+	grokClientIdentifier                   = "grok-shell"
+	grokClientMode                         = "headless"
+	grokTokenAuth                          = "xai-grok-cli"
+	grokAuthResponse                       = "authenticate-response"
+	grokClientUserAgent                    = "xai-grok-cli"
 )
+
+func applyGrokCLIHeaders(req *http.Request, body []byte) {
+	if req == nil {
+		return
+	}
+	req.Header.Set("User-Agent", grokClientUserAgent)
+	req.Header.Set("X-XAI-Token-Auth", grokTokenAuth)
+	req.Header.Set("x-grok-client-version", grokClientVersion)
+	req.Header.Set("x-grok-client-identifier", grokClientIdentifier)
+	req.Header.Set("x-grok-client-mode", grokClientMode)
+	req.Header.Set("x-authenticateresponse", grokAuthResponse)
+	if model := strings.TrimSpace(gjson.GetBytes(body, "model").String()); model != "" {
+		req.Header.Set("x-grok-model-override", model)
+	}
+}
 
 func (s *OpenAIGatewayService) forwardGrokResponses(
 	ctx context.Context,
@@ -624,7 +645,7 @@ func buildGrokResponsesRequest(ctx context.Context, c *gin.Context, account *Acc
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
-	req.Header.Set("User-Agent", "sub2api-grok/1.0")
+	applyGrokCLIHeaders(req, body)
 	if c != nil {
 		if v := c.GetHeader("OpenAI-Beta"); strings.TrimSpace(v) != "" {
 			req.Header.Set("OpenAI-Beta", v)

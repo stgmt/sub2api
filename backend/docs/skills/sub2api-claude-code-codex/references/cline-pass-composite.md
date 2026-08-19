@@ -36,21 +36,15 @@ keeps explicit model allowlisting and contains the existing Codex/Grok models
 plus these exact ClinePass IDs:
 
 ```text
-nvidia/nemotron-3.5-lightning
 cline-pass/qwen3.8-max
 poolside/laguna-s-2.1:free
 cline-pass/kimi-k3
-cline-pass/glm-5.2
-cline-pass/kimi-k2.7-code
-cline-pass/qwen3.7-plus
 cline-pass/minimax-m3
-cline-pass/qwen3.7-max
 cline-pass/deepseek-v4-flash
 cline-pass/deepseek-v4-pro
 deepseek/deepseek-v4-flash
 cline-pass/mimo-v2.5
 cline-pass/mimo-v2.5-pro
-cline-pass/kimi-k2.6
 cline-pass/glm-5.3
 ```
 

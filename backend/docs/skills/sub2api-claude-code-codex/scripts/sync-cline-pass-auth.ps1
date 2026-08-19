@@ -23,42 +23,42 @@ if (Get-Variable PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyCo
 # This is the catalog shipped by the installed ClinePass provider. Keep the
 # IDs exact: Cline's display names are not stable API identifiers.
 $ClinePassModelIds = @(
-  "nvidia/nemotron-3.5-lightning",
   "cline-pass/qwen3.8-max",
   "poolside/laguna-s-2.1:free",
   "cline-pass/kimi-k3",
-  "cline-pass/glm-5.2",
-  "cline-pass/kimi-k2.7-code",
-  "cline-pass/qwen3.7-plus",
   "cline-pass/minimax-m3",
-  "cline-pass/qwen3.7-max",
   "cline-pass/deepseek-v4-flash",
   "cline-pass/deepseek-v4-pro",
   "deepseek/deepseek-v4-flash",
   "cline-pass/mimo-v2.5",
   "cline-pass/mimo-v2.5-pro",
-  "cline-pass/kimi-k2.6",
   "cline-pass/glm-5.3"
 )
 
 $ClinePassModelCatalog = [ordered]@{
-  "nvidia/nemotron-3.5-lightning" = @{ name = "Nemotron 3.5 Lightning 30B A3B"; context = 1000000 }
   "cline-pass/qwen3.8-max" = @{ name = "Qwen3.8 Max"; context = 1000000 }
   "poolside/laguna-s-2.1:free" = @{ name = "Laguna S 2.1 (free)"; context = 262144 }
   "cline-pass/kimi-k3" = @{ name = "Kimi K3"; context = 1048576 }
-  "cline-pass/glm-5.2" = @{ name = "GLM-5.2"; context = 1048576 }
-  "cline-pass/kimi-k2.7-code" = @{ name = "Kimi K2.7 Code"; context = 262144 }
-  "cline-pass/qwen3.7-plus" = @{ name = "Qwen3.7 Plus"; context = 1000000 }
   "cline-pass/minimax-m3" = @{ name = "MiniMax-M3"; context = 1048576 }
-  "cline-pass/qwen3.7-max" = @{ name = "Qwen3.7 Max"; context = 1000000 }
   "cline-pass/deepseek-v4-flash" = @{ name = "DeepSeek V4 Flash"; context = 1048576 }
   "cline-pass/deepseek-v4-pro" = @{ name = "DeepSeek V4 Pro"; context = 1048576 }
   "deepseek/deepseek-v4-flash" = @{ name = "DeepSeek V4 Flash"; context = 1048576 }
   "cline-pass/mimo-v2.5" = @{ name = "MiMo-V2.5"; context = 1050000 }
   "cline-pass/mimo-v2.5-pro" = @{ name = "MiMo-V2.5-Pro"; context = 1050000 }
-  "cline-pass/kimi-k2.6" = @{ name = "Kimi K2.6"; context = 262144 }
   "cline-pass/glm-5.3" = @{ name = "cline-pass/glm-5.3"; context = 128000 }
 }
+
+# NVIDIA/Nemotron, Qwen versions below 3.8, GLM versions below 5.3, and Kimi
+# versions below 3 are deliberately excluded from the shared DSH catalog.
+# Remove stale entries as well as preventing future Cline Pass syncs from
+# reintroducing them.
+$DshExcludedModelPatterns = @(
+  "(?i)^nvidia/",
+  "(?i)nemotron",
+  "(?i)qwen(?:[0-2](?:\.[0-9]+)?|3\.[0-7])(?:[^0-9]|$)",
+  "(?i)glm[- ]?(?:[0-4](?:\.[0-9]+)?|5\.[0-2])(?:[^0-9]|$)",
+  "(?i)kimi(?:[- ]k)?[0-2](?:\.[0-9]+)?(?:[^0-9]|$)"
+)
 
 # DSH only renders an effort picker when a model entry declares the levels it
 # can send. Keep these declarations beside the catalog sync so a later Cline
@@ -386,6 +386,36 @@ function Sync-DshModelCatalog {
 
   $body = ($lines | Select-Object -Skip ($openIndex + 1) -First ($closeIndex - $openIndex - 1)) -join "`n"
   $indent = if ($lines[$closeIndex] -match '^(\s*)') { $Matches[1] + "  " } else { "              " }
+  $removed = 0
+  foreach ($pattern in $DshExcludedModelPatterns) {
+    for ($i = $closeIndex - 1; $i -gt $openIndex; $i--) {
+      $line = [string]$lines[$i]
+      if ($line -notmatch 'id:\s*([^,}\s]+)') { continue }
+      $modelId = $Matches[1]
+      if ($modelId -notmatch $pattern) { continue }
+
+      $start = $i
+      while ($start -gt $openIndex) {
+        $candidate = ([string]$lines[$start]).Trim()
+        if ($candidate -match '^\{\s*$' -or $candidate -match '^\{\s*id:') { break }
+        $start--
+      }
+      $end = $i
+      while ($end -lt $closeIndex) {
+        $candidate = ([string]$lines[$end]).Trim()
+        if ($candidate -match '^\}\s*,?\s*$' -or $candidate -match '^\{.*\}\s*,?\s*$') { break }
+        $end++
+      }
+      if ($end -ge $closeIndex) { $end = $i }
+
+      $count = $end - $start + 1
+      $lines.RemoveRange($start, $count)
+      $closeIndex -= $count
+      $removed++
+      $i = [Math]::Min($i, $closeIndex - 1)
+    }
+  }
+
   $added = 0
   foreach ($pair in $ClinePassModelCatalog.GetEnumerator()) {
     $escapedId = [regex]::Escape($pair.Key)
@@ -397,7 +427,8 @@ function Sync-DshModelCatalog {
     $added++
   }
 
-  $changed = $added -gt 0
+  $changed = $removed -gt 0
+  $changed = $changed -or ($added -gt 0)
   $effortModels = [System.Collections.Generic.List[string]]::new()
   foreach ($pair in $DshReasoningCatalog.GetEnumerator()) {
     $escapedId = [regex]::Escape($pair.Key)
@@ -491,7 +522,7 @@ function Sync-DshModelCatalog {
   if ($changed) {
     [IO.File]::WriteAllLines($path, $lines, [Text.UTF8Encoding]::new($false))
   }
-  return [ordered]@{ status = if ($changed) { "updated" } else { "unchanged" }; path = $path; added = $added; effort_models = @($effortModels); model_count = $ClinePassModelCatalog.Count }
+  return [ordered]@{ status = if ($changed) { "updated" } else { "unchanged" }; path = $path; added = $added; removed = $removed; effort_models = @($effortModels); model_count = $ClinePassModelCatalog.Count }
 }
 
 function Invoke-PsqlScript {
@@ -634,12 +665,17 @@ BEGIN
   SELECT COALESCE(jsonb_agg(value), '[]'::jsonb)
     INTO v_new_models
     FROM (
-      SELECT DISTINCT value
+       SELECT DISTINCT value
        FROM jsonb_array_elements_text(
           COALESCE(v_old_group_config->'models', '[]'::jsonb) || (p->'model_ids')
         ) AS model_values(value)
-       WHERE value <> ''
-       ORDER BY value
+        WHERE value <> ''
+          AND value !~* '^nvidia/'
+          AND value !~* 'nemotron'
+          AND value !~* 'qwen([0-2](\.[0-9]+)?|3\.[0-7])([^0-9]|$)'
+          AND value !~* 'glm[- ]?([0-4](\.[0-9]+)?|5\.[0-2])([^0-9]|$)'
+          AND value !~* 'kimi([- ]k)?[0-2](\.[0-9]+)?([^0-9]|$)'
+        ORDER BY value
     ) distinct_models;
   v_new_group_config := COALESCE(v_old_group_config, '{}'::jsonb)
     || jsonb_build_object('models', v_new_models, 'enabled', TRUE, 'explicit', TRUE);

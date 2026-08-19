@@ -472,6 +472,16 @@ func TestResolveOpenAIMessagesDispatchMappedModel(t *testing.T) {
 	})
 }
 
+func TestOpenAICompatibleRequestPlatform(t *testing.T) {
+	openAIGroup := &service.APIKey{Group: &service.Group{Platform: service.PlatformOpenAI}}
+	grokGroup := &service.APIKey{Group: &service.Group{Platform: service.PlatformGrok}}
+
+	assert.Equal(t, service.PlatformOpenAI, openAICompatibleRequestPlatform(openAIGroup, "gpt-5.6-sol"))
+	assert.Equal(t, service.PlatformGrok, openAICompatibleRequestPlatform(openAIGroup, "grok-4.6"))
+	assert.Equal(t, service.PlatformGrok, openAICompatibleRequestPlatform(grokGroup, "gpt-5.6-sol"))
+	assert.Equal(t, service.PlatformOpenAI, openAICompatibleRequestPlatform(nil, "gpt-5.6-sol"))
+}
+
 func TestResolveOpenAIMessagesDispatchFallbackModels(t *testing.T) {
 	apiKey := &service.APIKey{
 		Group: &service.Group{

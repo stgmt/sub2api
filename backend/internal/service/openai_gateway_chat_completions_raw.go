@@ -82,6 +82,12 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	// 2. Resolve model mapping (same as ForwardAsChatCompletions)
 	billingModel := resolveOpenAIForwardModel(account, originalModel, defaultMappedModel)
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
+	// The Grok CLI chat proxy exposes its subscription route as the generic
+	// `grok-build` chat model. Responses requests keep the selected Grok model,
+	// but Chat Completions must use this wire model or the proxy returns 422.
+	if account.Platform == PlatformGrok {
+		upstreamModel = "grok-build"
+	}
 	// 国产模型默认 effort 补充：需要 mappedModel 判定，推迟到 billingModel 算出之后。
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, billingModel)
 
@@ -105,6 +111,9 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 		return nil, policyErr
 	}
 	upstreamBody = updatedBody
+	if account.Platform == PlatformGrok {
+		upstreamBody = normalizeGrokChatTools(upstreamBody)
+	}
 
 	// Grok Composer does not accept image_url parts directly, but Grok Build
 	// can describe the images first. Bridge only this exact failure mode.
@@ -179,14 +188,17 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 		}
 	}
 	customUA := account.GetOpenAIUserAgent()
-	if customUA != "" {
+	if account.Platform == PlatformGrok {
+		applyGrokCLIHeaders(upstreamReq, upstreamBody)
+	} else if customUA != "" {
 		upstreamReq.Header.Set("user-agent", customUA)
-	} else if account.Platform == PlatformGrok {
-		upstreamReq.Header.Set("user-agent", "sub2api-grok/1.0")
 	}
 
 	// 账号级请求头覆写（仅 openai api_key 账号启用时生效）
 	account.ApplyHeaderOverrides(upstreamReq.Header)
+	if account.Platform == PlatformGrok {
+		applyGrokCLIHeaders(upstreamReq, upstreamBody)
+	}
 
 	// 6. Send request
 	proxyURL := ""
@@ -275,6 +287,90 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 		addOpenAIUsage(&result.Usage, bridgeUsage)
 	}
 	return result, forwardErr
+}
+
+// normalizeGrokChatTools converts Responses-style function definitions to the
+// nested Chat Completions shape expected by the Grok CLI chat proxy. Headroom
+// can preserve flat definitions such as {type:"function",name:"..."} while
+// forwarding a Chat Completions request; the Grok proxy rejects those with
+// `tools[0]: missing field function`.
+func normalizeGrokChatTools(body []byte) []byte {
+	tools := gjson.GetBytes(body, "tools")
+	choice := gjson.GetBytes(body, "tool_choice")
+	needsRewrite := false
+	if tools.IsArray() {
+		tools.ForEach(func(_, tool gjson.Result) bool {
+			typeName := strings.TrimSpace(tool.Get("type").String())
+			if (typeName == "function" || typeName == "") &&
+				!tool.Get("function").IsObject() &&
+				strings.TrimSpace(tool.Get("name").String()) != "" {
+				needsRewrite = true
+			}
+			return true
+		})
+	}
+	if choice.IsObject() && choice.Get("type").String() == "function" &&
+		!choice.Get("function").IsObject() && strings.TrimSpace(choice.Get("name").String()) != "" {
+		needsRewrite = true
+	}
+	if !needsRewrite {
+		return body
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return body
+	}
+	if rawTools, ok := payload["tools"].([]any); ok {
+		normalized := make([]any, 0, len(rawTools))
+		for _, rawTool := range rawTools {
+			tool, ok := rawTool.(map[string]any)
+			if !ok {
+				normalized = append(normalized, rawTool)
+				continue
+			}
+			typeName, _ := tool["type"].(string)
+			name, _ := tool["name"].(string)
+			if (strings.TrimSpace(typeName) == "function" || strings.TrimSpace(typeName) == "") &&
+				strings.TrimSpace(name) != "" {
+				function := map[string]any{"name": name}
+				if description, ok := tool["description"]; ok {
+					function["description"] = description
+				}
+				if parameters, ok := tool["parameters"]; ok {
+					function["parameters"] = parameters
+				} else if schema, ok := tool["input_schema"]; ok {
+					function["parameters"] = schema
+				}
+				if strict, ok := tool["strict"]; ok {
+					function["strict"] = strict
+				}
+				normalized = append(normalized, map[string]any{
+					"type":     "function",
+					"function": function,
+				})
+				continue
+			}
+			normalized = append(normalized, tool)
+		}
+		payload["tools"] = normalized
+	}
+	if rawChoice, ok := payload["tool_choice"].(map[string]any); ok &&
+		rawChoice["type"] == "function" {
+		if name, ok := rawChoice["name"].(string); ok && strings.TrimSpace(name) != "" {
+			payload["tool_choice"] = map[string]any{
+				"type": "function",
+				"function": map[string]any{
+					"name": name,
+				},
+			}
+		}
+	}
+	updated, err := json.Marshal(payload)
+	if err != nil {
+		return body
+	}
+	return updated
 }
 
 func (s *OpenAIGatewayService) rawChatCompletionsURL(account *Account) (string, error) {

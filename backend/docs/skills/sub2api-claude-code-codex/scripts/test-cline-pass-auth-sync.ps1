@@ -26,7 +26,24 @@ Assert-Contains $sync 'Save-JsonAtomic' "Refreshed Cline credentials must be per
 Assert-Contains $sync 'ForceRefresh' "The sync must expose a deterministic refresh probe"
 Assert-Contains $sync 'cline-pass/qwen3.8-max' "The Cline Qwen model must be catalogued"
 Assert-Contains $sync 'cline-pass/deepseek-v4-flash' "The Cline DeepSeek model must be catalogued"
-Assert-Contains $sync 'nvidia/nemotron-3.5-lightning' "The free Nemotron model must be catalogued"
+Assert-Contains $sync 'cline-pass/glm-5.3' "GLM-5.3 must remain catalogued"
+Assert-Contains $sync 'cline-pass/kimi-k3' "Kimi K3 must remain catalogued"
+Assert-Contains $sync 'DshExcludedModelPatterns' "The DSH catalog must keep excluded model families out"
+Assert-Contains $sync '"(?i)^nvidia/"' "NVIDIA models must be excluded from the DSH catalog"
+Assert-Contains $sync "value !~* '^nvidia/'" "NVIDIA models must be removed from the composite group"
+Assert-Contains $sync "value !~* 'nemotron'" "Nemotron models must be removed from the composite group"
+Assert-Contains $sync '"(?i)qwen(?:[0-2](?:\.[0-9]+)?|3\.[0-7])(?:[^0-9]|$)"' "Qwen models below 3.8 must be excluded from the DSH catalog"
+Assert-Contains $sync "value !~* 'qwen([0-2](\.[0-9]+)?|3\.[0-7])([^0-9]|$)'" "Qwen models below 3.8 must be removed from the composite group"
+Assert-Contains $sync '"(?i)glm[- ]?(?:[0-4](?:\.[0-9]+)?|5\.[0-2])(?:[^0-9]|$)"' "GLM models below 5.3 must be excluded from the DSH catalog"
+Assert-Contains $sync "value !~* 'glm[- ]?([0-4](\.[0-9]+)?|5\.[0-2])([^0-9]|$)'" "GLM models below 5.3 must be removed from the composite group"
+Assert-Contains $sync '"(?i)kimi(?:[- ]k)?[0-2](?:\.[0-9]+)?(?:[^0-9]|$)"' "Kimi models below 3 must be excluded from the DSH catalog"
+Assert-Contains $sync "value !~* 'kimi([- ]k)?[0-2](\.[0-9]+)?([^0-9]|$)'" "Kimi models below 3 must be removed from the composite group"
+if ($sync.Contains('"cline-pass/qwen3.7-plus"') -or $sync.Contains('"cline-pass/qwen3.7-max"')) {
+  throw "Qwen models below 3.8 must not remain in the Cline catalog"
+}
+if ($sync.Contains('"cline-pass/glm-5.2"') -or $sync.Contains('"cline-pass/kimi-k2.7-code"') -or $sync.Contains('"cline-pass/kimi-k2.6"')) {
+  throw "GLM models below 5.3 and Kimi models below 3 must not remain in the Cline catalog"
+}
 Assert-Contains $sync 'poolside/laguna-s-2.1:free' "The free Laguna model must be catalogued"
 Assert-Contains $sync 'require_oauth_only = FALSE' "The composite group must accept the Cline API-key account"
 Assert-Contains $sync 'models_list_config' "The composite group model catalog must be updated"
@@ -77,7 +94,7 @@ try {
   if ($probeOutput.Contains($fakeAccess) -or $probeOutput.Contains($fakeRefresh)) {
     throw "Cline Pass sync leaked a fixture credential"
   }
-  if ([int]$probe.model_count -ne 16) { throw "Expected 16 Cline catalog models, got $($probe.model_count)" }
+  if ([int]$probe.model_count -ne 10) { throw "Expected 10 Cline catalog models, got $($probe.model_count)" }
   Assert-Contains $probeOutput 'api.cline.bot/api/v1' "Probe must expose only safe endpoint metadata"
 } finally {
   Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue

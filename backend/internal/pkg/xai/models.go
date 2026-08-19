@@ -46,6 +46,8 @@ func DefaultModelMapping() map[string]string {
 	}
 	mapping["grok"] = "grok-4.3"
 	mapping["grok-latest"] = "grok-4.3"
+	mapping["grok-4.5"] = "grok-4.5"
+	mapping["grok-4.6"] = "grok-4.6"
 	mapping["grok-build"] = "grok-build-0.1"
 	mapping["grok-composer"] = "grok-composer-2.5-fast"
 	mapping["grok-4.20-reasoning"] = "grok-4.20-0309-reasoning"

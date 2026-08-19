@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -77,6 +78,61 @@ func TestBuildOpenAIResponsesURL_ProbeURL(t *testing.T) {
 			require.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestForwardAsRawChatCompletions_GrokUsesBuildWireModelAndCLIHeaders(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"grok-4.6","messages":[{"role":"user","content":"hello"}],"stream":false}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_grok_chat"}},
+		Body:       io.NopCloser(strings.NewReader(`{"id":"chatcmpl_grok","object":"chat.completion","model":"grok-build","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`)),
+	}}
+
+	svc := &OpenAIGatewayService{
+		cfg:          rawChatCompletionsTestConfig(),
+		httpUpstream: upstream,
+	}
+	account := &Account{
+		ID:          102,
+		Name:        "grok-chat-test",
+		Platform:    PlatformGrok,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "test-grok-key",
+			"base_url": xai.DefaultCLIBaseURL,
+		},
+	}
+
+	result, err := svc.forwardAsRawChatCompletions(context.Background(), c, account, body, "")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "grok-build", gjson.GetBytes(upstream.lastBody, "model").String())
+	require.Equal(t, "xai-grok-cli", upstream.lastReq.Header.Get("User-Agent"))
+	require.Equal(t, "xai-grok-cli", upstream.lastReq.Header.Get("X-XAI-Token-Auth"))
+	require.Equal(t, "grok-build", upstream.lastReq.Header.Get("x-grok-model-override"))
+}
+
+func TestNormalizeGrokChatTools(t *testing.T) {
+	body := []byte(`{"model":"grok-4.6","tools":[{"type":"function","name":"lookup","description":"Look up a value","parameters":{"type":"object","properties":{"q":{"type":"string"}}},"strict":true}],"tool_choice":{"type":"function","name":"lookup"}}`)
+
+	normalized := normalizeGrokChatTools(body)
+	require.Equal(t, "function", gjson.GetBytes(normalized, "tools.0.type").String())
+	require.Equal(t, "lookup", gjson.GetBytes(normalized, "tools.0.function.name").String())
+	require.Equal(t, "Look up a value", gjson.GetBytes(normalized, "tools.0.function.description").String())
+	require.True(t, gjson.GetBytes(normalized, "tools.0.function.strict").Bool())
+	require.False(t, gjson.GetBytes(normalized, "tools.0.name").Exists())
+	require.Equal(t, "lookup", gjson.GetBytes(normalized, "tool_choice.function.name").String())
+
+	nested := []byte(`{"model":"grok-build","tools":[{"type":"function","function":{"name":"lookup"}}]}`)
+	require.Equal(t, string(nested), string(normalizeGrokChatTools(nested)))
 }
 
 func TestForwardAsRawChatCompletions_ForcesStreamUsageUpstreamAndPassesUsageDownstream(t *testing.T) {

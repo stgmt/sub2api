@@ -124,10 +124,31 @@ func TestBuildGrokResponsesRequestUsesAccountBaseURLAndBearerToken(t *testing.T)
 	require.Equal(t, "Bearer access-token", req.Header.Get("Authorization"))
 	require.Equal(t, "application/json", req.Header.Get("Content-Type"))
 	require.Contains(t, req.Header.Get("Accept"), "text/event-stream")
+	require.Equal(t, "xai-grok-cli", req.Header.Get("X-XAI-Token-Auth"))
+	require.Equal(t, "1.0.4", req.Header.Get("x-grok-client-version"))
+	require.Equal(t, "grok-shell", req.Header.Get("x-grok-client-identifier"))
+	require.Equal(t, "headless", req.Header.Get("x-grok-client-mode"))
+	require.Equal(t, "authenticate-response", req.Header.Get("x-authenticateresponse"))
+	require.Equal(t, "grok-4.3", req.Header.Get("x-grok-model-override"))
 
 	data, err := io.ReadAll(req.Body)
 	require.NoError(t, err)
 	require.Equal(t, `{"model":"grok-4.3"}`, strings.TrimSpace(string(data)))
+}
+
+func TestApplyGrokCLIHeaders(t *testing.T) {
+	req, err := http.NewRequest(http.MethodPost, "https://cli-chat-proxy.grok.com/v1/chat/completions", nil)
+	require.NoError(t, err)
+
+	applyGrokCLIHeaders(req, []byte(`{"model":"grok-4.6"}`))
+
+	require.Equal(t, "xai-grok-cli", req.Header.Get("User-Agent"))
+	require.Equal(t, "xai-grok-cli", req.Header.Get("X-XAI-Token-Auth"))
+	require.Equal(t, "1.0.4", req.Header.Get("x-grok-client-version"))
+	require.Equal(t, "grok-shell", req.Header.Get("x-grok-client-identifier"))
+	require.Equal(t, "headless", req.Header.Get("x-grok-client-mode"))
+	require.Equal(t, "authenticate-response", req.Header.Get("x-authenticateresponse"))
+	require.Equal(t, "grok-4.6", req.Header.Get("x-grok-model-override"))
 }
 
 func TestBuildGrokResponsesRequestRejectsUnsafeAccountBaseURL(t *testing.T) {
