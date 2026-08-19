@@ -51,6 +51,9 @@ If count-tokens logs show upstream `401`:
 
 If Claude Code shows empty answers, "previous response had no visible output", or sub2api logs show `0/0` usage:
 
+- Inspect the gateway-wide raw upstream capture before changing the parser. The maintained profile writes exact decompressed response bytes for every provider under `${SUB2API_STATE_ROOT}/sub2api/upstream-raw-captures/<UTC-day>/`, paired with secret-free `.meta.json`. Capture retention is 24 hours. Match `account_id`, host/path, timestamp, status, and `upstream_request_id`; do not infer an empty provider response from normalized gateway logs alone.
+- Confirm the live container has `GATEWAY_UPSTREAM_RAW_CAPTURE_ENABLED=true`, `GATEWAY_UPSTREAM_RAW_CAPTURE_RETENTION_HOURS=24`, and `GATEWAY_UPSTREAM_RAW_CAPTURE_CLEANUP_INTERVAL_MINUTES=15`. The capture is common transport infrastructure, not a Cline/OpenAI/Grok special case.
+
 - Query `usage_logs` for `stream=true AND input_tokens=0 AND output_tokens=0 AND duration_ms BETWEEN 500 AND 30000`.
 - If the affected rows are `gpt-5.6-sol`, `gpt-5.3-codex-spark`, `gpt-5.6-luna` Spark fallback, `gpt-5.5`, or legacy `gpt-5.5[400k]` with weaker reasoning than expected, restart or fork the old Claude Code session with `--model gpt-5.6-sol --effort max`; new max requests should log the strongest supported effort for this route.
 - Ensure User env and `~/.claude/settings.json` contain `MAX_THINKING_TOKENS=8000`, but do not treat it as the Codex reasoning control. For GPT-5.6 max requests on the current Codex/OpenAI Responses route, verify `usage_logs.reasoning_effort=max`. If logs show `requested_effort=max` and `upstream_effort=xhigh`, the running image is stale or using the legacy fallback path.
