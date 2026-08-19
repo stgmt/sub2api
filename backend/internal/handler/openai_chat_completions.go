@@ -344,7 +344,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 // the inbound endpoint; everything else goes through the Responses API.
 func resolveOpenAIUpstreamEndpoint(c *gin.Context, account *service.Account) string {
 	if account != nil && account.Type == service.AccountTypeAPIKey &&
-		!openai_compat.ShouldUseResponsesAPI(account.Extra) {
+		!openai_compat.ShouldUseResponsesAPIForEndpoint(account.Extra, account.GetOpenAIBaseURL()) {
 		return "/v1/chat/completions"
 	}
 	return GetUpstreamEndpoint(c, account.Platform)

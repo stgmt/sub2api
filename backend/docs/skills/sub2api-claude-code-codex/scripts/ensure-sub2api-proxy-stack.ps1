@@ -697,10 +697,8 @@ function Sync-GrokBuildAuth {
   }
 
   $syncParams = @{
-    Distro = $Distro
-    PostgresContainer = "sub2api-codex-postgres"
-    DatabaseUser = if ($envMap.ContainsKey("POSTGRES_USER") -and $envMap["POSTGRES_USER"].Trim()) { $envMap["POSTGRES_USER"] } else { "sub2api" }
-    DatabaseName = if ($envMap.ContainsKey("POSTGRES_DB") -and $envMap["POSTGRES_DB"].Trim()) { $envMap["POSTGRES_DB"] } else { "sub2api" }
+    ProviderSyncBaseUrl = "http://127.0.0.1:18081"
+    ProviderSyncToken = $envMap["PROVIDER_SYNC_TOKEN"]
     AccountName = if ($envMap.ContainsKey("SUB2API_GROK_ACCOUNT_NAME") -and $envMap["SUB2API_GROK_ACCOUNT_NAME"].Trim()) { $envMap["SUB2API_GROK_ACCOUNT_NAME"] } else { "grok-build-subscription" }
     CliBaseUrl = if ($envMap.ContainsKey("SUB2API_GROK_CLI_BASE_URL") -and $envMap["SUB2API_GROK_CLI_BASE_URL"].Trim()) { $envMap["SUB2API_GROK_CLI_BASE_URL"] } else { "https://cli-chat-proxy.grok.com/v1" }
   }
@@ -733,10 +731,8 @@ function Sync-ClinePassAuth {
   }
 
   $syncParams = @{
-    Distro = $Distro
-    PostgresContainer = "sub2api-codex-postgres"
-    DatabaseUser = if ($envMap.ContainsKey("POSTGRES_USER") -and $envMap["POSTGRES_USER"].Trim()) { $envMap["POSTGRES_USER"] } else { "sub2api" }
-    DatabaseName = if ($envMap.ContainsKey("POSTGRES_DB") -and $envMap["POSTGRES_DB"].Trim()) { $envMap["POSTGRES_DB"] } else { "sub2api" }
+    ProviderSyncBaseUrl = "http://127.0.0.1:18081"
+    ProviderSyncToken = $envMap["PROVIDER_SYNC_TOKEN"]
     AccountName = if ($envMap.ContainsKey("SUB2API_CLINE_PASS_ACCOUNT_NAME") -and $envMap["SUB2API_CLINE_PASS_ACCOUNT_NAME"].Trim()) { $envMap["SUB2API_CLINE_PASS_ACCOUNT_NAME"] } else { "cline-pass-subscription" }
     GroupName = if ($envMap.ContainsKey("SUB2API_CLINE_PASS_GROUP_NAME") -and $envMap["SUB2API_CLINE_PASS_GROUP_NAME"].Trim()) { $envMap["SUB2API_CLINE_PASS_GROUP_NAME"] } else { "headroom-openai-grok-composite" }
     ClineBaseUrl = if ($envMap.ContainsKey("SUB2API_CLINE_PASS_BASE_URL") -and $envMap["SUB2API_CLINE_PASS_BASE_URL"].Trim()) { $envMap["SUB2API_CLINE_PASS_BASE_URL"] } else { "https://api.cline.bot/api/v1" }

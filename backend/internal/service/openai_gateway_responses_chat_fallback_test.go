@@ -90,6 +90,7 @@ func TestForwardResponses_ForceChatCompletionsRoutesStreamingToChatCompletions(t
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, "http://upstream.example/v1/chat/completions", upstream.lastReq.URL.String())
+	require.True(t, gjson.GetBytes(upstream.lastBody, "stream").Bool())
 	require.True(t, gjson.GetBytes(upstream.lastBody, "stream_options.include_usage").Bool())
 	require.Contains(t, rec.Body.String(), "event: response.output_text.delta")
 	require.Contains(t, rec.Body.String(), `"delta":"he"`)
@@ -176,7 +177,7 @@ func TestForwardResponses_AutoSupportedAccountStillUsesResponsesEndpoint(t *test
 	require.Equal(t, "ok", gjson.Get(rec.Body.String(), "output.0.content.0.text").String())
 }
 
-func TestForwardResponses_RetriesChatCompletionsWhenMarkedSupportedEndpointReturns404(t *testing.T) {
+func TestForwardResponses_DoesNotRetryAnotherProtocolWhenResponsesEndpointReturns404(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	body := []byte(`{"model":"cline-pass/deepseek-v4-flash","input":"hello","stream":false}`)
@@ -185,20 +186,11 @@ func TestForwardResponses_RetriesChatCompletionsWhenMarkedSupportedEndpointRetur
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
-	upstream := &httpUpstreamRecorder{responses: []*http.Response{
-		{
-			StatusCode: http.StatusNotFound,
-			Header:     http.Header{"Content-Type": []string{"application/json"}},
-			Body:       io.NopCloser(strings.NewReader(`{"error":"Not Found","success":false}`)),
-		},
-		{
-			StatusCode: http.StatusOK,
-			Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_resp_retry_chat"}},
-			Body: io.NopCloser(strings.NewReader(
-				`{"id":"chatcmpl_retry","object":"chat.completion","model":"deepseek-v4-flash","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`,
-			)),
-		},
-	}}
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{{
+		StatusCode: http.StatusNotFound,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"error":"Not Found","success":false}`)),
+	}}}
 	svc := &OpenAIGatewayService{
 		cfg:          rawChatCompletionsTestConfig(),
 		httpUpstream: upstream,
@@ -207,13 +199,51 @@ func TestForwardResponses_RetriesChatCompletionsWhenMarkedSupportedEndpointRetur
 	account.Extra = map[string]any{openai_compat.ExtraKeyResponsesSupported: true}
 
 	result, err := svc.Forward(context.Background(), c, account, body)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.Len(t, upstream.requests, 2)
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.Len(t, upstream.requests, 1)
 	require.Equal(t, "/v1/responses", upstream.requests[0].URL.Path)
-	require.Equal(t, "/v1/chat/completions", upstream.requests[1].URL.Path)
-	require.Equal(t, "hello", gjson.GetBytes(upstream.bodies[1], "messages.0.content").String())
-	require.Equal(t, "ok", gjson.Get(rec.Body.String(), "output.0.content.0.text").String())
+}
+
+func TestForwardResponses_EmptyChatStreamFailsInsteadOfCompleting(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := []byte(`{"model":"cline-pass/deepseek-v4-flash","input":"hello","stream":true}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader("data: [DONE]\n\n")),
+	}}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+	result, err := svc.Forward(context.Background(), c, forceChatResponsesFallbackAccount(), body)
+	require.Error(t, err)
+	require.NotNil(t, result)
+	require.Contains(t, rec.Body.String(), "event: response.failed")
+	require.Contains(t, rec.Body.String(), `"code":"upstream_protocol_error"`)
+	require.NotContains(t, rec.Body.String(), "event: response.completed")
+}
+
+func TestForwardResponses_EmptyBufferedChatFailsWith502(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := []byte(`{"model":"cline-pass/deepseek-v4-flash","input":"hello","stream":false}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"id":"chatcmpl_empty","object":"chat.completion","choices":[]}`)),
+	}}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+	result, err := svc.Forward(context.Background(), c, forceChatResponsesFallbackAccount(), body)
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.Equal(t, http.StatusBadGateway, rec.Code)
+	require.Contains(t, rec.Body.String(), "upstream_protocol_error")
 }
 
 func forceChatResponsesFallbackAccount() *Account {

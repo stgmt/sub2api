@@ -84,14 +84,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\sync-cline-pass-au
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\sync-cline-pass-auth.ps1
 
 # Deterministic refresh proof; still does not open a browser or print secrets.
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\sync-cline-pass-auth.ps1 -ForceRefresh -NoRestart
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\sync-cline-pass-auth.ps1 -ForceRefresh -ProviderSyncToken $env:PROVIDER_SYNC_TOKEN
 
 # Contract test with a synthetic nested providers.json and fake secrets.
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-cline-pass-auth-sync.ps1
 ```
 
-After a credential/group change, the script restarts only `sub2api-codex` and
-waits for its Docker health check. Headroom is not recreated. Verify the live
+Credential/group changes go through the scoped provider-sync API. The backend
+invalidates scheduler state immediately; the script does not use SQL, an admin
+JWT, or restart either service. Verify the live
 route with a tiny request through `http://127.0.0.1:8787/v1`, then correlate
 `usage_logs.account_id`, `requested_model`, `upstream_model`, and the Cline
 account name. A successful `/v1/models` listing alone is insufficient proof

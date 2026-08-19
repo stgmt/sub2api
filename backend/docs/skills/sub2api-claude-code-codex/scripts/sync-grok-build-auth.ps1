@@ -1,16 +1,15 @@
 param(
   [string]$AuthFile = "",
-  [string]$Distro = "Ubuntu-24.04",
-  [string]$PostgresContainer = "sub2api-codex-postgres",
-  [string]$DatabaseUser = "sub2api",
-  [string]$DatabaseName = "sub2api",
+  [string]$ProviderSyncBaseUrl = "http://127.0.0.1:18081",
+  [string]$ProviderSyncToken = "",
   [string]$AccountName = "grok-build-subscription",
+  [string]$GroupName = "headroom-openai-grok-composite",
   [string]$CliBaseUrl = "https://cli-chat-proxy.grok.com/v1",
-  [switch]$CheckOnly,
-  [switch]$NoRestart
+  [switch]$CheckOnly
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "provider-account-sync-api.ps1")
 if (Get-Variable PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) {
   $PSNativeCommandUseErrorActionPreference = $false
 }
@@ -109,57 +108,6 @@ function ConvertTo-GrokCredentialsJson {
   return ($credentials | ConvertTo-Json -Compress -Depth 8)
 }
 
-function Invoke-PsqlScript {
-  param([string]$Sql)
-
-  $psi = [Diagnostics.ProcessStartInfo]::new()
-  $psi.FileName = "wsl.exe"
-  $psi.UseShellExecute = $false
-  $psi.CreateNoWindow = $true
-  $psi.RedirectStandardInput = $true
-  $psi.RedirectStandardOutput = $true
-  $psi.RedirectStandardError = $true
-  $arguments = @(
-    "-d", $Distro, "--", "docker", "exec", "-i", $PostgresContainer,
-    "psql", "-U", $DatabaseUser, "-d", $DatabaseName,
-    "-v", "ON_ERROR_STOP=1", "-At"
-  )
-  if ($null -ne $psi.PSObject.Properties["ArgumentList"]) {
-    foreach ($argument in $arguments) { $psi.ArgumentList.Add([string]$argument) }
-  } else {
-    # Windows PowerShell 5.1 has no ArgumentList property. Keep the normal
-    # WSL argv unquoted; the bundled identifiers do not contain whitespace.
-    $psi.Arguments = ($arguments -join ' ')
-  }
-
-  $process = [Diagnostics.Process]::new()
-  $process.StartInfo = $psi
-  if (-not $process.Start()) { throw "Could not start WSL PostgreSQL command" }
-  $process.StandardInput.Write($Sql)
-  $process.StandardInput.Close()
-  $stdout = $process.StandardOutput.ReadToEnd()
-  $stderr = $process.StandardError.ReadToEnd()
-  $process.WaitForExit()
-  if ($process.ExitCode -ne 0) {
-    $safeError = ($stderr -replace "(?i)(access_token|refresh_token|id_token|key)\s*[=:]\s*\S+", '$1=<redacted>').Trim()
-    throw "PostgreSQL sync failed: $safeError"
-  }
-  return $stdout.Trim()
-}
-
-function Restart-Sub2api {
-  $output = & wsl.exe -d $Distro -- docker restart sub2api-codex 2>&1
-  if ($LASTEXITCODE -ne 0) {
-    throw "sub2api restart failed: $(($output -join ' ').Trim())"
-  }
-  for ($attempt = 0; $attempt -lt 45; $attempt++) {
-    $health = ((@(& wsl.exe -d $Distro -- docker inspect -f '{{.State.Health.Status}}' sub2api-codex 2>$null)) -join "").Trim()
-    if ($health -eq "healthy") { return $true }
-    Start-Sleep -Seconds 2
-  }
-  throw "sub2api did not become healthy after Grok Build credential sync"
-}
-
 $source = Resolve-AuthFile
 $read = Read-GrokBuildEntry -Path $source
 if ($read.result.status -ne "ready") {
@@ -172,72 +120,31 @@ if ($CheckOnly) {
   return
 }
 
-$credentialsJson = ConvertTo-GrokCredentialsJson -Entry $read.entry
-$payloadBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($credentialsJson))
-$safeAccountName = $AccountName.Replace("'", "''")
-$sql = @"
-BEGIN;
-CREATE TEMP TABLE incoming_grok_build_auth (payload text);
-COPY incoming_grok_build_auth(payload) FROM STDIN;
-$payloadBase64
-\.
-WITH incoming AS (
-  SELECT convert_from(decode(payload, 'base64'), 'UTF8')::jsonb AS credentials
-  FROM incoming_grok_build_auth
-), target AS (
-  SELECT a.id, a.credentials AS old_credentials, a.status AS old_status,
-         a.schedulable AS old_schedulable, a.error_message AS old_error,
-         a.temp_unschedulable_until AS old_temp_until,
-         CASE
-           WHEN COALESCE(a.credentials->>'refresh_token', '') IS DISTINCT FROM COALESCE(i.credentials->>'refresh_token', '')
-             OR COALESCE(a.credentials->>'auth_source', '') <> 'grok_build_cli'
-           THEN COALESCE(a.credentials, '{}'::jsonb) || i.credentials
-           ELSE COALESCE(a.credentials, '{}'::jsonb) || jsonb_build_object(
-             'base_url', i.credentials->>'base_url',
-             'auth_source', 'grok_build_cli'
-           )
-         END AS new_credentials
-  FROM accounts a CROSS JOIN incoming i
-  WHERE a.name = '$safeAccountName' AND a.platform = 'grok' AND a.deleted_at IS NULL
-)
-UPDATE accounts a
-SET credentials = COALESCE(a.credentials, '{}'::jsonb) || target.new_credentials,
-    status = 'active',
-    schedulable = TRUE,
-    error_message = NULL,
-    rate_limited_at = NULL,
-    rate_limit_reset_at = NULL,
-    overload_until = NULL,
-    temp_unschedulable_until = NULL,
-    temp_unschedulable_reason = NULL,
-    updated_at = NOW()
-FROM target
-WHERE a.id = target.id
-RETURNING a.id::text || '|' ||
-  CASE WHEN target.old_credentials IS DISTINCT FROM (COALESCE(target.old_credentials, '{}'::jsonb) || target.new_credentials)
-             OR target.old_status IS DISTINCT FROM 'active'
-             OR target.old_schedulable IS DISTINCT FROM TRUE
-             OR target.old_error IS NOT NULL
-             OR target.old_temp_until IS NOT NULL
-       THEN '1' ELSE '0' END;
-COMMIT;
-"@
-
-$psqlOutput = Invoke-PsqlScript -Sql $sql
-$row = @($psqlOutput -split "`r?`n" | Where-Object { $_ -match '^(\d+)\|([01])$' } | Select-Object -Last 1)
-if ($row.Count -eq 0) {
-  throw "Grok Build account '$AccountName' was not found or sync returned an unexpected result"
+$credentialsObject = (ConvertTo-GrokCredentialsJson -Entry $read.entry) | ConvertFrom-Json
+$credentials = @{}
+$credentialsObject.PSObject.Properties | ForEach-Object { $credentials[$_.Name] = $_.Value }
+if (-not $ProviderSyncToken) {
+  throw "ProviderSyncToken is required for service-owned provider synchronization"
 }
-
-$changed = $row[0] -match '^[0-9]+\|1$'
-$restarted = $false
-if ($changed -and -not $NoRestart) {
-  $restarted = Restart-Sub2api
+$groupBody = [ordered]@{
+  name = $GroupName
+  platform = "openai"
+  subscription_type = "subscription"
+  rate_multiplier = 1.0
+  require_oauth_only = $false
 }
+$extra = @{
+  provider_sync_source = "grok_build_cli"
+  provider_sync_revision = 1
+}
+$sync = Sync-Sub2apiProviderAccount -BaseUrl $ProviderSyncBaseUrl -ProviderSyncToken $ProviderSyncToken -Source "grok_build_cli" `
+  -AccountName $AccountName -Platform "grok" -AccountType "oauth" -Credentials $credentials -Extra $extra `
+  -GroupName $GroupName -GroupBody $groupBody -Concurrency 3 -Priority 0 -RateMultiplier 1.0
+$changed = [bool]$sync.account_created -or [bool]$sync.group_created -or [bool]$sync.group_changed -or [bool]$sync.credentials_changed
 
 ($read.result | ForEach-Object {
   $_.status = if ($changed) { "synced" } else { "unchanged" }
-  $_.credentials_changed = $changed
-  $_.service_restarted = $restarted
+  $_.credentials_changed = [bool]$sync.credentials_changed
+  $_.service_restarted = $false
   $_
 } | ConvertTo-Json -Compress)

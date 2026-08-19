@@ -2678,7 +2678,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		return s.forwardGrokResponses(ctx, c, account, body, originalModel, reqStream, startTime)
 	}
 
-	if account.Type == AccountTypeAPIKey && !openai_compat.ShouldUseResponsesAPI(account.Extra) {
+	if account.Type == AccountTypeAPIKey && !openai_compat.ShouldUseResponsesAPIForEndpoint(account.Extra, account.GetOpenAIBaseURL()) {
 		return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body)
 	}
 
@@ -3331,22 +3331,6 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 
 			upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 			upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
-			// Some OpenAI-compatible API-key accounts are marked as Responses-capable
-			// (or have not been probed yet), while their actual endpoint still returns
-			// 404/405. Retry the original Responses request through the existing
-			// Responses -> Chat Completions bridge before exposing a gateway 502.
-			// This is especially important for providers whose probe accepted the
-			// URL but whose runtime route only implements /chat/completions.
-			if account.Type == AccountTypeAPIKey &&
-				openai_compat.ResolveResponsesSupport(account.Extra) != openai_compat.ResponsesSupportNo &&
-				!isResponsesEndpointSupportedByStatus(resp.StatusCode) {
-				logger.L().Info("openai responses: endpoint unsupported, falling back to raw chat completions",
-					zap.Int64("account_id", account.ID),
-					zap.Int("upstream_status", resp.StatusCode),
-					zap.String("upstream_message", upstreamMsg),
-				)
-				return s.forwardResponsesViaRawChatCompletions(ctx, c, account, originalBody)
-			}
 			upstreamCode := extractUpstreamErrorCode(respBody)
 			if !httpInvalidEncryptedContentRetryTried && resp.StatusCode == http.StatusBadRequest && upstreamCode == "invalid_encrypted_content" {
 				decoded, decodeErr := ensureReqBody()

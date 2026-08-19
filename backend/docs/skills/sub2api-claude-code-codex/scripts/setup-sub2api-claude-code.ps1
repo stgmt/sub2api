@@ -351,6 +351,7 @@ function Write-DotEnv([System.Collections.IDictionary]$Map, [string]$Path) {
     "SECURITY_URL_ALLOWLIST_ALLOW_PRIVATE_HOSTS",
     "ADMIN_EMAIL",
     "ADMIN_PASSWORD",
+    "PROVIDER_SYNC_TOKEN",
     "JWT_SECRET",
     "JWT_EXPIRE_HOUR",
     "TOTP_ENCRYPTION_KEY",
@@ -568,6 +569,7 @@ Set-DotEnvValue $envMap "REDIS_MIN_IDLE_CONNS" "10"
 Set-DotEnvValue $envMap "REDIS_ENABLE_TLS" "false"
 
 Set-DotEnvValue $envMap "ADMIN_PASSWORD" (New-Secret 24) -OnlyIfMissing:(!$ForceRegenerateSecrets)
+Set-DotEnvValue $envMap "PROVIDER_SYNC_TOKEN" (New-Secret 48) -OnlyIfMissing:(!$ForceRegenerateSecrets)
 Set-DotEnvValue $envMap "JWT_SECRET" (New-Secret 48) -OnlyIfMissing:(!$ForceRegenerateSecrets)
 Set-DotEnvValue $envMap "TOTP_ENCRYPTION_KEY" (New-Secret 32) -OnlyIfMissing:(!$ForceRegenerateSecrets)
 Set-DotEnvValue $envMap "POSTGRES_PASSWORD" (New-Secret 24) -OnlyIfMissing:(!$ForceRegenerateSecrets)
@@ -656,10 +658,8 @@ $grokBuildAuthSync = Join-Path $PSScriptRoot "sync-grok-build-auth.ps1"
   if (Test-Path -LiteralPath $grokBuildAuthSync) {
   try {
     $grokSyncParams = @{
-      Distro = $WslDistro
-      PostgresContainer = "sub2api-codex-postgres"
-      DatabaseUser = if ($envMap.ContainsKey("POSTGRES_USER") -and $envMap["POSTGRES_USER"].Trim()) { $envMap["POSTGRES_USER"] } else { "sub2api" }
-      DatabaseName = if ($envMap.ContainsKey("POSTGRES_DB") -and $envMap["POSTGRES_DB"].Trim()) { $envMap["POSTGRES_DB"] } else { "sub2api" }
+      ProviderSyncBaseUrl = "http://127.0.0.1:18081"
+      ProviderSyncToken = $envMap["PROVIDER_SYNC_TOKEN"]
       AccountName = $effectiveGrokAccountName
       CliBaseUrl = $effectiveGrokCliBaseUrl
     }
@@ -675,10 +675,8 @@ $grokBuildAuthSync = Join-Path $PSScriptRoot "sync-grok-build-auth.ps1"
   if (Test-Path -LiteralPath $clinePassAuthSync) {
     try {
       $clineSyncParams = @{
-        Distro = $WslDistro
-        PostgresContainer = "sub2api-codex-postgres"
-        DatabaseUser = if ($envMap.ContainsKey("POSTGRES_USER") -and $envMap["POSTGRES_USER"].Trim()) { $envMap["POSTGRES_USER"] } else { "sub2api" }
-        DatabaseName = if ($envMap.ContainsKey("POSTGRES_DB") -and $envMap["POSTGRES_DB"].Trim()) { $envMap["POSTGRES_DB"] } else { "sub2api" }
+        ProviderSyncBaseUrl = "http://127.0.0.1:18081"
+        ProviderSyncToken = $envMap["PROVIDER_SYNC_TOKEN"]
         AccountName = $effectiveClinePassAccountName
         GroupName = $effectiveClinePassGroupName
         ClineBaseUrl = $effectiveClinePassBaseUrl

@@ -22,8 +22,10 @@ Do not replace the OpenAI-only key globally just to add Grok.
 
 `scripts/sync-grok-build-auth.ps1` reads the dynamic top-level entry in the
 local Grok auth file, persists only the provider credential fields into the
-managed Grok account, clears stale account-error and temporary-unschedulable
-state, and restarts only `sub2api-codex` when the credential actually changed.
+managed Grok account through the scoped provider-sync API, clears stale
+account-error and temporary-unschedulable state, and invalidates scheduler
+state without restarting `sub2api-codex`. Direct SQL, admin login, and
+restart-based credential synchronization are forbidden.
 The sync is fail-soft when the local file is missing: OpenAI traffic stays
 available and the watchdog records a redacted status event.
 

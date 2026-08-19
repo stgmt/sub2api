@@ -142,7 +142,7 @@ func TestOpenAIGatewayService_Forward_WSv2ErrorEventUsageLimitPersistsRateLimit(
 			"api_key":  "sk-test",
 			"base_url": wsServer.URL,
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -212,7 +212,7 @@ func TestOpenAIGatewayService_Forward_WSv2Handshake429PersistsRateLimit(t *testi
 			"api_key":  "sk-test",
 			"base_url": server.URL,
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -275,7 +275,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_ErrorEventUsageL
 		Credentials: map[string]any{
 			"api_key": "sk-test",
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -452,7 +452,7 @@ func TestOpenAIGatewayService_GetSchedulableAccount_ExhaustedCodexExtraDoesNotSe
 		Status:      StatusActive,
 		Schedulable: true,
 		Concurrency: 1,
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"codex_7d_used_percent": 100.0,
 			"codex_7d_reset_at":     resetAt.UTC().Format(time.RFC3339),
 		},
@@ -481,7 +481,7 @@ func TestAdminService_ListAccounts_ExhaustedCodexExtraDoesNotSetRateLimit(t *tes
 			Status:      StatusActive,
 			Schedulable: true,
 			Concurrency: 1,
-			Extra: map[string]any{
+			Extra: map[string]any{"openai_responses_mode": "force_responses",
 				"codex_7d_used_percent": 100.0,
 				"codex_7d_reset_at":     resetAt.UTC().Format(time.RFC3339),
 			},

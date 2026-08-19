@@ -108,7 +108,7 @@ func TestOpenAIGatewayService_Forward_PreservePreviousResponseIDWhenWSEnabled(t 
 			"api_key":  "sk-test",
 			"base_url": wsFallbackServer.URL,
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -167,7 +167,7 @@ func TestOpenAIGatewayService_Forward_HTTPIngressStaysHTTPWhenWSEnabled(t *testi
 			"api_key":  "sk-test",
 			"base_url": wsFallbackServer.URL,
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -242,7 +242,7 @@ func TestOpenAIGatewayService_Forward_HTTPIngressRetriesInvalidEncryptedContentO
 			"api_key":  "sk-test",
 			"base_url": wsFallbackServer.URL,
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -331,7 +331,7 @@ func TestOpenAIGatewayService_Forward_HTTPIngressRetriesWrappedInvalidEncryptedC
 			"api_key":  "sk-test",
 			"base_url": wsFallbackServer.URL,
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -400,7 +400,7 @@ func TestOpenAIGatewayService_Forward_RemovePreviousResponseIDWhenWSDisabled(t *
 			"api_key":  "sk-test",
 			"base_url": wsFallbackServer.URL,
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -460,7 +460,7 @@ func TestOpenAIGatewayService_Forward_WSv2Dial426FallbackHTTP(t *testing.T) {
 			"api_key":  "sk-test",
 			"base_url": ws426Server.URL,
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -522,7 +522,7 @@ func TestOpenAIGatewayService_Forward_WSv2FallbackCoolingSkipWS(t *testing.T) {
 			"api_key":  "sk-test",
 			"base_url": wsServer.URL,
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -581,7 +581,7 @@ func TestOpenAIGatewayService_Forward_ReturnErrorWhenOnlyWSv1Enabled(t *testing.
 			"api_key":  "sk-test",
 			"base_url": "https://api.openai.com/v1/responses",
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -675,7 +675,7 @@ func TestOpenAIGatewayService_Forward_WSv2FallbackWhenResponseAlreadyWrittenRetu
 			"api_key":  "sk-test",
 			"base_url": ws426Server.URL,
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -768,7 +768,7 @@ func TestOpenAIGatewayService_Forward_WSv2StreamEarlyCloseFallbackHTTP(t *testin
 			"api_key":  "sk-test",
 			"base_url": wsServer.URL,
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -850,7 +850,7 @@ func TestOpenAIGatewayService_Forward_WSv2RetryFiveTimesThenFallbackHTTP(t *test
 			"api_key":  "sk-test",
 			"base_url": wsServer.URL,
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -931,7 +931,7 @@ func TestOpenAIGatewayService_Forward_WSv2PolicyViolationFastFallbackHTTP(t *tes
 			"api_key":  "sk-test",
 			"base_url": wsServer.URL,
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -1015,7 +1015,7 @@ func TestOpenAIGatewayService_Forward_WSv2ConnectionLimitReachedRetryThenFallbac
 			"api_key":  "sk-test",
 			"base_url": wsServer.URL,
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -1122,7 +1122,7 @@ func TestOpenAIGatewayService_Forward_WSv2PreviousResponseNotFoundRecoversByDrop
 			"api_key":  "sk-test",
 			"base_url": wsServer.URL,
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -1222,7 +1222,7 @@ func TestOpenAIGatewayService_Forward_WSv2PreviousResponseNotFoundSkipsRecoveryF
 			"api_key":  "sk-test",
 			"base_url": wsServer.URL,
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -1320,7 +1320,7 @@ func TestOpenAIGatewayService_Forward_WSv2PreviousResponseNotFoundSkipsRecoveryW
 			"api_key":  "sk-test",
 			"base_url": wsServer.URL,
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -1417,7 +1417,7 @@ func TestOpenAIGatewayService_Forward_WSv2PreviousResponseNotFoundOnlyRecoversOn
 			"api_key":  "sk-test",
 			"base_url": wsServer.URL,
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -1532,7 +1532,7 @@ func TestOpenAIGatewayService_Forward_WSv2InvalidEncryptedContentRecoversOnce(t 
 			"api_key":  "sk-test",
 			"base_url": wsServer.URL,
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -1635,7 +1635,7 @@ func TestOpenAIGatewayService_Forward_WSv2InvalidEncryptedContentSkipsRecoveryWi
 			"api_key":  "sk-test",
 			"base_url": wsServer.URL,
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -1751,7 +1751,7 @@ func TestOpenAIGatewayService_Forward_WSv2InvalidEncryptedContentRecoversSingleO
 			"api_key":  "sk-test",
 			"base_url": wsServer.URL,
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -1869,7 +1869,7 @@ func TestOpenAIGatewayService_Forward_WSv2InvalidEncryptedContentKeepsPreviousRe
 			"api_key":  "sk-test",
 			"base_url": wsServer.URL,
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}

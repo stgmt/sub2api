@@ -17,6 +17,11 @@
 //     pensieve/short-term/maxims/preserve-existing-runtime-behavior-when-replacing-logic-in-stateful-systems）
 package openai_compat
 
+import (
+	"net/url"
+	"strings"
+)
+
 // AccountResponsesSupport 描述账号上游对 OpenAI Responses API 的有效支持状态。
 //
 // 仅用于 platform=openai + type=apikey 的账号；其他账号类型不应调用本包判定。
@@ -24,7 +29,8 @@ type AccountResponsesSupport int
 
 const (
 	// ResponsesSupportUnknown 表示账号尚未完成能力探测（extra 字段缺失）。
-	// 上游路由层应按"现状即证据"原则默认走 Responses，保持与重构前一致。
+	// 未知能力不得乐观地当作 Responses 支持；调用方必须直连已知安全的
+	// Chat Completions 路径或拒绝协议依赖流量，直到专用探测写入明确结果。
 	ResponsesSupportUnknown AccountResponsesSupport = iota
 
 	// ResponsesSupportYes 探测确认上游支持 /v1/responses。
@@ -104,12 +110,26 @@ func ResolveResponsesSupport(extra map[string]any) AccountResponsesSupport {
 // ShouldUseResponsesAPI 判断 OpenAI APIKey 账号的入站 /v1/chat/completions 请求
 // 是否应走"CC→Responses 转换 + 上游 /v1/responses"路径。
 //
-// 返回 true 的两种情况：
-//  1. 账号已探测确认支持 Responses
-//  2. 账号未探测（标记缺失）——按"现状即证据"原则保留旧行为
-//
-// 仅当账号已探测且确认不支持时返回 false，此时调用方应走 CC 直转路径
-// （详见 internal/service/openai_gateway_chat_completions_raw.go）。
+// 仅在账号明确强制或探测确认支持 Responses 时返回 true。未知能力返回
+// false，避免把 OpenAI-compatible 误当成 Responses-compatible。
 func ShouldUseResponsesAPI(extra map[string]any) bool {
-	return ResolveResponsesSupport(extra) != ResponsesSupportNo
+	return ResolveResponsesSupport(extra) == ResponsesSupportYes
+}
+
+// ShouldUseResponsesAPIForEndpoint keeps the native OpenAI API on its native
+// Responses protocol while failing closed for an unprobed custom endpoint.
+func ShouldUseResponsesAPIForEndpoint(extra map[string]any, baseURL string) bool {
+	support := ResolveResponsesSupport(extra)
+	if support != ResponsesSupportUnknown {
+		return support == ResponsesSupportYes
+	}
+	baseURL = strings.TrimSpace(baseURL)
+	if baseURL == "" {
+		return true
+	}
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(u.Hostname(), "api.openai.com")
 }

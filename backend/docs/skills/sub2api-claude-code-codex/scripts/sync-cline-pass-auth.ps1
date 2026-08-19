@@ -1,9 +1,7 @@
 param(
   [string]$AuthFile = "",
-  [string]$Distro = "Ubuntu-24.04",
-  [string]$PostgresContainer = "sub2api-codex-postgres",
-  [string]$DatabaseUser = "sub2api",
-  [string]$DatabaseName = "sub2api",
+  [string]$ProviderSyncBaseUrl = "http://127.0.0.1:18081",
+  [string]$ProviderSyncToken = "",
   [string]$AccountName = "cline-pass-subscription",
   [string]$GroupName = "headroom-openai-grok-composite",
   [string]$ClineBaseUrl = "https://api.cline.bot/api/v1",
@@ -11,11 +9,11 @@ param(
   [string]$ClineCoreVersion = "0.0.75",
   [string]$DshSettingsPath = "",
   [switch]$CheckOnly,
-  [switch]$NoRestart,
   [switch]$ForceRefresh
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "provider-account-sync-api.ps1")
 if (Get-Variable PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) {
   $PSNativeCommandUseErrorActionPreference = $false
 }
@@ -536,33 +534,6 @@ function Sync-DshModelCatalog {
   return [ordered]@{ status = if ($changed) { "updated" } else { "unchanged" }; path = $path; added = $added; removed = $removed; effort_models = @($effortModels); model_count = $ClinePassModelCatalog.Count }
 }
 
-function Invoke-PsqlScript {
-  param([string]$Sql)
-
-  # Use PowerShell's native stdin pipeline. Windows PowerShell can leave a
-  # redirected ProcessStartInfo stdin open across wsl.exe/docker exec, which
-  # makes psql wait forever after COPY FROM STDIN even after Close().
-  $output = @($Sql | & wsl.exe -d $Distro -- docker exec -i $PostgresContainer psql -U $DatabaseUser -d $DatabaseName -v ON_ERROR_STOP=1 -At 2>&1)
-  if ($LASTEXITCODE -ne 0) {
-    $safeError = (($output -join [Environment]::NewLine) -replace "(?i)(api_key|access_token|refresh_token|id_token|workos):?\s*[=:]?\s*\S+", '$1=<redacted>').Trim()
-    throw "PostgreSQL Cline sync failed: $safeError"
-  }
-  return (($output -join [Environment]::NewLine).Trim())
-}
-
-function Restart-Sub2api {
-  $output = & wsl.exe -d $Distro -- docker restart sub2api-codex 2>&1
-  if ($LASTEXITCODE -ne 0) {
-    throw "sub2api restart failed: $(($output -join " ").Trim())"
-  }
-  for ($attempt = 0; $attempt -lt 45; $attempt++) {
-    $health = ((@(& wsl.exe -d $Distro -- docker inspect -f '{{.State.Health.Status}}' sub2api-codex 2>$null)) -join "").Trim()
-    if ($health -eq "healthy") { return $true }
-    Start-Sleep -Seconds 2
-  }
-  throw "sub2api did not become healthy after Cline Pass credential sync"
-}
-
 $source = Resolve-AuthFile
 $read = Read-ClinePassEntry -Path $source -ForceRefresh:$ForceRefresh
 if ($read.result.status -ne "ready") {
@@ -575,169 +546,45 @@ if ($CheckOnly) {
   return
 }
 
-$credentialsJson = ConvertTo-ClineCredentialsJson -Entry $read.entry
-$payload = [ordered]@{
-  account_name = $AccountName
-  group_name = $GroupName
-  credentials = $credentialsJson | ConvertFrom-Json
-  model_ids = @($ClinePassModelIds)
+$credentialsObject = (ConvertTo-ClineCredentialsJson -Entry $read.entry) | ConvertFrom-Json
+$credentials = @{}
+$credentialsObject.PSObject.Properties | ForEach-Object { $credentials[$_.Name] = $_.Value }
+if (-not $ProviderSyncToken) {
+  throw "ProviderSyncToken is required for service-owned provider synchronization"
 }
-$payloadBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($payload | ConvertTo-Json -Compress -Depth 12)))
-
-$sql = @'
-BEGIN;
-CREATE TEMP TABLE incoming_cline_pass_auth (payload text);
-INSERT INTO incoming_cline_pass_auth(payload) VALUES ('
-'@
-$sql += $payloadBase64 + "');`n"
-$sql += @'
-CREATE TEMP TABLE cline_sync_result (
-  account_id bigint,
-  group_id bigint,
-  account_changed boolean,
-  group_changed boolean,
-  membership_added boolean,
-  model_count integer
-);
-DO $$
-DECLARE
-  p jsonb;
-  v_account_id bigint;
-  v_group_id bigint;
-  v_old_credentials jsonb;
-  v_old_status text;
-  v_old_schedulable boolean;
-  v_old_deleted_at timestamptz;
-  v_old_group_config jsonb;
-  v_old_require_oauth boolean;
-  v_new_credentials jsonb;
-  v_new_group_config jsonb;
-  v_new_models jsonb;
-  v_account_changed boolean;
-  v_group_changed boolean;
-  v_membership_added boolean;
-  v_rows integer;
-BEGIN
-  SELECT convert_from(decode(payload, 'base64'), 'UTF8')::jsonb
-    INTO p
-    FROM incoming_cline_pass_auth
-    LIMIT 1;
-  IF p IS NULL THEN RAISE EXCEPTION 'empty Cline Pass sync payload'; END IF;
-
-  SELECT a.id, a.credentials, a.status, a.schedulable, a.deleted_at
-    INTO v_account_id, v_old_credentials, v_old_status, v_old_schedulable, v_old_deleted_at
-    FROM accounts a
-   WHERE a.name = p->>'account_name'
-     AND a.platform = 'openai'
-   ORDER BY a.id DESC
-   LIMIT 1;
-
-  v_new_credentials := COALESCE(v_old_credentials, '{}'::jsonb) || (p->'credentials');
-  IF v_account_id IS NULL THEN
-    INSERT INTO accounts (
-      name, platform, type, credentials, status, schedulable, priority,
-      concurrency, rate_multiplier, created_at, updated_at
-    ) VALUES (
-      p->>'account_name', 'openai', 'apikey', p->'credentials', 'active', TRUE,
-      0, 3, 1.0, NOW(), NOW()
-    ) RETURNING id INTO v_account_id;
-    v_account_changed := TRUE;
-  ELSE
-    UPDATE accounts
-       SET credentials = v_new_credentials,
-           type = 'apikey',
-           status = 'active',
-           schedulable = TRUE,
-           error_message = NULL,
-           rate_limited_at = NULL,
-           rate_limit_reset_at = NULL,
-           overload_until = NULL,
-           temp_unschedulable_until = NULL,
-           temp_unschedulable_reason = NULL,
-           deleted_at = NULL,
-           updated_at = NOW()
-     WHERE id = v_account_id;
-    v_account_changed :=
-      v_old_credentials IS DISTINCT FROM v_new_credentials
-      OR v_old_status IS DISTINCT FROM 'active'
-      OR v_old_schedulable IS DISTINCT FROM TRUE
-      OR v_old_deleted_at IS NOT NULL;
-  END IF;
-
-  SELECT g.id, g.models_list_config, g.require_oauth_only
-    INTO v_group_id, v_old_group_config, v_old_require_oauth
-    FROM groups g
-   WHERE g.name = p->>'group_name'
-     AND g.deleted_at IS NULL
-   ORDER BY g.id DESC
-   LIMIT 1;
-  IF v_group_id IS NULL THEN RAISE EXCEPTION 'Cline Pass target group not found: %', p->>'group_name'; END IF;
-
-  SELECT COALESCE(jsonb_agg(value), '[]'::jsonb)
-    INTO v_new_models
-    FROM (
-       SELECT DISTINCT value
-       FROM jsonb_array_elements_text(
-          COALESCE(v_old_group_config->'models', '[]'::jsonb) || (p->'model_ids')
-        ) AS model_values(value)
-        WHERE value <> ''
-          AND value !~* '^nvidia/'
-          AND value !~* 'nemotron'
-          AND value !~* 'qwen([0-2](\.[0-9]+)?|3\.[0-7])([^0-9]|$)'
-          AND value !~* 'glm[- ]?([0-4](\.[0-9]+)?|5\.[0-2])([^0-9]|$)'
-          AND value !~* 'kimi([- ]k)?[0-2](\.[0-9]+)?([^0-9]|$)'
-        ORDER BY value
-    ) distinct_models;
-  v_new_group_config := COALESCE(v_old_group_config, '{}'::jsonb)
-    || jsonb_build_object('models', v_new_models, 'enabled', TRUE, 'explicit', TRUE);
-  v_group_changed :=
-    v_old_require_oauth IS DISTINCT FROM FALSE
-    OR v_old_group_config IS DISTINCT FROM v_new_group_config;
-
-  UPDATE groups
-     SET require_oauth_only = FALSE,
-         models_list_config = v_new_group_config,
-         updated_at = NOW()
-   WHERE id = v_group_id;
-
-  INSERT INTO account_groups(account_id, group_id, priority, created_at)
-  SELECT v_account_id, v_group_id, 0, NOW()
-   WHERE NOT EXISTS (
-     SELECT 1 FROM account_groups ag
-      WHERE ag.account_id = v_account_id AND ag.group_id = v_group_id
-   );
-  GET DIAGNOSTICS v_rows = ROW_COUNT;
-  v_membership_added := v_rows > 0;
-
-  INSERT INTO cline_sync_result(account_id, group_id, account_changed, group_changed, membership_added, model_count)
-  VALUES (v_account_id, v_group_id, v_account_changed, v_group_changed, v_membership_added, jsonb_array_length(v_new_models));
-END $$;
-SELECT account_id::text || '|' || group_id::text || '|' ||
-       account_changed::text || '|' || group_changed::text || '|' ||
-       membership_added::text || '|' || model_count::text
-  FROM cline_sync_result;
-COMMIT;
-'@
-
-$psqlOutput = Invoke-PsqlScript -Sql $sql
-$row = @($psqlOutput -split "`r?`n" | Where-Object { $_ -match '^\d+\|\d+\|(true|false)\|(true|false)\|(true|false)\|\d+$' } | Select-Object -Last 1)
-if ($row.Count -eq 0) { throw "Cline Pass sync returned an unexpected PostgreSQL result" }
-
-$parts = $row[0].Split('|')
-$accountChanged = $parts[2] -eq "true"
-$groupChanged = $parts[3] -eq "true"
-$membershipAdded = $parts[4] -eq "true"
-$changed = $accountChanged -or $groupChanged -or $membershipAdded
+$groupBody = [ordered]@{
+  name = $GroupName
+  platform = "openai"
+  subscription_type = "subscription"
+  rate_multiplier = 1.0
+  require_oauth_only = $false
+  models_list_config = [ordered]@{
+    enabled = $true
+    explicit = $true
+    models = @($ClinePassModelIds)
+  }
+}
+$extra = @{
+  openai_responses_mode = "force_chat_completions"
+  openai_responses_supported = $false
+  provider_sync_source = "cline_pass_cli"
+  provider_sync_revision = 1
+}
+$sync = Sync-Sub2apiProviderAccount -BaseUrl $ProviderSyncBaseUrl -ProviderSyncToken $ProviderSyncToken -Source "cline_pass_cli" `
+  -AccountName $AccountName -Platform "openai" -AccountType "apikey" -Credentials $credentials -Extra $extra `
+  -GroupName $GroupName -GroupBody $groupBody -Concurrency 3 -Priority 0 -RateMultiplier 1.0
 $dshSync = Sync-DshModelCatalog
-$restarted = $false
-if ($changed -and -not $NoRestart) { $restarted = Restart-Sub2api }
-
+$accountChanged = [bool]$sync.credentials_changed
+$groupChanged = [bool]$sync.group_created -or [bool]$sync.group_changed
+$membershipAdded = $true
+$changed = $accountChanged -or $groupChanged
 $result = $read.result
 $result.status = if ($changed) { "synced" } else { "unchanged" }
-$result.credentials_changed = $accountChanged
+$result.credentials_changed = [bool]$sync.credentials_changed
 $result.group_changed = $groupChanged
 $result.membership_added = $membershipAdded
-$result.service_restarted = $restarted
-$result.model_count = [int]$parts[5]
+$result.service_restarted = $false
+$result.model_count = [int]$ClinePassModelIds.Count
+$result.protocol_mode = [string]$sync.protocol_mode
 $result.dsh_model_catalog = $dshSync
 ($result | ConvertTo-Json -Compress)

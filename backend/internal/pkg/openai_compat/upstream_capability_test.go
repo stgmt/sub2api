@@ -41,9 +41,9 @@ func TestShouldUseResponsesAPI(t *testing.T) {
 		want  bool
 	}{
 		// 关键不变量：未探测必须返回 true（保留旧行为）
-		{"unknown defaults to true (preserve old behavior)", nil, true},
-		{"unknown empty defaults to true", map[string]any{}, true},
-		{"unknown wrong type defaults to true", map[string]any{ExtraKeyResponsesSupported: "yes"}, true},
+		{"unknown fails closed", nil, false},
+		{"unknown empty fails closed", map[string]any{}, false},
+		{"unknown wrong type fails closed", map[string]any{ExtraKeyResponsesSupported: "yes"}, false},
 
 		// 已探测：标记决定
 		{"explicitly supported", map[string]any{ExtraKeyResponsesSupported: true}, true},
@@ -61,6 +61,18 @@ func TestShouldUseResponsesAPI(t *testing.T) {
 				t.Errorf("ShouldUseResponsesAPI(%v) = %v, want %v", tc.extra, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestShouldUseResponsesAPIForEndpoint(t *testing.T) {
+	if !ShouldUseResponsesAPIForEndpoint(nil, "https://api.openai.com/v1") {
+		t.Fatal("native OpenAI endpoint must retain Responses protocol")
+	}
+	if ShouldUseResponsesAPIForEndpoint(nil, "https://api.cline.bot/api/v1") {
+		t.Fatal("unknown custom endpoint must fail closed")
+	}
+	if !ShouldUseResponsesAPIForEndpoint(map[string]any{ExtraKeyResponsesSupported: true}, "https://custom.invalid/v1") {
+		t.Fatal("explicit capability must override custom endpoint default")
 	}
 }
 

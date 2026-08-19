@@ -330,7 +330,7 @@ func TestOpenAIWSHTTPBridgeAcceptsFirstFrameAboveLegacy16MiB(t *testing.T) {
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
 		Credentials: map[string]any{"api_key": "sk-upstream"},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"openai_apikey_responses_websockets_v2_enabled": true,
 		},
 		Concurrency: 1,
@@ -484,7 +484,7 @@ func TestOpenAIWSHTTPBridgeKeepsContinuationFramesOnHTTPWithoutPreviousResponseI
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
 		Credentials: map[string]any{"api_key": "sk-upstream"},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 		Concurrency: 1,

@@ -66,7 +66,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_KeepLeaseAcrossT
 		Credentials: map[string]any{
 			"api_key": "sk-test",
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -213,7 +213,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_FollowupCreateCa
 				"client-model": "gpt-5.1",
 			},
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -355,7 +355,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_InjectsCodexImag
 		Credentials: map[string]any{
 			"access_token": "test-token",
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"openai_oauth_responses_websockets_v2_enabled": true,
 			"codex_image_generation_bridge":                true,
 		},
@@ -491,7 +491,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_DedicatedModeDoe
 		Credentials: map[string]any{
 			"api_key": "sk-test",
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"openai_apikey_responses_websockets_v2_mode": OpenAIWSIngressModeDedicated,
 		},
 	}
@@ -611,7 +611,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_PassthroughModeR
 		Credentials: map[string]any{
 			"api_key": "sk-test",
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"openai_apikey_responses_websockets_v2_mode": OpenAIWSIngressModePassthrough,
 		},
 	}
@@ -753,7 +753,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_PassthroughHeade
 		Credentials: map[string]any{
 			"access_token": "oauth-token",
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"openai_oauth_responses_websockets_v2_mode": OpenAIWSIngressModePassthrough,
 		},
 	}
@@ -875,7 +875,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_HTTPBridgeModeRe
 		Credentials: map[string]any{
 			"api_key": "sk-test",
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"openai_apikey_responses_websockets_v2_mode": OpenAIWSIngressModeHTTPBridge,
 		},
 	}
@@ -1009,7 +1009,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_ModeOffReturnsPo
 		Credentials: map[string]any{
 			"api_key": "sk-test",
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"openai_apikey_responses_websockets_v2_mode": OpenAIWSIngressModeOff,
 		},
 	}
@@ -1122,7 +1122,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_StoreDisabledPre
 		Credentials: map[string]any{
 			"api_key": "sk-test",
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -1269,7 +1269,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_StoreDisabledPre
 		Credentials: map[string]any{
 			"api_key": "sk-test",
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -1410,7 +1410,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_StoreEnabledSkip
 		Credentials: map[string]any{
 			"api_key": "sk-test",
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -1542,7 +1542,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_StoreDisabledPre
 		Credentials: map[string]any{
 			"api_key": "sk-test",
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -1674,7 +1674,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_StoreDisabledFun
 		Credentials: map[string]any{
 			"api_key": "sk-test",
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -1806,7 +1806,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_StoreDisabledToo
 		Credentials: map[string]any{
 			"api_key": "sk-test",
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -1941,7 +1941,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_StoreDisabledFun
 		Credentials: map[string]any{
 			"api_key": "sk-test",
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -2076,7 +2076,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_StoreDisabledFun
 		Credentials: map[string]any{
 			"api_key": "sk-test",
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -2210,7 +2210,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_StoreDisabledFun
 		Credentials: map[string]any{
 			"api_key": "sk-test",
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -2353,7 +2353,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_PreflightPingFai
 		Credentials: map[string]any{
 			"api_key": "sk-test",
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -2495,7 +2495,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_StoreDisabledStr
 		Credentials: map[string]any{
 			"api_key": "sk-test",
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -2647,7 +2647,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_StoreDisabledPre
 		Credentials: map[string]any{
 			"api_key": "sk-test",
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -2802,7 +2802,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_StoreDisabledPre
 		Credentials: map[string]any{
 			"api_key": "sk-test",
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -2948,7 +2948,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_StoreDisabledPre
 		Credentials: map[string]any{
 			"api_key": "sk-test",
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -3089,7 +3089,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_WriteFailBeforeD
 		Credentials: map[string]any{
 			"api_key": "sk-test",
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -3252,7 +3252,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_PreviousResponse
 		Credentials: map[string]any{
 			"api_key": "sk-test",
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -3403,7 +3403,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_StoreDisabledStr
 		Credentials: map[string]any{
 			"api_key": "sk-test",
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -3559,7 +3559,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_PreviousResponse
 		Credentials: map[string]any{
 			"api_key": "sk-test",
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -3684,7 +3684,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_RejectsMessageID
 		Credentials: map[string]any{
 			"api_key": "sk-test",
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}
@@ -3932,7 +3932,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_ClientDisconnect
 				"custom-original-model": "gpt-5.1",
 			},
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"responses_websockets_v2_enabled": true,
 		},
 	}

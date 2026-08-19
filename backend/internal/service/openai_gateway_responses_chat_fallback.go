@@ -70,6 +70,12 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 	// 国产模型默认 effort 补充：需要 mappedModel 判定，推迟到 billingModel 算出之后。
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, billingModel)
 	chatReq.Model = upstreamModel
+	// ResponsesToChatCompletionsRequest intentionally converts semantic fields,
+	// but the client transport contract belongs to this gateway boundary.
+	// Without this assignment a streaming DSH request becomes a buffered Chat
+	// request while the response is still parsed as SSE, producing an empty
+	// synthetic completion.
+	chatReq.Stream = clientStream
 	if clientStream {
 		chatReq.StreamOptions = &apicompat.ChatStreamOptions{IncludeUsage: true}
 	}
@@ -231,6 +237,10 @@ func (s *OpenAIGatewayService) bufferChatCompletionsAsResponses(
 		return nil, fmt.Errorf("parse chat completions response: %w", err)
 	}
 	responsesResp := apicompat.ChatCompletionsResponseToResponses(&ccResp, originalModel)
+	if !responsesResponseHasConsumableOutput(responsesResp) {
+		writeResponsesError(c, http.StatusBadGateway, "upstream_protocol_error", "Upstream completed without assistant content or a tool call")
+		return nil, fmt.Errorf("chat completions upstream completed without consumable output")
+	}
 
 	usage := OpenAIUsage{}
 	if parsed, ok := extractOpenAIUsageFromJSONBytes(respBody); ok {
@@ -280,6 +290,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 		c.Writer.Header().Set("Connection", "keep-alive")
 		c.Writer.Header().Set("X-Accel-Buffering", "no")
 		c.Writer.WriteHeader(http.StatusOK)
+		MarkResponseCommitted(c)
 	}
 
 	state := apicompat.NewChatCompletionsToResponsesStreamState(originalModel)
@@ -296,7 +307,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 		for _, event := range events {
 			sse, err := apicompat.ResponsesEventToSSE(event)
 			if err != nil {
-				logger.L().Warn("openai responses chat fallback: failed to marshal stream event",
+				logger.L().Warn("openai responses chat protocol adapter: failed to marshal stream event",
 					zap.Error(err),
 					zap.String("request_id", requestID),
 				)
@@ -376,6 +387,38 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 		}, fmt.Errorf("stream usage incomplete: %w", err)
 	}
 
+	if state.Text.Len() == 0 && state.Reasoning.Len() == 0 && len(state.ToolCalls) == 0 {
+		// A terminal failure is still a valid Responses stream: emit created
+		// before failed instead of synthesizing a successful completion.
+		writeEvents(apicompat.ChatCompletionsChunkToResponsesEvents(&apicompat.ChatCompletionsChunk{}, state))
+		writeEvents([]apicompat.ResponsesStreamEvent{{
+			Type: "response.failed",
+			Response: &apicompat.ResponsesResponse{
+				ID:     state.ResponseID,
+				Object: "response",
+				Model:  state.Model,
+				Status: "failed",
+				Output: []apicompat.ResponsesOutput{},
+				Usage:  state.Usage,
+				Error: &apicompat.ResponsesError{
+					Code:    "upstream_protocol_error",
+					Message: "Upstream completed without assistant content or a tool call",
+				},
+			},
+		}})
+		if !clientDisconnected {
+			if _, err := fmt.Fprint(c.Writer, "data: [DONE]\n\n"); err == nil {
+				c.Writer.Flush()
+			}
+		}
+		return &OpenAIForwardResult{
+			RequestID: requestID, Usage: usage, Model: originalModel,
+			BillingModel: billingModel, UpstreamModel: upstreamModel,
+			ReasoningEffort: reasoningEffort, ServiceTier: serviceTier,
+			Stream: true, Duration: time.Since(startTime), FirstTokenMs: firstTokenMs,
+		}, fmt.Errorf("chat completions stream completed without consumable output")
+	}
+
 	writeEvents(apicompat.FinalizeChatCompletionsResponsesStream(state))
 	if !clientDisconnected {
 		writeStreamHeaders()
@@ -404,6 +447,27 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 		Duration:        time.Since(startTime),
 		FirstTokenMs:    firstTokenMs,
 	}, nil
+}
+
+func responsesResponseHasConsumableOutput(resp *apicompat.ResponsesResponse) bool {
+	if resp == nil {
+		return false
+	}
+	for _, output := range resp.Output {
+		switch output.Type {
+		case "message":
+			for _, part := range output.Content {
+				if part.Type == "output_text" && strings.TrimSpace(part.Text) != "" {
+					return true
+				}
+			}
+		case "function_call":
+			if strings.TrimSpace(output.Name) != "" || strings.TrimSpace(output.CallID) != "" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func chatChunkStartsResponsesOutput(chunk *apicompat.ChatCompletionsChunk) bool {

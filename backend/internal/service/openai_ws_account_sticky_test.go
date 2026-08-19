@@ -19,7 +19,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_Hit(t *testing.T
 		Status:      StatusActive,
 		Schedulable: true,
 		Concurrency: 2,
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"openai_apikey_responses_websockets_v2_enabled": true,
 		},
 	}
@@ -58,7 +58,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_QuotaAutoPausedM
 		Status:      StatusActive,
 		Schedulable: true,
 		Concurrency: 2,
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"openai_apikey_responses_websockets_v2_enabled": true,
 			"codex_5h_used_percent":                         96.0,
 			"auto_pause_5h_threshold":                       0.95,
@@ -100,7 +100,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_RateLimitedMiss(
 		Schedulable:      true,
 		Concurrency:      1,
 		RateLimitResetAt: &rateLimitedUntil,
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"openai_apikey_responses_websockets_v2_enabled": true,
 		},
 	}
@@ -136,7 +136,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_DBRuntimeRecheck
 		Status:      StatusActive,
 		Schedulable: true,
 		Concurrency: 1,
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"openai_apikey_responses_websockets_v2_enabled": true,
 		},
 	}
@@ -148,7 +148,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_DBRuntimeRecheck
 		Schedulable:      true,
 		Concurrency:      1,
 		RateLimitResetAt: &rateLimitedUntil,
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"openai_apikey_responses_websockets_v2_enabled": true,
 		},
 	}
@@ -187,7 +187,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_Excluded(t *test
 		Status:      StatusActive,
 		Schedulable: true,
 		Concurrency: 1,
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"openai_apikey_responses_websockets_v2_enabled": true,
 		},
 	}
@@ -219,7 +219,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_ForceHTTPIgnored
 		Status:      StatusActive,
 		Schedulable: true,
 		Concurrency: 1,
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"openai_ws_force_http":            true,
 			"responses_websockets_v2_enabled": true,
 		},
@@ -254,7 +254,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_BusyKeepsSticky(
 			Schedulable: true,
 			Concurrency: 1,
 			Priority:    0,
-			Extra: map[string]any{
+			Extra: map[string]any{"openai_responses_mode": "force_responses",
 				"openai_apikey_responses_websockets_v2_enabled": true,
 			},
 		},
@@ -266,7 +266,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_BusyKeepsSticky(
 			Schedulable: true,
 			Concurrency: 1,
 			Priority:    9,
-			Extra: map[string]any{
+			Extra: map[string]any{"openai_responses_mode": "force_responses",
 				"openai_apikey_responses_websockets_v2_enabled": true,
 			},
 		},
@@ -321,7 +321,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_CapabilityMismat
 		Credentials: map[string]any{
 			"openai_capabilities": []any{"chat_completions"},
 		},
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"openai_apikey_responses_websockets_v2_enabled": true,
 		},
 	}

@@ -94,6 +94,13 @@ type Config struct {
 	Update                  UpdateConfig                  `mapstructure:"update"`
 	Idempotency             IdempotencyConfig             `mapstructure:"idempotency"`
 	BatchImage              BatchImageConfig              `mapstructure:"batch_image"`
+	ProviderSync            ProviderSyncConfig            `mapstructure:"provider_sync"`
+}
+
+// ProviderSyncConfig protects the host-side provider credential synchronizer.
+// It is intentionally separate from administrator JWT authentication.
+type ProviderSyncConfig struct {
+	Token string `mapstructure:"token"`
 }
 
 type LogConfig struct {
@@ -1929,7 +1936,7 @@ func setDefaults() {
 	viper.SetDefault("idempotency.cleanup_batch_size", 500)
 
 	// Gateway
-	viper.SetDefault("gateway.response_header_timeout", 600) // 600秒(10分钟)等待上游响应头，LLM高负载时可能排队较久
+	viper.SetDefault("gateway.response_header_timeout", 600)        // 600秒(10分钟)等待上游响应头，LLM高负载时可能排队较久
 	viper.SetDefault("gateway.openai_response_header_timeout", 120) // 120秒等待 OpenAI/Codex 首个响应头；不限制已建立的流
 	viper.SetDefault("gateway.log_upstream_error_body", true)
 	viper.SetDefault("gateway.log_upstream_error_body_max_bytes", 2048)

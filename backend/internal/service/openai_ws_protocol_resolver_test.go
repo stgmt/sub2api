@@ -18,7 +18,7 @@ func TestOpenAIWSProtocolResolver_Resolve(t *testing.T) {
 	openAIOAuthEnabled := &Account{
 		Platform: PlatformOpenAI,
 		Type:     AccountTypeOAuth,
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"openai_oauth_responses_websockets_v2_enabled": true,
 		},
 	}
@@ -113,7 +113,7 @@ func TestOpenAIWSProtocolResolver_Resolve(t *testing.T) {
 		account := &Account{
 			Platform: PlatformOpenAI,
 			Type:     AccountTypeAPIKey,
-			Extra: map[string]any{
+			Extra: map[string]any{"openai_responses_mode": "force_responses",
 				"openai_apikey_responses_websockets_v2_enabled": true,
 			},
 		}
@@ -126,7 +126,7 @@ func TestOpenAIWSProtocolResolver_Resolve(t *testing.T) {
 		account := &Account{
 			Platform: PlatformOpenAI,
 			Type:     "unknown_type",
-			Extra: map[string]any{
+			Extra: map[string]any{"openai_responses_mode": "force_responses",
 				"responses_websockets_v2_enabled": true,
 			},
 		}
@@ -149,7 +149,7 @@ func TestOpenAIWSProtocolResolver_Resolve_ModeRouterV2(t *testing.T) {
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeOAuth,
 		Concurrency: 1,
-		Extra: map[string]any{
+		Extra: map[string]any{"openai_responses_mode": "force_responses",
 			"openai_oauth_responses_websockets_v2_mode": OpenAIWSIngressModeCtxPool,
 		},
 	}
@@ -165,7 +165,7 @@ func TestOpenAIWSProtocolResolver_Resolve_ModeRouterV2(t *testing.T) {
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeOAuth,
 			Concurrency: 1,
-			Extra: map[string]any{
+			Extra: map[string]any{"openai_responses_mode": "force_responses",
 				"openai_oauth_responses_websockets_v2_mode": OpenAIWSIngressModeOff,
 			},
 		}
@@ -179,7 +179,7 @@ func TestOpenAIWSProtocolResolver_Resolve_ModeRouterV2(t *testing.T) {
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
 			Concurrency: 1,
-			Extra: map[string]any{
+			Extra: map[string]any{"openai_responses_mode": "force_responses",
 				"openai_apikey_responses_websockets_v2_enabled": true,
 			},
 		}
@@ -193,7 +193,7 @@ func TestOpenAIWSProtocolResolver_Resolve_ModeRouterV2(t *testing.T) {
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeOAuth,
 			Concurrency: 1,
-			Extra: map[string]any{
+			Extra: map[string]any{"openai_responses_mode": "force_responses",
 				"openai_oauth_responses_websockets_v2_mode": OpenAIWSIngressModePassthrough,
 			},
 		}
@@ -207,7 +207,7 @@ func TestOpenAIWSProtocolResolver_Resolve_ModeRouterV2(t *testing.T) {
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeOAuth,
 			Concurrency: 1,
-			Extra: map[string]any{
+			Extra: map[string]any{"openai_responses_mode": "force_responses",
 				"openai_oauth_responses_websockets_v2_mode": OpenAIWSIngressModeHTTPBridge,
 			},
 		}
@@ -220,7 +220,7 @@ func TestOpenAIWSProtocolResolver_Resolve_ModeRouterV2(t *testing.T) {
 		invalidConcurrency := &Account{
 			Platform: PlatformOpenAI,
 			Type:     AccountTypeOAuth,
-			Extra: map[string]any{
+			Extra: map[string]any{"openai_responses_mode": "force_responses",
 				"openai_oauth_responses_websockets_v2_mode": OpenAIWSIngressModeCtxPool,
 			},
 		}
