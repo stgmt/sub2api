@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"reflect"
@@ -11,19 +12,20 @@ import (
 )
 
 type providerSyncRequest struct {
-	Source         string         `json:"source" binding:"required"`
-	AccountName    string         `json:"account_name" binding:"required"`
-	Platform       string         `json:"platform" binding:"required"`
-	AccountType    string         `json:"account_type" binding:"required"`
-	Credentials    map[string]any `json:"credentials" binding:"required"`
-	Extra          map[string]any `json:"extra"`
-	GroupName      string         `json:"group_name" binding:"required"`
-	GroupPlatform  string         `json:"group_platform" binding:"required"`
-	Subscription   string         `json:"subscription_type"`
-	RequireOAuth   bool           `json:"require_oauth_only"`
-	Concurrency    int            `json:"concurrency"`
-	Priority       int            `json:"priority"`
-	RateMultiplier float64        `json:"rate_multiplier"`
+	Source         string          `json:"source" binding:"required"`
+	AccountName    string          `json:"account_name" binding:"required"`
+	Platform       string          `json:"platform" binding:"required"`
+	AccountType    string          `json:"account_type" binding:"required"`
+	Credentials    map[string]any  `json:"credentials" binding:"required"`
+	Extra          map[string]any  `json:"extra"`
+	GroupName      string          `json:"group_name" binding:"required"`
+	GroupPlatform  string          `json:"group_platform" binding:"required"`
+	Subscription   string          `json:"subscription_type"`
+	RequireOAuth   bool            `json:"require_oauth_only"`
+	LegacyModels   json.RawMessage `json:"models_list_config,omitempty"`
+	Concurrency    int             `json:"concurrency"`
+	Priority       int             `json:"priority"`
+	RateMultiplier float64         `json:"rate_multiplier"`
 }
 
 // providerSyncCompositeModels is the single service-owned picker contract for
@@ -167,6 +169,9 @@ func (h *AccountHandler) ProviderSync(c *gin.Context) {
 }
 
 func validateProviderSyncRequest(req *providerSyncRequest) string {
+	if len(req.LegacyModels) != 0 {
+		return "provider_models_service_owned"
+	}
 	baseURL, _ := req.Credentials["base_url"].(string)
 	u, err := url.Parse(strings.TrimSpace(baseURL))
 	if err != nil || u.Scheme != "https" {

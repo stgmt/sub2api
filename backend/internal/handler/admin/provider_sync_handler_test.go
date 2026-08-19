@@ -17,6 +17,10 @@ func TestValidateProviderSyncRequest(t *testing.T) {
 	require.Equal(t, service.SubscriptionTypeSubscription, cline.Subscription)
 	require.Equal(t, 3, cline.Concurrency)
 
+	legacy := cline
+	legacy.LegacyModels = []byte(`{"enabled":true,"explicit":true,"models":["cline-pass/qwen3.8-max"]}`)
+	require.Equal(t, "provider_models_service_owned", validateProviderSyncRequest(&legacy))
+
 	bad := cline
 	bad.Source = "unknown"
 	require.Equal(t, "unsupported_provider_sync_source", validateProviderSyncRequest(&bad))
