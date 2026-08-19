@@ -222,6 +222,11 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 
 		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
+		logger.L().Info("openai chat_completions raw: upstream error",
+			zap.Int64("account_id", account.ID),
+			zap.Int("upstream_status", resp.StatusCode),
+			zap.String("upstream_error_body", truncateString(string(respBody), 1024)),
+		)
 		if account.Platform == PlatformGrok {
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				Platform:           account.Platform,
