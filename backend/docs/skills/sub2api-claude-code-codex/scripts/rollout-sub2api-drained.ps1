@@ -58,7 +58,14 @@ if ($LASTEXITCODE -ne 0 -or -not $wslIdleHelperPath) {
 $compose = "cd '$wslProfileDir' && docker compose -p sub2api-codex --env-file .env -f docker-compose.yml -f docker-compose.gpu.yml"
 $headroomPaused = $false
 try {
-  Invoke-WslBash "python3 '$wslIdleHelperPath' --container '$Sub2apiContainer' --timeout $DrainTimeoutSeconds --stable-seconds 0.5"
+  # A continuously busy stack may never reach passive zero because new work
+  # arrives as old work completes. Timeout here is not a failure: pause ingress
+  # and drain the bounded set that was already accepted.
+  & wsl.exe -d $WslDistro -- bash -lc "python3 '$wslIdleHelperPath' --container '$Sub2apiContainer' --timeout $DrainTimeoutSeconds --stable-seconds 0.5"
+  $passiveDrainExit = $LASTEXITCODE
+  if ($passiveDrainExit -ne 0 -and $passiveDrainExit -ne 42) {
+    throw "Passive drain failed with exit code $passiveDrainExit"
+  }
   Invoke-WslBash "docker pause '$HeadroomContainer' >/dev/null"
   $headroomPaused = $true
 

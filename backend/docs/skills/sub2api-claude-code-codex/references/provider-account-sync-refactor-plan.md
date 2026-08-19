@@ -46,7 +46,8 @@ The service operation must be idempotent and transactional. It must:
 - preserve provider-owned refresh state when the incoming credential has not
   changed;
 - validate platform, account type, base URL, and safe credential shape;
-- create or repair group membership and model restrictions;
+- create or repair group membership and enforce the service-owned composite
+  model restrictions;
 - establish an explicit protocol capability contract;
 - commit durable state first, then reload the scheduler/account snapshot by
   committed account revision without restarting the process;
@@ -77,8 +78,10 @@ committed credentials, restarts the process, or falls back to SQL.
 ### 2. Add the only provider sync service and API
 
 - Introduce a provider-sync service input that contains normalized provider
-  identity, credentials, endpoint, intended group, models, and an explicit
-  capability policy.
+  identity, credentials, endpoint, intended group, and an explicit capability
+  policy. Do not accept a client-owned group model list: Cline and Grok syncs
+  must converge on the same backend-owned composite catalog so one provider
+  cannot erase the other provider families from `/v1/models`.
 - Add a loopback/private-network endpoint dedicated to host synchronizers.
   Authenticate it with a separate runtime-generated service credential having
   only `provider:sync`; do not accept browser sessions, ordinary user keys, or

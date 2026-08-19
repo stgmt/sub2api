@@ -558,11 +558,6 @@ $groupBody = [ordered]@{
   subscription_type = "subscription"
   rate_multiplier = 1.0
   require_oauth_only = $false
-  models_list_config = [ordered]@{
-    enabled = $true
-    explicit = $true
-    models = @($ClinePassModelIds)
-  }
 }
 $extra = @{
   openai_responses_mode = "force_chat_completions"

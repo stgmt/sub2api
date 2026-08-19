@@ -34,9 +34,6 @@ function Sync-Sub2apiProviderAccount {
     priority = $Priority
     rate_multiplier = $RateMultiplier
   }
-  if ($GroupBody.Contains("models_list_config")) {
-    $body.models_list_config = $GroupBody.models_list_config
-  }
   $response = Invoke-RestMethod -Method Post `
     -Uri "$($BaseUrl.TrimEnd('/'))/api/v1/provider-sync/accounts" `
     -Headers @{ "X-Provider-Sync-Key" = $ProviderSyncToken } `

@@ -3,7 +3,6 @@ package admin
 import (
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
@@ -13,7 +12,6 @@ func TestValidateProviderSyncRequest(t *testing.T) {
 		Source: "cline_pass_cli", Platform: service.PlatformOpenAI, AccountType: service.AccountTypeAPIKey,
 		GroupName: "mixed", GroupPlatform: service.PlatformOpenAI,
 		Credentials: map[string]any{"base_url": "https://api.cline.bot/api/v1"},
-		Models:      &domain.GroupModelsListConfig{Enabled: true, Explicit: true, Models: []string{"cline-pass/qwen3.8-max"}},
 	}
 	require.Empty(t, validateProviderSyncRequest(&cline))
 	require.Equal(t, service.SubscriptionTypeSubscription, cline.Subscription)
@@ -26,6 +24,24 @@ func TestValidateProviderSyncRequest(t *testing.T) {
 	bad = cline
 	bad.Credentials = map[string]any{"base_url": "https://evil.invalid/v1"}
 	require.Equal(t, "invalid_cline_provider_contract", validateProviderSyncRequest(&bad))
+}
+
+func TestProviderSyncCompositeModelCatalog(t *testing.T) {
+	models := providerSyncModelsListConfig()
+	require.True(t, models.Enabled)
+	require.True(t, models.Explicit)
+	require.Equal(t, []string{
+		"gpt-5.6-sol", "gpt-5.6", "gpt-5.6-luna", "grok-4.6", "grok-4.5",
+		"cline-pass/qwen3.8-max", "poolside/laguna-s-2.1:free", "cline-pass/kimi-k3",
+		"cline-pass/minimax-m3", "cline-pass/deepseek-v4-flash", "cline-pass/deepseek-v4-pro",
+		"deepseek/deepseek-v4-flash", "cline-pass/mimo-v2.5", "cline-pass/mimo-v2.5-pro",
+		"cline-pass/glm-5.3",
+	}, models.Models)
+	require.NotContains(t, models.Models, "gpt-5.4")
+	require.NotContains(t, models.Models, "nvidia/nemotron")
+
+	models.Models[0] = "mutated"
+	require.Equal(t, "gpt-5.6-sol", providerSyncModelsListConfig().Models[0])
 }
 
 func TestProviderSyncCredentialsPreservesServiceOwnedAccessState(t *testing.T) {

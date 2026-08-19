@@ -18,15 +18,16 @@ START_EVENT = "content_moderation.gateway_check_start"
 DONE_EVENT = "http request completed"
 
 
-def update_active(active: set[str], line: str) -> None:
+def update_active(active: set[str], completed: set[str], line: str) -> None:
     match = REQUEST_ID.search(line)
     if not match:
         return
     request_id = match.group(0)
-    if START_EVENT in line:
+    if START_EVENT in line and request_id not in completed:
         active.add(request_id)
     if DONE_EVENT in line:
         active.discard(request_id)
+        completed.add(request_id)
 
 
 def docker_logs(args: list[str]) -> subprocess.Popen[str]:
@@ -43,10 +44,11 @@ def docker_logs(args: list[str]) -> subprocess.Popen[str]:
 
 def load_snapshot(container: str, since: str) -> set[str]:
     active: set[str] = set()
+    completed: set[str] = set()
     process = docker_logs(["--since", since, container])
     assert process.stdout is not None
     for line in process.stdout:
-        update_active(active, line)
+        update_active(active, completed, line)
     if process.wait() != 0:
         raise RuntimeError(f"docker logs snapshot failed for {container}")
     return active
@@ -55,6 +57,7 @@ def load_snapshot(container: str, since: str) -> set[str]:
 def wait_for_idle(container: str, since: str, timeout: float, stable: float) -> dict[str, object]:
     follow_from = datetime.now(timezone.utc).isoformat()
     active = load_snapshot(container, since)
+    completed: set[str] = set()
     process = docker_logs(["--follow", "--since", follow_from, container])
     assert process.stdout is not None
     started = time.monotonic()
@@ -84,7 +87,7 @@ def wait_for_idle(container: str, since: str, timeout: float, stable: float) -> 
                 if process.poll() is not None:
                     raise RuntimeError("docker logs --follow ended before drain completed")
                 continue
-            update_active(active, line)
+            update_active(active, completed, line)
             idle_since = time.monotonic() if not active else None
     finally:
         process.terminate()

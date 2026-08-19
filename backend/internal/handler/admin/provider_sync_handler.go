@@ -6,26 +6,55 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 )
 
 type providerSyncRequest struct {
-	Source         string                        `json:"source" binding:"required"`
-	AccountName    string                        `json:"account_name" binding:"required"`
-	Platform       string                        `json:"platform" binding:"required"`
-	AccountType    string                        `json:"account_type" binding:"required"`
-	Credentials    map[string]any                `json:"credentials" binding:"required"`
-	Extra          map[string]any                `json:"extra"`
-	GroupName      string                        `json:"group_name" binding:"required"`
-	GroupPlatform  string                        `json:"group_platform" binding:"required"`
-	Subscription   string                        `json:"subscription_type"`
-	RequireOAuth   bool                          `json:"require_oauth_only"`
-	Models         *domain.GroupModelsListConfig `json:"models_list_config,omitempty"`
-	Concurrency    int                           `json:"concurrency"`
-	Priority       int                           `json:"priority"`
-	RateMultiplier float64                       `json:"rate_multiplier"`
+	Source         string         `json:"source" binding:"required"`
+	AccountName    string         `json:"account_name" binding:"required"`
+	Platform       string         `json:"platform" binding:"required"`
+	AccountType    string         `json:"account_type" binding:"required"`
+	Credentials    map[string]any `json:"credentials" binding:"required"`
+	Extra          map[string]any `json:"extra"`
+	GroupName      string         `json:"group_name" binding:"required"`
+	GroupPlatform  string         `json:"group_platform" binding:"required"`
+	Subscription   string         `json:"subscription_type"`
+	RequireOAuth   bool           `json:"require_oauth_only"`
+	Concurrency    int            `json:"concurrency"`
+	Priority       int            `json:"priority"`
+	RateMultiplier float64        `json:"rate_multiplier"`
+}
+
+// providerSyncCompositeModels is the single service-owned picker contract for
+// the Headroom composite group. Host sync clients submit credentials only;
+// they cannot replace the shared model catalog with a provider-local subset.
+var providerSyncCompositeModels = service.GroupModelsListConfig{
+	Enabled:  true,
+	Explicit: true,
+	Models: []string{
+		"gpt-5.6-sol",
+		"gpt-5.6",
+		"gpt-5.6-luna",
+		"grok-4.6",
+		"grok-4.5",
+		"cline-pass/qwen3.8-max",
+		"poolside/laguna-s-2.1:free",
+		"cline-pass/kimi-k3",
+		"cline-pass/minimax-m3",
+		"cline-pass/deepseek-v4-flash",
+		"cline-pass/deepseek-v4-pro",
+		"deepseek/deepseek-v4-flash",
+		"cline-pass/mimo-v2.5",
+		"cline-pass/mimo-v2.5-pro",
+		"cline-pass/glm-5.3",
+	},
+}
+
+func providerSyncModelsListConfig() service.GroupModelsListConfig {
+	models := providerSyncCompositeModels
+	models.Models = append([]string(nil), providerSyncCompositeModels.Models...)
+	return models
 }
 
 // ProviderSync owns validation, idempotent persistence, group membership and
@@ -56,28 +85,22 @@ func (h *AccountHandler) ProviderSync(c *gin.Context) {
 	}
 	groupCreated := false
 	groupChanged := false
+	models := providerSyncModelsListConfig()
 	if group == nil {
-		models := service.GroupModelsListConfig{}
-		if req.Models != nil {
-			models = service.GroupModelsListConfig(*req.Models)
-		}
 		group, err = h.adminService.CreateGroup(ctx, &service.CreateGroupInput{
 			Name: req.GroupName, Platform: req.GroupPlatform, SubscriptionType: req.Subscription,
 			RateMultiplier: 1, RequireOAuthOnly: req.RequireOAuth, ModelsListConfig: models,
 		})
 		groupCreated = err == nil
 	} else if group.Platform != req.GroupPlatform || group.SubscriptionType != req.Subscription ||
-		group.RequireOAuthOnly != req.RequireOAuth || (req.Models != nil && !reflect.DeepEqual(group.ModelsListConfig, *req.Models)) {
+		group.RequireOAuthOnly != req.RequireOAuth || !reflect.DeepEqual(group.ModelsListConfig, models) {
 		rate := 1.0
 		requireOAuth := req.RequireOAuth
 		update := &service.UpdateGroupInput{
 			Name: req.GroupName, Platform: req.GroupPlatform, SubscriptionType: req.Subscription,
 			Status: service.StatusActive, RateMultiplier: &rate, RequireOAuthOnly: &requireOAuth,
 		}
-		if req.Models != nil {
-			models := service.GroupModelsListConfig(*req.Models)
-			update.ModelsListConfig = &models
-		}
+		update.ModelsListConfig = &models
 		group, err = h.adminService.UpdateGroup(ctx, group.ID, update)
 		groupChanged = err == nil
 	}

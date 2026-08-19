@@ -41,7 +41,9 @@ if ($sync.Contains('"cline-pass/glm-5.2"') -or $sync.Contains('"cline-pass/kimi-
 }
 Assert-Contains $sync 'poolside/laguna-s-2.1:free' "The free Laguna model must be catalogued"
 Assert-Contains $sync 'require_oauth_only = $false' "The composite group must accept the Cline API-key account"
-Assert-Contains $sync 'models_list_config' "The composite group model catalog must be updated"
+if ($sync.Contains('models_list_config')) {
+  throw "Provider-local sync must not replace the service-owned composite model catalog"
+}
 Assert-Contains $sync 'model_mapping = $ClinePassModelMapping' "Cline account must be restricted to its own model catalog"
 Assert-Contains $sync 'DshSettingsPath' "The DSH model catalog must be wired"
 Assert-Contains $sync 'ProviderSyncToken' "The sync must use the scoped provider-sync credential"
