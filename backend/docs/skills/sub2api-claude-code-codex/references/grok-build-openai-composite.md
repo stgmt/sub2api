@@ -41,6 +41,11 @@ api: openai-responses
 baseURL: http://127.0.0.1:8787/v1
 ```
 
+`sync-cline-pass-auth.ps1` also reconciles the shared DSH model catalog. Grok
+4.6 and 4.5 must remain at `contextWindow: 500000`: the live Grok Responses
+endpoint rejects prompts above 500k. Do not advertise the generic 1M window
+for these two models.
+
 ## Live acceptance proof
 
 Use the composite key and correlate the response with `usage_logs`:

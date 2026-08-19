@@ -78,6 +78,14 @@ $DshReasoningCatalog = [ordered]@{
   "cline-pass/glm-5.3" = "high: high, max: max"
 }
 
+# Grok Build reports a 500k prompt limit on its live Responses endpoint. Keep
+# the DSH picker below that real provider boundary; the generic 1M catalog
+# value let conversations grow into requests Grok must reject.
+$DshContextWindowCatalog = [ordered]@{
+  "grok-4.6" = 500000
+  "grok-4.5" = 500000
+}
+
 # sub2api treats an OpenAI API-key account with no model_mapping as a
 # universal account. Keep Cline Pass isolated from the GPT accounts by making
 # the discovered catalog an explicit account-level model whitelist.
@@ -505,6 +513,49 @@ function Sync-DshModelCatalog {
     }
   }
 
+  $contextModels = [System.Collections.Generic.List[string]]::new()
+  foreach ($pair in $DshContextWindowCatalog.GetEnumerator()) {
+    $escapedId = [regex]::Escape($pair.Key)
+    for ($i = $openIndex + 1; $i -lt $closeIndex; $i++) {
+      $line = ([string]$lines[$i]).TrimEnd()
+      if ($line -notmatch "(?:^|\s|\{)id:\s*$escapedId(?:,|\s*$)") { continue }
+
+      $entryEnd = $closeIndex
+      for ($j = $i; $j -lt $closeIndex; $j++) {
+        if (([string]$lines[$j]).TrimEnd() -match '}\s*,?$') { $entryEnd = $j; break }
+      }
+
+      $updated = $false
+      for ($j = $i; $j -le $entryEnd; $j++) {
+        $candidate = ([string]$lines[$j]).TrimEnd()
+        if ($candidate -notmatch 'contextWindow:\s*\d+') { continue }
+        $replacement = [regex]::Replace($candidate, 'contextWindow:\s*\d+', "contextWindow: $($pair.Value)")
+        if ($replacement -ne $candidate) {
+          $lines[$j] = $replacement
+          $changed = $true
+        }
+        $updated = $true
+        break
+      }
+
+      if (-not $updated) {
+        if ($entryEnd -eq $i) {
+          $suffix = if ($line.EndsWith(',')) { ',' } else { '' }
+          $replacement = [regex]::Replace($line.TrimEnd(','), '\s*}$', ", contextWindow: $($pair.Value) }") + $suffix
+          $lines[$i] = $replacement
+        } else {
+          $propertyIndent = if ($line -match '^(\s*)') { $Matches[1] + '  ' } else { '                  ' }
+          [void]$lines.Insert($entryEnd, $propertyIndent + "contextWindow: $($pair.Value),")
+          $closeIndex++
+        }
+        $changed = $true
+      }
+
+      [void]$contextModels.Add($pair.Key)
+      break
+    }
+  }
+
   # Flow-style YAML requires separators between every mapping. Older versions
   # of this helper inserted entries before the closing bracket without adding
   # a comma to the previous last entry, which made DSH reject the catalog.
@@ -531,7 +582,7 @@ function Sync-DshModelCatalog {
   if ($changed) {
     [IO.File]::WriteAllLines($path, $lines, [Text.UTF8Encoding]::new($false))
   }
-  return [ordered]@{ status = if ($changed) { "updated" } else { "unchanged" }; path = $path; added = $added; removed = $removed; effort_models = @($effortModels); model_count = $ClinePassModelCatalog.Count }
+  return [ordered]@{ status = if ($changed) { "updated" } else { "unchanged" }; path = $path; added = $added; removed = $removed; effort_models = @($effortModels); context_models = @($contextModels); model_count = $ClinePassModelCatalog.Count }
 }
 
 $source = Resolve-AuthFile
