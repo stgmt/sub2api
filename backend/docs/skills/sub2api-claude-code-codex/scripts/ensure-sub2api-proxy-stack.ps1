@@ -83,6 +83,64 @@ function Write-SelfHealEvent {
   )
 }
 
+function Install-OfflineGuestRouteBootstrap {
+  param(
+    [string]$DriveRoot,
+    [string]$GuestUser
+  )
+
+  $programDataRoot = Join-Path $DriveRoot "ProgramData\sub2api"
+  New-Item -ItemType Directory -Force -Path $programDataRoot | Out-Null
+  $bootstrapPath = Join-Path $programDataRoot "ensure-headroom-route.ps1"
+  $bootstrap = @'
+$ErrorActionPreference = "Stop"
+
+# The Default Switch address belongs to the current host boot. Resolve it in the
+# guest at logon instead of persisting a stale host IP in Claude Code settings.
+$route = @(Get-NetRoute -DestinationPrefix "0.0.0.0/0" -AddressFamily IPv4 -ErrorAction Stop |
+  Where-Object { $_.NextHop -and $_.NextHop -ne "0.0.0.0" } |
+  Sort-Object RouteMetric,InterfaceMetric |
+  Select-Object -First 1)
+if ($route.Count -eq 0) { exit 0 }
+
+$baseUrl = "http://$($route[0].NextHop):8787"
+$settingsPath = Join-Path $env:USERPROFILE ".claude\settings.json"
+$settings = if (Test-Path -LiteralPath $settingsPath) {
+  try { Get-Content -Raw -LiteralPath $settingsPath | ConvertFrom-Json } catch { [pscustomobject]@{} }
+} else { [pscustomobject]@{} }
+if (-not $settings.PSObject.Properties["env"]) {
+  $settings | Add-Member -NotePropertyName env -NotePropertyValue ([pscustomobject]@{})
+}
+if ($settings.env.PSObject.Properties["ANTHROPIC_BASE_URL"]) {
+  $settings.env.ANTHROPIC_BASE_URL = $baseUrl
+} else {
+  $settings.env | Add-Member -NotePropertyName ANTHROPIC_BASE_URL -NotePropertyValue $baseUrl
+}
+[IO.File]::WriteAllText($settingsPath, (($settings | ConvertTo-Json -Depth 30) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+[Environment]::SetEnvironmentVariable("ANTHROPIC_BASE_URL", $baseUrl, [EnvironmentVariableTarget]::User)
+'@
+  Write-Utf8NoBom -Path $bootstrapPath -Content $bootstrap
+
+  # PowerShell Direct needs a rotating guest credential. This Run entry is
+  # intentionally credential-free and survives host, WSL, and guest reboots.
+  $hivePath = Join-Path $DriveRoot "Users\$GuestUser\NTUSER.DAT"
+  if (-not (Test-Path -LiteralPath $hivePath)) { throw "Guest user hive is missing: $hivePath" }
+  $hiveName = "HKU\Sub2ApiOffline_$([guid]::NewGuid().ToString('N'))"
+  $loaded = $false
+  try {
+    & reg.exe load $hiveName $hivePath | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Unable to load offline guest user hive" }
+    $loaded = $true
+    $runKey = "$hiveName\Software\Microsoft\Windows\CurrentVersion\Run"
+    $command = 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "C:\ProgramData\sub2api\ensure-headroom-route.ps1"'
+    & reg.exe add $runKey /v "Sub2ApiHeadroomRoute" /t REG_SZ /d $command /f | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Unable to register the guest Headroom route bootstrap" }
+  } finally {
+    if ($loaded) { & reg.exe unload $hiveName | Out-Null }
+  }
+  return [pscustomobject]@{ path = "C:\ProgramData\sub2api\ensure-headroom-route.ps1"; run_key = "Sub2ApiHeadroomRoute" }
+}
+
 function Invoke-ProviderRouteReconcile {
   param([string]$ProfileRoot)
 
@@ -248,24 +306,40 @@ function Invoke-OfflineWindowsGuestRouteRepair {
       Add-PartitionAccessPath -DiskNumber $disk.Number -PartitionNumber $partition[0].PartitionNumber -AccessPath $driveRoot -ErrorAction Stop
       $addedAccessPath = $true
     }
+    $profileCandidates = @(Get-ChildItem -LiteralPath (Join-Path $driveRoot "Users") -Directory -ErrorAction Stop |
+      Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName "NTUSER.DAT") })
+    $matchingProfile = @($profileCandidates | Where-Object { $_.Name -ieq $guestUser } | Select-Object -First 1)
+    if ($matchingProfile.Count -eq 0) {
+      if ($profileCandidates.Count -ne 1) {
+        $names = @($profileCandidates | ForEach-Object Name) -join ", "
+        throw "Could not resolve a unique interactive guest profile for '$guestUser': $names"
+      }
+      $guestUser = $profileCandidates[0].Name
+    }
     $claudeDir = Join-Path $driveRoot "Users\$guestUser\.claude"
     New-Item -ItemType Directory -Force -Path $claudeDir | Out-Null
     $settingsPath = Join-Path $claudeDir "settings.json"
     $settings = if (Test-Path -LiteralPath $settingsPath) { try { Get-Content -Raw -LiteralPath $settingsPath | ConvertFrom-Json } catch { [pscustomobject]@{} } } else { [pscustomobject]@{} }
     if (-not $settings.PSObject.Properties["env"]) { $settings | Add-Member -NotePropertyName env -NotePropertyValue ([pscustomobject]@{}) }
-    foreach ($pair in @(@("ANTHROPIC_BASE_URL", $baseUrl), @("ANTHROPIC_AUTH_TOKEN", "unused"))) {
+    $hostSettingsPath = Join-Path $HOME ".claude\settings.json"
+    $hostAuthToken = if (Test-Path -LiteralPath $hostSettingsPath) {
+      try { [string](Get-Content -Raw -LiteralPath $hostSettingsPath | ConvertFrom-Json).env.ANTHROPIC_AUTH_TOKEN } catch { "" }
+    } else { "" }
+    if ([string]::IsNullOrWhiteSpace($hostAuthToken)) { throw "Host Headroom API key is unavailable for offline guest repair" }
+    foreach ($pair in @(@("ANTHROPIC_BASE_URL", $baseUrl), @("ANTHROPIC_AUTH_TOKEN", $hostAuthToken))) {
       if (-not $settings.env.PSObject.Properties[$pair[0]]) { $settings.env | Add-Member -NotePropertyName $pair[0] -NotePropertyValue $pair[1] } else { $settings.env.($pair[0]) = $pair[1] }
     }
     $settings | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $settingsPath -Encoding utf8
+    $bootstrap = Install-OfflineGuestRouteBootstrap -DriveRoot $driveRoot -GuestUser $guestUser
     $proofPath = Join-Path $driveRoot "Users\$guestUser\headroom-route-offline-proof.txt"
-    Set-Content -LiteralPath $proofPath -Value ("HEADROOM_OFFLINE_ROUTE_APPLIED`nbase_url=$baseUrl`napplied_at=$((Get-Date).ToUniversalTime().ToString('o'))") -Encoding utf8
+    Set-Content -LiteralPath $proofPath -Value ("HEADROOM_OFFLINE_ROUTE_APPLIED`nbase_url=$baseUrl`nbootstrap=$($bootstrap.path)`napplied_at=$((Get-Date).ToUniversalTime().ToString('o'))") -Encoding utf8
     if ($addedAccessPath) { Remove-PartitionAccessPath -DiskNumber $disk.Number -PartitionNumber $partition[0].PartitionNumber -AccessPath $driveRoot -ErrorAction SilentlyContinue }
     Dismount-VHD -Path $vhdPath -ErrorAction Stop
     $mounted = $false
     if ($wasRunning) { Start-VM -Name $vmName -ErrorAction Stop | Out-Null }
     Move-Item -LiteralPath $RequestPath -Destination ($RequestPath -replace '\.request\.json$','.done.json') -Force
-    Write-SelfHealEvent -Event "offline_guest_route_repaired" -Data @{ vm = $vmName; base_url = $baseUrl; settings = "Users\$guestUser\.claude\settings.json" }
-    return [pscustomobject]@{ status = "repaired"; vm = $vmName; base_url = $baseUrl; restarted = $wasRunning }
+    Write-SelfHealEvent -Event "offline_guest_route_repaired" -Data @{ vm = $vmName; base_url = $baseUrl; settings = "Users\$guestUser\.claude\settings.json"; bootstrap = $bootstrap.path; auth_source = "host_settings" }
+    return [pscustomobject]@{ status = "repaired"; vm = $vmName; base_url = $baseUrl; bootstrap = $bootstrap.path; restarted = $wasRunning }
   } catch {
     if ($addedAccessPath -and $disk -and $partition -and $driveRoot) { Remove-PartitionAccessPath -DiskNumber $disk.Number -PartitionNumber $partition[0].PartitionNumber -AccessPath $driveRoot -ErrorAction SilentlyContinue }
     if ($mounted) { Dismount-VHD -Path $vhdPath -ErrorAction SilentlyContinue }
