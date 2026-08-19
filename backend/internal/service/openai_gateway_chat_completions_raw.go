@@ -149,7 +149,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 		}
 	}
 
-	logger.L().Debug("openai chat_completions raw: forwarding without protocol conversion",
+	logger.L().Info("openai chat_completions raw: forwarding without protocol conversion",
 		zap.Int64("account_id", account.ID),
 		zap.String("original_model", originalModel),
 		zap.String("billing_model", billingModel),
