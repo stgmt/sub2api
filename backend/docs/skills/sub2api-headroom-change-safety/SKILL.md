@@ -17,6 +17,14 @@ Use this skill before any mutation to `stgmt/sub2api`, `stgmt/headroom`, a deplo
 6. Add a regression test for the demonstrated failure. A static source assertion alone is not enough when the bug is in transport or a running image.
 7. After a deploy-affecting change, run the applicable source test, rebuild/recreate only the affected service at a proven idle point, then prove the original client route with a fresh request and correlate the request log.
 
+## Hyper-V Windows guest access
+
+Treat SSH access as **absent** until all three probes pass: `Test-NetConnection <guest-ip> -Port 22`, an authenticated `ssh` command, and an in-guest request to the configured Headroom `/health` endpoint. An OpenSSH archive, host keys, or a prepared bootstrap directory are not proof of access.
+
+Before attempting a guest repair, verify that `Import-Module Hyper-V` and `Get-VM` work on the host. If `Microsoft.HyperV.PowerShell.Cmdlets.dll` or a dependency is missing, repair the host feature first; do not claim that PowerShell Direct or SSH was configured.
+
+Once PowerShell Direct is available, install and start OpenSSH in the guest, make it persistent, verify the three probes above, then read the guest's actual Claude configuration and run a fresh Claude request through Headroom. Keep host, guest and live-request evidence together in the incident report.
+
 ## Stop conditions
 
 Stop and report instead of changing state when any of these are unknown: source checkout, deployed image, runtime profile, active request count, or original client route. Do not use a new "helper" to mask an unexplained failure.

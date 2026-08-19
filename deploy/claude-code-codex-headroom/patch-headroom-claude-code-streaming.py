@@ -432,12 +432,12 @@ async def _sub2api_handle_anthropic_messages_with_watchdog(
 
     raw_timeout_ms = _sub2api_os.environ.get(
         "HEADROOM_CLAUDE_CODE_HANDLER_WATCHDOG_MS",
-        "540000",
+        "60000",
     )
     try:
         timeout_ms = max(1000, int(raw_timeout_ms))
     except (TypeError, ValueError):
-        timeout_ms = 540000
+        timeout_ms = 60000
 
     claude_agent = request.headers.get("x-claude-code-agent-id") or "main"
 
