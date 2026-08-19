@@ -12,6 +12,9 @@ One-command runtime entrypoint on Windows:
 powershell -ExecutionPolicy Bypass -File .\backend\docs\skills\sub2api-claude-code-codex\scripts\launch-claude-code.ps1
 ```
 
+For a double-click or terminal shortcut, use the adjacent
+`scripts\launch-claude-code.cmd`.
+
 The launcher finds the deploy profile, repairs paused Docker containers, starts
 the single self-healing stack, waits for Headroom `/health`, and only then
 starts Claude Code. It accepts normal Claude arguments after the script name.
