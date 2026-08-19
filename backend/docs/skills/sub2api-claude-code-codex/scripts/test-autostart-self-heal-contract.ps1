@@ -163,6 +163,8 @@ Assert-Contains $start 'Sync-SelfHealScheduledTask' "Legacy logon-only tasks mus
 Assert-Contains $start 'actionUsesHiddenLauncher' "Legacy direct PowerShell tasks must self-upgrade to the zero-window launcher"
 Assert-Contains $start 'upgrading legacy or focus-stealing autostart task to repeating zero-window self-heal' "Legacy task migration must be observable"
 Assert-Contains $start 'Hyper-V guest config update skipped by mode=none' "Bridge-only Windows mode must remain observable"
+Assert-Contains $start 'Repair-PausedComposeContainers' "Autostart must repair paused Docker containers before compose start"
+Assert-Contains $start 'docker unpause' "Autostart must unpause paused Docker containers instead of retrying compose blindly"
 Assert-Contains $start '[switch]$AllowWslRestart' "Destructive WSL restart must require an explicit operator switch"
 Assert-Contains $start 'destructive restart is not explicitly allowed' "Scheduled recovery must explain why WSL restart was refused"
 Assert-Contains $start 'HEADROOM_REQUIRE_CUDA' "GPU-required profiles must be explicit in the starter"
