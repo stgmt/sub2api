@@ -8,6 +8,8 @@ description: >-
 
 This skill is the short entrypoint for running Claude Code through a local Headroom + `sub2api` Anthropic-compatible proxy chain backed by the user's OpenAI/Codex/ChatGPT subscription. Keep this file lean; load the reference files only when the task needs those details.
 
+Before any mutation to proxy source, runtime, Docker, WSL, Hyper-V routing, or autostart, load `sub2api-headroom-change-safety` and pass its preflight gate. This is mandatory even for a seemingly narrow incident fix.
+
 This is the single owner for stack installation, repair, and fleet-wide provider switching. Do not install or recreate a separate provider-switcher skill.
 
 ## Default Hybrid Install Profile
