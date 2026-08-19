@@ -1609,6 +1609,9 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 }
 
 func setDefaults() {
+	// Register nested env binding so PROVIDER_SYNC_TOKEN participates in Viper
+	// unmarshal even when config.yaml has no provider_sync section.
+	viper.SetDefault("provider_sync.token", "")
 	viper.SetDefault("run_mode", RunModeStandard)
 
 	// Server

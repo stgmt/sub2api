@@ -30,6 +30,15 @@ func TestLoadForBootstrapAllowsMissingJWTSecret(t *testing.T) {
 	}
 }
 
+func TestLoadProviderSyncTokenFromEnvironment(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	t.Setenv("PROVIDER_SYNC_TOKEN", "scoped-provider-sync-secret")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.Equal(t, "scoped-provider-sync-secret", cfg.ProviderSync.Token)
+}
+
 func TestNormalizeRunMode(t *testing.T) {
 	tests := []struct {
 		input    string

@@ -87,19 +87,26 @@ function Read-GrokBuildEntry {
 function ConvertTo-GrokCredentialsJson {
   param($Entry)
 
+  function Get-OptionalProperty([string]$Name) {
+    $property = $Entry.PSObject.Properties[$Name]
+    if ($null -eq $property -or $null -eq $property.Value) { return "" }
+    return [string]$property.Value
+  }
+
+  $tokenType = Get-OptionalProperty "token_type"
   $credentials = [ordered]@{
     access_token = [string]$Entry.key
     refresh_token = [string]$Entry.refresh_token
     expires_at = [string]$Entry.expires_at
-    token_type = if ([string]$Entry.token_type) { [string]$Entry.token_type } else { "Bearer" }
+    token_type = if ($tokenType) { $tokenType } else { "Bearer" }
     base_url = $CliBaseUrl
     auth_source = "grok_build_cli"
   }
   foreach ($pair in @(
-    @{ name = "id_token"; value = [string]$Entry.id_token },
-    @{ name = "client_id"; value = [string]$Entry.oidc_client_id },
-    @{ name = "scope"; value = [string]$Entry.scope },
-    @{ name = "email"; value = [string]$Entry.email }
+    @{ name = "id_token"; value = Get-OptionalProperty "id_token" },
+    @{ name = "client_id"; value = Get-OptionalProperty "oidc_client_id" },
+    @{ name = "scope"; value = Get-OptionalProperty "scope" },
+    @{ name = "email"; value = Get-OptionalProperty "email" }
   )) {
     if (-not [string]::IsNullOrWhiteSpace($pair.value)) {
       $credentials[$pair.name] = $pair.value
