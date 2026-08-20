@@ -69,6 +69,15 @@ Assert-Contains $start '$actionUsesExpectedRemoteMode' "Task self-heal must dete
 Assert-Contains $start 'HyperVRemoteConfigMode = $HyperVRemoteConfigMode' "Task self-heal must preserve the resolved Hyper-V configuration mode"
 Assert-Contains $start '$actionHasForbiddenSshArgs' "Bridge-only mode must remove obsolete SSH arguments from the task"
 Assert-Contains $ensure '$HyperVVmSshUser = ""' "Bridge-only mode must clear inherited SSH credentials before task reconciliation"
+$rolloutFunction = $ensure.Substring($ensure.IndexOf('function Invoke-HeadroomIdleRollout'), $ensure.IndexOf('function Get-WslIpv4') - $ensure.IndexOf('function Invoke-HeadroomIdleRollout'))
+Assert-Contains $rolloutFunction '$ErrorActionPreference = "Continue"' "Native WSL stderr must be captured without becoming a false rollout exception"
+Assert-Contains $rolloutFunction 'if ($exitCode -ne 0)' "Headroom rollout must decide failure from the native exit code"
+Assert-Contains $ensure '$currentControlSetNumber' "Offline SSH repair must read the guest-selected control set"
+Assert-Contains $ensure 'Active guest sshd service contract was not persisted' "Offline SSH repair must verify the active service registration"
+Assert-NotContains $ensure '$bootstrapKey = "HKLM\OfflineGhostSystem' "Offline SSH repair must not register PowerShell as a fake Windows service"
+Assert-Contains $ensure 'Match Group administrators' "Windows OpenSSH must route administrator keys to the ProgramData authorized-key file"
+Assert-Contains $ensure '$sshdConfigPath.rollback' "Offline SSH config replacement must preserve one rollback copy"
+Assert-Contains $ensure 'and -not (Test-Path -LiteralPath "$sshdConfigPath.rollback")' "Offline SSH repair must not fail when its rollback copy already exists"
 
 $probeIndex = $ensure.IndexOf('$before = Get-RequiredRouteState')
 $recoveryIndex = $ensure.IndexOf('& $startScript @startParams')

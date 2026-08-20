@@ -477,12 +477,16 @@ function Invoke-OfflineWindowsGuestSshSetup {
       "AuthorizedKeysFile .ssh/authorized_keys",
       "HostKey __PROGRAMDATA__/ssh/ssh_host_ed25519_key",
       "HostKey __PROGRAMDATA__/ssh/ssh_host_rsa_key",
-      "Subsystem sftp sftp-server.exe"
+      "Subsystem sftp sftp-server.exe",
+      "Match Group administrators",
+      "    AuthorizedKeysFile __PROGRAMDATA__/ssh/administrators_authorized_keys"
     ) -join [Environment]::NewLine
     $sshdConfigPath = Join-Path $programSshDir "sshd_config"
-    if (-not (Test-Path -LiteralPath $sshdConfigPath)) {
-      Set-Content -LiteralPath $sshdConfigPath -Value ($config + [Environment]::NewLine) -Encoding ascii
+    & icacls.exe $sshdConfigPath /grant '*S-1-5-18:(F)' '*S-1-5-32-544:(F)' /C | Out-Null
+    if ((Test-Path -LiteralPath $sshdConfigPath) -and -not (Test-Path -LiteralPath "$sshdConfigPath.rollback")) {
+      Copy-Item -LiteralPath $sshdConfigPath -Destination "$sshdConfigPath.rollback" -Force
     }
+    Set-Content -LiteralPath $sshdConfigPath -Value ($config + [Environment]::NewLine) -Encoding ascii
     $bootstrapScriptPath = Join-Path $programSshDir "bootstrap-sshd.ps1"
     if (-not (Test-Path -LiteralPath $bootstrapScriptPath)) {
       $bootstrapScript = @(
@@ -504,29 +508,39 @@ function Invoke-OfflineWindowsGuestSshSetup {
     & icacls.exe $programSshDir /inheritance:r /grant '*S-1-5-18:(OI)(CI)(F)' '*S-1-5-32-544:(OI)(CI)(F)' /T /C | Out-Null
     & icacls.exe $authorizedDir /inheritance:r /grant '*S-1-5-18:(OI)(CI)(F)' '*S-1-5-32-544:(OI)(CI)(F)' /T /C | Out-Null
 
+    # A killed/aborted repair can leave the temporary hive mounted. Clear that
+    # lease before loading the next guest SYSTEM hive so retries are idempotent.
+    & reg.exe unload HKLM\OfflineGhostSystem 2>$null | Out-Null
     & reg.exe load HKLM\OfflineGhostSystem (Join-Path $driveRoot "Windows\System32\config\SYSTEM") | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Could not load guest SYSTEM hive for offline SSH setup" }
     $hiveLoaded = $true
-    foreach ($controlSet in @("ControlSet001", "ControlSet002", "ControlSet003", "ControlSet004")) {
-      $serviceKey = "HKLM\OfflineGhostSystem\$controlSet\Services\sshd"
-      & reg.exe add $serviceKey /v ImagePath /t REG_EXPAND_SZ /d '"C:\Windows\System32\OpenSSH\sshd.exe" -E C:\ProgramData\ssh\sshd.log' /f | Out-Null
-      & reg.exe add $serviceKey /v DisplayName /t REG_SZ /d 'OpenSSH SSH Server' /f | Out-Null
-      & reg.exe add $serviceKey /v Description /t REG_SZ /d 'SSH protocol based service' /f | Out-Null
-      & reg.exe add $serviceKey /v ObjectName /t REG_SZ /d LocalSystem /f | Out-Null
-      & reg.exe add $serviceKey /v ErrorControl /t REG_DWORD /d 1 /f | Out-Null
-      & reg.exe add $serviceKey /v RequiredPrivileges /t REG_MULTI_SZ /d 'SeAssignPrimaryTokenPrivilege\0SeTcbPrivilege\0SeBackupPrivilege\0SeRestorePrivilege\0SeImpersonatePrivilege\0' /f | Out-Null
-      & reg.exe add $serviceKey /v Start /t REG_DWORD /d 2 /f | Out-Null
-      & reg.exe add $serviceKey /v Type /t REG_DWORD /d 16 /f | Out-Null
-      $bootstrapKey = "HKLM\OfflineGhostSystem\$controlSet\Services\OpenSSHFirewallBootstrap"
-      & reg.exe add $bootstrapKey /v ImagePath /t REG_EXPAND_SZ /d 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File C:\ProgramData\ssh\bootstrap-sshd.ps1' /f | Out-Null
-      & reg.exe add $bootstrapKey /v DisplayName /t REG_SZ /d 'OpenSSH Firewall Bootstrap' /f | Out-Null
-      & reg.exe add $bootstrapKey /v ObjectName /t REG_SZ /d LocalSystem /f | Out-Null
-      & reg.exe add $bootstrapKey /v ErrorControl /t REG_DWORD /d 1 /f | Out-Null
-      & reg.exe add $bootstrapKey /v Start /t REG_DWORD /d 2 /f | Out-Null
-      & reg.exe add $bootstrapKey /v Type /t REG_DWORD /d 16 /f | Out-Null
+    $hiveRoot = "Registry::HKEY_LOCAL_MACHINE\OfflineGhostSystem"
+    $currentControlSetNumber = [int](Get-ItemProperty -LiteralPath (Join-Path $hiveRoot "Select") -Name Current -ErrorAction Stop).Current
+    $currentControlSet = "ControlSet{0:D3}" -f $currentControlSetNumber
+    $controlSets = @(Get-ChildItem -LiteralPath $hiveRoot -ErrorAction Stop |
+      Where-Object { $_.PSChildName -match '^ControlSet\d{3}$' } |
+      ForEach-Object PSChildName)
+    if ($controlSets -notcontains $currentControlSet) { throw "Selected guest control set is missing: $currentControlSet" }
+    foreach ($controlSet in $controlSets) {
+      $serviceKey = Join-Path $hiveRoot "$controlSet\Services\sshd"
+      New-Item -Path $serviceKey -Force | Out-Null
+      New-ItemProperty -LiteralPath $serviceKey -Name ImagePath -Value '"C:\Windows\System32\OpenSSH\sshd.exe" -E C:\ProgramData\ssh\sshd.log' -PropertyType ExpandString -Force -ErrorAction Stop | Out-Null
+      New-ItemProperty -LiteralPath $serviceKey -Name DisplayName -Value 'OpenSSH SSH Server' -PropertyType String -Force -ErrorAction Stop | Out-Null
+      New-ItemProperty -LiteralPath $serviceKey -Name Description -Value 'SSH protocol based service' -PropertyType String -Force -ErrorAction Stop | Out-Null
+      New-ItemProperty -LiteralPath $serviceKey -Name ObjectName -Value 'LocalSystem' -PropertyType String -Force -ErrorAction Stop | Out-Null
+      New-ItemProperty -LiteralPath $serviceKey -Name ErrorControl -Value 1 -PropertyType DWord -Force -ErrorAction Stop | Out-Null
+      New-ItemProperty -LiteralPath $serviceKey -Name Start -Value 2 -PropertyType DWord -Force -ErrorAction Stop | Out-Null
+      New-ItemProperty -LiteralPath $serviceKey -Name Type -Value 16 -PropertyType DWord -Force -ErrorAction Stop | Out-Null
+      New-ItemProperty -LiteralPath $serviceKey -Name DependOnService -Value @('Tcpip', 'Nsi') -PropertyType MultiString -Force -ErrorAction Stop | Out-Null
+      Remove-ItemProperty -LiteralPath $serviceKey -Name DelayedAutoStart -ErrorAction SilentlyContinue
+      Remove-Item -LiteralPath (Join-Path $hiveRoot "$controlSet\Services\OpenSSHFirewallBootstrap") -Recurse -Force -ErrorAction SilentlyContinue
       $firewallKey = "HKLM\OfflineGhostSystem\$controlSet\Services\SharedAccess\Parameters\FirewallPolicy\FirewallRules"
       & reg.exe add $firewallKey /v '{8B7B9B1A-5C4D-4DF4-9B7B-0F0E3C4A6B22}' /t REG_SZ /d 'v2.30|Action=Allow|Active=TRUE|Dir=In|Protocol=6|Profile=Domain|Profile=Private|Profile=Public|LPort=22|App=%SystemRoot%\System32\OpenSSH\sshd.exe|Name=OpenSSH-Server-In-TCP|' /f | Out-Null
       & reg.exe add $firewallKey /v 'sshd-tcpm' /t REG_SZ /d 'v2.30|Action=Allow|Active=TRUE|Dir=In|Protocol=6|LPort=22|App=%SystemRoot%\system32\OpenSSH\sshd.exe|Name=OpenSSH Server (sshd) tcp|Desc=Inbound TCP rule for OpenSSH SSH Server (sshd) over port 22.|' /f | Out-Null
+    }
+    $activeService = Get-ItemProperty -LiteralPath (Join-Path $hiveRoot "$currentControlSet\Services\sshd") -ErrorAction Stop
+    if ([int]$activeService.Start -ne 2 -or [string]$activeService.ImagePath -notmatch 'Windows\\System32\\OpenSSH\\sshd\.exe') {
+      throw "Active guest sshd service contract was not persisted in $currentControlSet"
     }
     $binaryInstalled = Test-Path -LiteralPath (Join-Path $openSshDir "sshd.exe")
     $sshdLogPath = Join-Path $programSshDir "sshd.log"
@@ -541,8 +555,8 @@ function Invoke-OfflineWindowsGuestSshSetup {
     if ($wasRunning) { Start-VM -Name $vmName -ErrorAction Stop | Out-Null }
     if (-not $binaryInstalled) { throw "OpenSSH package copy did not produce sshd.exe in the guest system directory" }
     Move-Item -LiteralPath $RequestPath -Destination ($RequestPath -replace '\.request\.json$','.done.json') -Force
-    Write-SelfHealEvent -Event "offline_guest_ssh_configured" -Data @{ vm = $vmName; user = $guestUser; port = 22; public_key = "installed"; sshd_exe = $true; guest_drive = $driveRoot; sshd_log_tail = $sshdLogTail; service_event_tail = $serviceEventTail }
-    return [pscustomobject]@{ status = "configured"; vm = $vmName; port = 22; restarted = $wasRunning }
+    Write-SelfHealEvent -Event "offline_guest_ssh_configured" -Data @{ vm = $vmName; user = $guestUser; port = 22; public_key = "installed"; sshd_exe = $true; guest_drive = $driveRoot; current_control_set = $currentControlSet; sshd_log_tail = $sshdLogTail; service_event_tail = $serviceEventTail }
+    return [pscustomobject]@{ status = "configured"; vm = $vmName; port = 22; restarted = $wasRunning; current_control_set = $currentControlSet }
   } catch {
     if ($hiveLoaded) { & reg.exe unload HKLM\OfflineGhostSystem | Out-Null }
     if ($addedAccessPath -and $disk -and $partition -and $driveRoot) { Remove-PartitionAccessPath -DiskNumber $disk.Number -PartitionNumber $partition[0].PartitionNumber -AccessPath $driveRoot -ErrorAction SilentlyContinue }
@@ -960,8 +974,14 @@ function Invoke-HeadroomIdleRollout {
   $requiresCuda = ($null -ne $envMap -and $envMap.ContainsKey('HEADROOM_REQUIRE_CUDA') -and $envMap['HEADROOM_REQUIRE_CUDA'].Trim() -eq '1')
   if ($requiresCuda) { $compose += " -f docker-compose.gpu.yml" }
   $compose += " up -d --no-deps --force-recreate headroom"
-  $output = @(& wsl.exe -d $Distro -- bash -lc $compose 2>&1)
-  $exitCode = $LASTEXITCODE
+  $oldErrorActionPreference = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  try {
+    $output = @(& wsl.exe -d $Distro -- bash -lc $compose 2>&1)
+    $exitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $oldErrorActionPreference
+  }
   if ($exitCode -ne 0) { throw "Headroom idle image rollout failed: $($output -join ' ')" }
   Write-SelfHealEvent -Event "headroom_image_rolled" -Data @{ image = $ImageState; service = "headroom"; compose_policy = "--no-deps --force-recreate" }
   return [ordered]@{ status = "rolled"; service = "headroom"; output = (($output -join " ").Trim()) }
