@@ -1,6 +1,7 @@
 package service
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -1221,6 +1222,20 @@ type codexInputFilterOptions struct {
 	PreserveCallIDs    bool
 }
 
+const codexMaxCallIDLength = 64
+
+// normalizeCodexCallID keeps function_call/function_call_output pairing while
+// satisfying the OpenAI Responses API call_id limit. Some Claude/DSH tool IDs
+// are longer than 64 bytes and the provider rejects the whole request.
+func normalizeCodexCallID(id string) string {
+	if len(id) <= codexMaxCallIDLength {
+		return id
+	}
+
+	digest := fmt.Sprintf("%x", sha256.Sum256([]byte(id)))
+	return "fc_" + digest[:codexMaxCallIDLength-len("fc_")]
+}
+
 // filterCodexInput 按需过滤 item_reference 与 id。
 // preserveReferences 为 true 时保持引用与 id，以满足续链请求对上下文的依赖。
 func filterCodexInput(input []any, preserveReferences bool) []any {
@@ -1281,15 +1296,15 @@ func filterCodexInputWithOptions(input []any, opts codexInputFilterOptions) []an
 		// 若 item_reference 指向 legacy call_* 标识，则仅修正该引用本身。
 		fixCallIDPrefix := func(id string) string {
 			if opts.PreserveCallIDs {
-				return id
+				return normalizeCodexCallID(id)
 			}
 			if id == "" || strings.HasPrefix(id, "fc") {
-				return id
+				return normalizeCodexCallID(id)
 			}
 			if strings.HasPrefix(id, "call_") {
-				return "fc_" + strings.TrimPrefix(id, "call_")
+				return normalizeCodexCallID("fc_" + strings.TrimPrefix(id, "call_"))
 			}
-			return "fc_" + id
+			return normalizeCodexCallID("fc_" + id)
 		}
 
 		if typ == "item_reference" {

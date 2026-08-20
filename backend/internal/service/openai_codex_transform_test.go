@@ -44,6 +44,36 @@ func TestApplyCodexOAuthTransform_ToolContinuationPreservesInput(t *testing.T) {
 	require.Equal(t, "fc_1", second["call_id"])
 }
 
+func TestFilterCodexInputWithOptions_NormalizesLongPairedCallIDs(t *testing.T) {
+	longID := "call-9b681d8e-e049-435c-99fd-36cdd67e6a7e-515-fc_5be60d1a3c418d9_1"
+	req := []any{
+		map[string]any{
+			"type":      "function_call",
+			"call_id":   longID,
+			"name":      "tool",
+			"arguments": "{}",
+		},
+		map[string]any{
+			"type":    "function_call_output",
+			"call_id": longID,
+			"output":  "ok",
+		},
+	}
+
+	filtered := filterCodexInputWithOptions(req, codexInputFilterOptions{
+		PreserveCallIDs: true,
+	})
+	require.Len(t, filtered, 2)
+
+	call := filtered[0].(map[string]any)
+	output := filtered[1].(map[string]any)
+	compactID := call["call_id"].(string)
+	require.LessOrEqual(t, len(compactID), codexMaxCallIDLength)
+	require.Equal(t, compactID, output["call_id"])
+	require.True(t, strings.HasPrefix(compactID, "fc_"))
+	require.Equal(t, longID, req[0].(map[string]any)["call_id"])
+}
+
 func TestApplyCodexOAuthTransform_MessagesBridgePromptCacheKeyIsHeaderOnly(t *testing.T) {
 	reqBody := map[string]any{
 		"model":            "gpt-5.5",
