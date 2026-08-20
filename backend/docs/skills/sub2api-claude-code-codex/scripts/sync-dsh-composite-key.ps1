@@ -5,12 +5,25 @@ param(
   [string]$DatabaseUser = "sub2api",
   [string]$DatabaseName = "sub2api",
   [string]$GroupName = "headroom-openai-grok-composite",
+  [string]$SettingsPath = "",
+  [string]$HeadroomBaseUrl = "",
   [switch]$CheckOnly
 )
 
 $ErrorActionPreference = "Stop"
 if (Get-Variable PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) {
   $PSNativeCommandUseErrorActionPreference = $false
+}
+$fleetContract = Join-Path $PSScriptRoot "fleet-contract.psm1"
+if (-not (Test-Path -LiteralPath $fleetContract)) { throw "Fleet contract module not found: $fleetContract" }
+Import-Module $fleetContract -Force
+
+$resolvedEndpoint = if ($HeadroomBaseUrl.Trim()) { $HeadroomBaseUrl.TrimEnd('/') + "/v1" } else { "http://127.0.0.1:8787/v1" }
+$resolvedSettingsPath = if ($SettingsPath.Trim()) { $SettingsPath } elseif ($env:USERPROFILE) { Join-Path $env:USERPROFILE ".dsh\settings.yaml" } else { "" }
+$endpointSync = if ($resolvedSettingsPath) {
+  Set-DshHeadBaseUrl -SettingsPath $resolvedSettingsPath -BaseUrl $resolvedEndpoint -CheckOnly:$CheckOnly
+} else {
+  [pscustomobject]@{ status = "missing"; reason = "DSH settings path could not be resolved"; endpoint = $resolvedEndpoint }
 }
 
 function New-Result {
@@ -21,7 +34,8 @@ function New-Result {
     provider = "headroom-sub2api"
     group = $GroupName
     credential = "HEAD_API_KEY"
-    endpoint = "http://127.0.0.1:8787/v1"
+    endpoint = $resolvedEndpoint
+    endpoint_sync = $endpointSync
   }
 }
 
@@ -102,5 +116,5 @@ if ($CheckOnly -or $current -eq $key) {
 
 $indent = if ($lines[$index] -match '^(\s*)') { $Matches[1] } else { "" }
 $lines[$index] = $indent + "HEAD_API_KEY: " + $key
-[IO.File]::WriteAllLines($path, $lines, [Text.UTF8Encoding]::new($false))
+Write-AtomicUtf8NoBom -Path $path -Content (($lines -join [Environment]::NewLine) + [Environment]::NewLine)
 (New-Result -Status "updated" | ConvertTo-Json -Compress)

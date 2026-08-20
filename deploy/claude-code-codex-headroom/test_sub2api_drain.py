@@ -20,19 +20,21 @@ def event(request_id: str, name: str) -> str:
 
 def test_tracks_interleaved_requests_until_every_completion() -> None:
     active: set[str] = set()
+    completed: set[str] = set()
 
-    MODULE.update_active(active, event("hr_1_000001", "content_moderation.gateway_check_start"))
-    MODULE.update_active(active, event("hr_2_000002", "content_moderation.gateway_check_start"))
-    MODULE.update_active(active, event("hr_1_000001", "http request completed"))
+    MODULE.update_active(active, completed, event("hr_1_000001", "content_moderation.gateway_check_start"))
+    MODULE.update_active(active, completed, event("hr_2_000002", "content_moderation.gateway_check_start"))
+    MODULE.update_active(active, completed, event("hr_1_000001", "http request completed"))
     assert active == {"hr_2_000002"}
 
-    MODULE.update_active(active, event("hr_2_000002", "http request completed"))
+    MODULE.update_active(active, completed, event("hr_2_000002", "http request completed"))
     assert active == set()
 
 
 def test_ignores_unrelated_and_nonterminal_stream_events() -> None:
     active: set[str] = set()
-    MODULE.update_active(active, event("hr_3_000003", "content_moderation.gateway_check_start"))
-    MODULE.update_active(active, event("hr_3_000003", "response.in_progress"))
-    MODULE.update_active(active, "health check without request id")
+    completed: set[str] = set()
+    MODULE.update_active(active, completed, event("hr_3_000003", "content_moderation.gateway_check_start"))
+    MODULE.update_active(active, completed, event("hr_3_000003", "response.in_progress"))
+    MODULE.update_active(active, completed, "health check without request id")
     assert active == {"hr_3_000003"}

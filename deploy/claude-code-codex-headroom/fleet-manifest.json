@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "name": "local-claude-headroom-fleet",
+  "description": "Canonical Claude Code and DSH clients routed through the fork-owned Headroom and sub2api stack.",
+  "clients": [
+    {
+      "id": "windows-host-claude",
+      "kind": "claude-code",
+      "required": true,
+      "settings_path": "%USERPROFILE%\\.claude\\settings.json",
+      "route": "host"
+    },
+    {
+      "id": "windows-host-dsh",
+      "kind": "dsh",
+      "required": true,
+      "settings_path": "%USERPROFILE%\\.dsh\\settings.yaml",
+      "credentials_path": "%USERPROFILE%\\.dsh\\.credentials.yaml",
+      "route": "host"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "windows-host",
+      "state_key": "windows_host",
+      "kind": "windows-host",
+      "required": true
+    },
+    {
+      "id": "ghost-spectre-win11",
+      "state_key": "windows_hyperv_ghost_spectre_win11",
+      "kind": "windows-hyperv",
+      "required": true,
+      "desired_state": "running",
+      "vm_name": "ghost-spectre-win11",
+      "credential_blob": "C:\\Migration\\native-windows-port\\secrets\\ghost-spectre-win11-admin.dpapi",
+      "credential_user": "admin",
+      "route": "hyperv-switch"
+    },
+    {
+      "id": "win10-ltsc-docker",
+      "state_key": "windows_hyperv_win10_ltsc_docker",
+      "kind": "windows-hyperv",
+      "required": true,
+      "desired_state": "running",
+      "vm_name": "win10-ltsc-docker",
+      "credential_blob": "C:\\Migration\\native-windows-port\\secrets\\win10-ltsc-docker-admin.dpapi",
+      "credential_user": "admin",
+      "route": "hyperv-switch"
+    },
+    {
+      "id": "devcontainer-ubuntu-2404",
+      "state_key": "ubuntu_hyperv_devcontainer_ubuntu_2404",
+      "kind": "linux-hyperv",
+      "required": false,
+      "vm_name": "devcontainer-ubuntu-2404",
+      "ssh_target": "migration@172.20.36.35",
+      "ssh_key": "C:\\Migration\\devcontainer-vm-key",
+      "route": "hyperv-switch"
+    }
+  ]
+}

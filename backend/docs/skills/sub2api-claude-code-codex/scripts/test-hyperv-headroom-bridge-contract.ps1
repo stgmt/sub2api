@@ -10,7 +10,7 @@ $checks = [ordered]@{
   "current VM address discovery" = 'Get-VMNetworkAdapter -VMName $VmName'
   "stale portproxy removal" = '"portproxy", "delete", "v4tov4"'
   "current WSL portproxy target" = '"connectaddress=$WslIp"'
-  "VM-scoped firewall" = '-RemoteAddress $vmIp'
+  "fleet-scoped firewall" = '$fwParams.RemoteAddress = "$switchIp/$([int]$switchAddress.PrefixLength)"'
   "atomic remote settings update" = 'os.replace(tmp, path)'
   "remote endpoint update" = 'ANTHROPIC_BASE_URL'
   "probe from the VM namespace" = 'HYPERV_HEADROOM_HEALTH_OK'

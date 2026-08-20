@@ -23,7 +23,7 @@ Treat SSH access as **absent** until all three probes pass: `Test-NetConnection 
 
 Before attempting a guest repair, verify that `Import-Module Hyper-V` and `Get-VM` work on the host. If `Microsoft.HyperV.PowerShell.Cmdlets.dll` or a dependency is missing, repair the host feature first; do not claim that PowerShell Direct or SSH was configured.
 
-Once PowerShell Direct is available, install and start OpenSSH in the guest, make it persistent, verify the three probes above, then read the guest's actual Claude configuration and run a fresh Claude request through Headroom. Keep host, guest and live-request evidence together in the incident report.
+Once PowerShell Direct is available, install and start OpenSSH in the guest when SSH is part of the desired management plane, make it persistent, verify the three probes above, then read the guest's actual Claude configuration and run a fresh Claude request through Headroom. For the declared fleet, `verify-fleet-route.ps1` is the authoritative black-box gate: host Claude, DSH, and every required Windows guest must all return a fresh semantic marker.
 
 ## Stop conditions
 
@@ -31,4 +31,4 @@ Stop and report instead of changing state when any of these are unknown: source 
 
 ## Completion
 
-Run `scripts/test-change-safety-contract.ps1` and the preflight again. Report source SHA, runtime/image identity, the exact regression test, and the live route evidence. Do not claim success from `/health` alone.
+Run `scripts/test-change-safety-contract.ps1`, the preflight again, the release lock, and the fleet black-box verifier. Report source SHA, runtime/image identity, the exact regression test, and the live route evidence. Do not claim success from `/health` alone, and do not publish `healthy` before required fleet reconciliation succeeds.

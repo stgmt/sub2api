@@ -1,0 +1,48 @@
+name: Claude proxy stack contract
+
+on:
+  pull_request:
+    paths:
+      - "deploy/claude-code-codex-headroom/**"
+      - "backend/docs/skills/sub2api-claude-code-codex/**"
+      - "backend/docs/skills/sub2api-headroom-change-safety/**"
+      - ".github/workflows/claude-proxy-stack-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "deploy/claude-code-codex-headroom/**"
+      - "backend/docs/skills/sub2api-claude-code-codex/**"
+      - "backend/docs/skills/sub2api-headroom-change-safety/**"
+      - ".github/workflows/claude-proxy-stack-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  python-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install pytest
+      - run: >-
+          python -m pytest
+          deploy/claude-code-codex-headroom
+          backend/docs/skills/sub2api-claude-code-codex/scripts/test_wait_sub2api_idle.py
+          -q
+      - run: bash backend/docs/skills/sub2api-claude-code-codex/scripts/test-claude-subagent-profile-contract.sh
+
+  windows-fleet-contracts:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - shell: pwsh
+        run: backend/docs/skills/sub2api-claude-code-codex/scripts/test-fleet-contract.ps1
+      - shell: pwsh
+        run: backend/docs/skills/sub2api-claude-code-codex/scripts/test-provider-route-contract.ps1
+      - shell: pwsh
+        run: backend/docs/skills/sub2api-claude-code-codex/scripts/test-autostart-self-heal-contract.ps1
+      - shell: pwsh
+        run: backend/docs/skills/sub2api-headroom-change-safety/scripts/test-change-safety-contract.ps1

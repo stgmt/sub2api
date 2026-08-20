@@ -3,7 +3,7 @@ param(
   [string]$ProjectName = "sub2api-codex",
   [int]$HeadroomPort = 8787,
   [int]$Sub2apiPort = 18081,
-  [string]$HeadroomBindHost = "127.0.0.1",
+  [string]$HeadroomBindHost = "0.0.0.0",
   [string]$Sub2apiBindHost = "127.0.0.1",
   [string]$BaseUrl = "",
   [string]$StateRoot = "./data",
@@ -32,7 +32,7 @@ param(
   [string]$HeadroomVersion = "0.31.0",
   [string]$HeadroomPythonVersion = "3.12",
   [string]$HeadroomGitRepo = "https://github.com/stgmt/headroom.git",
-  [string]$HeadroomGitRef = "df029ae44661593bfb538f240bbdfc17333d87d6",
+  [string]$HeadroomGitRef = "045b3bd5d92e955d800f692940a40b9643df861b",
   [string]$HeadroomRustToolchain = "1.88.0",
   [ValidateSet("auto", "cpu", "cuda")]
   [string]$HeadroomAccelerator = "auto",
@@ -118,8 +118,15 @@ function New-Secret([int]$Bytes = 32) {
 }
 
 function Write-Utf8NoBom([string]$Path, [string]$Content) {
-  $utf8 = New-Object System.Text.UTF8Encoding($false)
-  [System.IO.File]::WriteAllText($Path, $Content, $utf8)
+  $parent = Split-Path -Parent $Path
+  if ($parent -and -not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
+  $temp = Join-Path $parent (".{0}.{1}.tmp" -f ([IO.Path]::GetFileName($Path)), [guid]::NewGuid().ToString("N"))
+  try {
+    [IO.File]::WriteAllText($temp, $Content, [Text.UTF8Encoding]::new($false))
+    if (Test-Path -LiteralPath $Path) { [IO.File]::Replace($temp, $Path, "$Path.rollback", $true) } else { [IO.File]::Move($temp, $Path) }
+  } finally {
+    Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
+  }
 }
 
 function ConvertTo-WslPath([string]$Path) {
@@ -302,6 +309,8 @@ function Write-DotEnv([System.Collections.IDictionary]$Map, [string]$Path) {
     "HEADROOM_CLAUDE_STREAM_RECOVERY_MAX_ATTEMPTS",
     "HEADROOM_FORCE_KOMPRESS",
     "HEADROOM_DISABLE_KOMPRESS",
+    "HEADROOM_DISABLE_KOMPRESS_FALLBACK",
+    "HEADROOM_NO_CCR",
     "HEADROOM_ACCURACY_GUARD",
     "HEADROOM_CODE_AWARE_ENABLED",
     "HEADROOM_CONTEXT_TOOL",
@@ -330,6 +339,7 @@ function Write-DotEnv([System.Collections.IDictionary]$Map, [string]$Path) {
     "HEADROOM_KOMPRESS_ONNX_INTRA_THREADS",
     "HEADROOM_KOMPRESS_ONNX_INTER_THREADS",
     "HEADROOM_KOMPRESS_BATCH_SIZE",
+    "OPENAI_TARGET_API_URL",
     "SUB2API_BIND_HOST",
     "SUB2API_PORT",
     "SUB2API_IMAGE",
@@ -340,6 +350,10 @@ function Write-DotEnv([System.Collections.IDictionary]$Map, [string]$Path) {
     "SUB2API_OPENAI_CODEX_AUTH_FILE",
     "SUB2API_PRIMARY_DNS",
     "SUB2API_FALLBACK_DNS",
+    "GATEWAY_UPSTREAM_RAW_CAPTURE_ENABLED",
+    "GATEWAY_UPSTREAM_RAW_CAPTURE_DIRECTORY",
+    "GATEWAY_UPSTREAM_RAW_CAPTURE_RETENTION_HOURS",
+    "GATEWAY_UPSTREAM_RAW_CAPTURE_CLEANUP_INTERVAL_MINUTES",
     "TZ",
     "RUN_MODE",
     "SIMPLE_MODE_CONFIRM",
@@ -464,10 +478,6 @@ $composeRtkStateRoot = if ((Test-IsWindowsHost) -and (Get-Command wsl.exe -Error
   $resolvedRtkStateRoot
 }
 
-if ((Test-Path -LiteralPath $envPath) -and -not $ForceRegenerateSecrets) {
-  Copy-Item -LiteralPath $envPath -Destination "$envPath.bak-sub2api-$(Get-Date -Format yyyyMMddHHmmss)"
-}
-
 Set-DotEnvValue $envMap "HEADROOM_VERSION" $HeadroomVersion
 Set-DotEnvValue $envMap "HEADROOM_PYTHON_VERSION" $HeadroomPythonVersion
 Set-DotEnvValue $envMap "HEADROOM_GIT_REPO" $HeadroomGitRepo
@@ -498,6 +508,8 @@ Set-DotEnvValue $envMap "HEADROOM_CLAUDE_STREAM_RECOVERY_TTL_SECONDS" ([string]$
 Set-DotEnvValue $envMap "HEADROOM_CLAUDE_STREAM_RECOVERY_MAX_ATTEMPTS" ([string]$HeadroomClaudeStreamRecoveryMaxAttempts)
 Set-DotEnvValue $envMap "HEADROOM_FORCE_KOMPRESS" $resolvedHeadroomForceKompress
 Set-DotEnvValue $envMap "HEADROOM_DISABLE_KOMPRESS" $resolvedHeadroomDisableKompress
+Set-DotEnvValue $envMap "HEADROOM_DISABLE_KOMPRESS_FALLBACK" "1"
+Set-DotEnvValue $envMap "HEADROOM_NO_CCR" "1"
 Set-DotEnvValue $envMap "HEADROOM_ACCURACY_GUARD" "strict"
 Set-DotEnvValue $envMap "HEADROOM_CODE_AWARE_ENABLED" "1"
 Set-DotEnvValue $envMap "HEADROOM_CONTEXT_TOOL" "rtk"
@@ -546,6 +558,10 @@ Set-DotEnvValue $envMap "SUB2API_CLINE_PASS_BASE_URL" $effectiveClinePassBaseUrl
 Set-DotEnvValue $envMap "SUB2API_SERVER_SHUTDOWN_TIMEOUT" $Sub2apiServerShutdownTimeout
 Set-DotEnvValue $envMap "SUB2API_PRIMARY_DNS" $resolvedDns.primary
 Set-DotEnvValue $envMap "SUB2API_FALLBACK_DNS" $resolvedDns.fallback
+Set-DotEnvValue $envMap "GATEWAY_UPSTREAM_RAW_CAPTURE_ENABLED" "true"
+Set-DotEnvValue $envMap "GATEWAY_UPSTREAM_RAW_CAPTURE_DIRECTORY" "/app/data/upstream-raw-captures"
+Set-DotEnvValue $envMap "GATEWAY_UPSTREAM_RAW_CAPTURE_RETENTION_HOURS" "24"
+Set-DotEnvValue $envMap "GATEWAY_UPSTREAM_RAW_CAPTURE_CLEANUP_INTERVAL_MINUTES" "15"
 Set-DotEnvValue $envMap "TZ" $TimeZone
 Set-DotEnvValue $envMap "RUN_MODE" "simple"
 Set-DotEnvValue $envMap "SIMPLE_MODE_CONFIRM" "true"
@@ -949,7 +965,7 @@ if (-not $SkipProviderSwitcher) {
   if (-not (Test-Path -LiteralPath $providerInstaller)) {
     throw "Claude provider route installer not found: $providerInstaller"
   }
-  & $providerInstaller -SkipStatus | Out-Null
+  & $providerInstaller -RuntimeRoot $profileDir -SkipStatus | Out-Null
   if ($LASTEXITCODE -ne 0) { throw "Claude provider route installation failed with exit code $LASTEXITCODE" }
 }
 

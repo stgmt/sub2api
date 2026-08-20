@@ -7,7 +7,8 @@ param(
   [string]$DnsRepairPath = (Join-Path $PSScriptRoot "repair-wsl-dns.ps1"),
   [string]$DnsPolicyPath = (Join-Path $PSScriptRoot "proxy-dns-policy.ps1"),
   [string]$RecoveryPolicyPath = (Join-Path $PSScriptRoot "proxy-stack-recovery-policy.ps1"),
-  [string]$VerifierPath = (Join-Path $PSScriptRoot "verify-claude-code-sub2api.ps1")
+  [string]$VerifierPath = (Join-Path $PSScriptRoot "verify-claude-code-sub2api.ps1"),
+  [string]$FleetManifestPath = (Join-Path $PSScriptRoot "..\..\..\..\..\deploy\claude-code-codex-headroom\fleet-manifest.json")
 )
 
 $ErrorActionPreference = "Stop"
@@ -27,6 +28,11 @@ function Assert-Equal {
   if ($Actual -ne $Expected) { throw "$Message; expected '$Expected', got '$Actual'" }
 }
 
+function Assert-True {
+  param([bool]$Condition, [string]$Message)
+  if (-not $Condition) { throw $Message }
+}
+
 $installer = Get-Content -Raw -LiteralPath $InstallerPath
 $hiddenLauncher = Get-Content -Raw -LiteralPath $HiddenLauncherPath
 $ensure = Get-Content -Raw -LiteralPath $EnsurePath
@@ -36,6 +42,7 @@ $dnsRepair = Get-Content -Raw -LiteralPath $DnsRepairPath
 $dnsPolicy = Get-Content -Raw -LiteralPath $DnsPolicyPath
 $recoveryPolicy = Get-Content -Raw -LiteralPath $RecoveryPolicyPath
 $verifier = Get-Content -Raw -LiteralPath $VerifierPath
+$fleetManifest = Get-Content -Raw -LiteralPath $FleetManifestPath | ConvertFrom-Json
 . $RecoveryPolicyPath
 . $DnsPolicyPath
 
@@ -61,10 +68,17 @@ Assert-Contains $ensure 'bridge_required' "Self-heal route proof must record whe
 Assert-Contains $ensure 'HEADROOM_HYPERV_REQUIRE_BRIDGE' "Self-heal must allow profile env to require the Hyper-V bridge"
 Assert-Contains $ensure 'HEADROOM_HYPERV_REMOTE_CONFIG_MODE' "Self-heal must support a Windows guest without SSH"
 Assert-Contains $ensure '$bridgeEnv["HEADROOM_HYPERV_VM_NAME"]' "Profile env must override a stale VM name embedded in the scheduled task"
-Assert-Contains $ensure 'HEADROOM_HYPERV_WINDOWS_GUEST_NAME' "Profile env must identify the Windows guest that runs Claude Code"
-Assert-Contains $ensure 'HEADROOM_HYPERV_WINDOWS_GUEST_CREDENTIAL_BLOB' "Self-heal must use the protected Windows guest credential blob"
-Assert-Contains $ensure 'windowsGuestDrift' "Self-heal must reconcile a configured Windows guest even when the old node is marked synced"
-Assert-Contains $ensure '"-WindowsGuestName"' "Provider reconciliation must pass the configured Windows guest name"
+Assert-Contains $ensure 'FleetManifestPath' "Self-heal must use the versioned fleet manifest"
+Assert-Contains $ensure 'Get-FleetReconcileSummary' "Self-heal must evaluate required and optional fleet nodes"
+Assert-Contains $ensure 'Assert-ProviderRouteHealthy' "Self-heal must not report healthy while required fleet reconciliation is pending"
+Assert-Contains $ensure 'client_routes' "Self-heal must prove each configured client endpoint"
+Assert-Contains $ensure 'Get-DshHeadBaseUrl' "Self-heal must probe the endpoint configured in DSH"
+Assert-Contains $ensure 'Set-DshHeadBaseUrl' "Self-heal must repair DSH endpoint drift atomically"
+Assert-Contains $ensure '"-FleetManifestPath"' "Provider reconciliation must receive the canonical manifest"
+Assert-Equal @($fleetManifest.nodes | Where-Object { $_.kind -eq 'windows-hyperv' -and $_.required }).Count 2 "Both Windows Hyper-V guests must be required fleet nodes"
+Assert-Equal @($fleetManifest.nodes | Where-Object { $_.kind -eq 'windows-hyperv' -and $_.required -and $_.desired_state -eq 'running' }).Count 2 "Both required Windows guests must declare a running desired state"
+Assert-Contains $ensure 'Ensure-RequiredFleetHyperVNodes' "Self-heal must restore required Hyper-V fleet nodes"
+Assert-Contains $ensure 'AutomaticStartAction' "Self-heal must make required Hyper-V VM startup durable"
 Assert-Contains $ensure 'HEADROOM_HYPERV_VM_SSH_USER' "Self-heal must read the canonical VM SSH user key"
 Assert-Contains $ensure 'Write-HyperVInventorySnapshot' "Elevated self-heal must publish an exact Hyper-V VM inventory"
 Assert-Contains $ensure 'Invoke-OfflineWindowsGuestRouteRepair' "Elevated self-heal must provide a password-free offline Windows guest repair path"
@@ -72,6 +86,8 @@ Assert-Contains $ensure 'Mount-VHD -Path $vhdPath' "Offline guest repair must mo
 Assert-Contains $ensure 'Dismount-VHD -Path $vhdPath' "Offline guest repair must always dismount the VHDX"
 Assert-Contains $ensure 'ghost-offline-route.request.json' "Offline guest repair must use an explicit one-shot request marker"
 Assert-Contains $ensure 'offline_guest_route_repaired' "Offline guest repair must emit a durable success event"
+Assert-Contains $ensure 'fleet-route-verify.request.json' "Elevated self-heal must support an explicit one-shot fleet verification request"
+Assert-Contains $ensure 'verify-fleet-route.ps1' "Fleet verification request must execute the fork-owned black-box verifier"
 Assert-Contains $ensure 'Install-OfflineGuestRouteBootstrap' "Offline guest repair must install a credential-free dynamic route bootstrap"
 Assert-Contains $ensure 'ensure-headroom-route.ps1' "Offline repair must persist the guest gateway resolver"
 Assert-Contains $ensure 'Sub2ApiHeadroomRoute' "Guest route bootstrap must run at each user logon"
@@ -89,6 +105,9 @@ Assert-Contains $ensure 'administrators_authorized_keys' "Offline SSH setup must
 Assert-Contains $ensure 'Get-ChildItem -LiteralPath $packageRoot' "Offline SSH setup must expand the OpenSSH package contents before copying"
 Assert-Contains $ensure 'Invoke-OfflineWindowsGuestSshAudit' "Offline SSH setup must expose an auditable VHDX verification path"
 Assert-NotContains $ensure 'Sync-HyperVGuestSubagentProfiles' "Self-heal must not bypass claude-route with a hidden Qwen-only guest profile"
+$reconcileIndex = $ensure.IndexOf('$providerRoute = Invoke-ProviderRouteReconcile -ProfileRoot $Root')
+$healthyIndex = $ensure.IndexOf('Write-SelfHealEvent -Event "healthy"')
+Assert-True ($reconcileIndex -ge 0 -and $healthyIndex -gt $reconcileIndex) "Self-heal must publish healthy only after provider fleet reconciliation"
 Assert-NotContains $ensure 'HEADROOM_HYPERV_STAGE_QWEN_PROFILE' "Legacy Qwen-only Hyper-V staging must stay retired"
 Assert-Contains $ensure 'Sync-CodexAuthFile' "Self-heal must sync fresh host Codex OAuth auth into the sub2api bind mount"
 Assert-Contains $ensure 'codex_auth_synced' "Self-heal must emit proof when it refreshes the Codex auth bind file"

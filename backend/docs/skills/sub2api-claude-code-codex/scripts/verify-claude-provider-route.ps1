@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [string]$RuntimeRoot = "C:\Users\stigm\Documents\Codex\2026-07-07\new-chat\work\sub2api-runtime",
+  [string]$RuntimeRoot = "",
   [string]$WslDistro = "Ubuntu-24.04",
   [string]$StableKeyName = "claude-code-codex-sub2api",
   [string]$HeadroomBaseUrl = ""
@@ -8,6 +8,17 @@ param(
 
 $ErrorActionPreference = "Stop"
 $skillRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+if (-not $RuntimeRoot.Trim()) {
+  $candidate = $skillRoot
+  while ($candidate -and -not (Test-Path -LiteralPath (Join-Path $candidate ".git"))) {
+    $parent = Split-Path -Parent $candidate
+    if (-not $parent -or $parent -eq $candidate) { $candidate = $null; break }
+    $candidate = $parent
+  }
+  if (-not $candidate) { throw "Could not resolve canonical runtime root; pass -RuntimeRoot" }
+  $RuntimeRoot = Join-Path $candidate "deploy\claude-code-codex-headroom"
+}
+$RuntimeRoot = (Resolve-Path -LiteralPath $RuntimeRoot).Path
 $statePath = Join-Path $RuntimeRoot "data\provider-route-state.json"
 $postgresContainer = "sub2api-codex-postgres"
 

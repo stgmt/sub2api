@@ -5,12 +5,14 @@ PROFILE_PATH=""
 GENERATION="0"
 CHECK_ONLY=0
 AUTH_TOKEN_FILE=""
+BASE_URL=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --profile-path) PROFILE_PATH="$2"; shift 2 ;;
     --generation) GENERATION="$2"; shift 2 ;;
     --auth-token-file) AUTH_TOKEN_FILE="$2"; shift 2 ;;
+    --base-url) BASE_URL="$2"; shift 2 ;;
     --check) CHECK_ONLY=1; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -18,16 +20,33 @@ done
 
 [[ -n "$PROFILE_PATH" ]] || { echo "--profile-path is required" >&2; exit 2; }
 
-python3 - "$PROFILE_PATH" "$GENERATION" "$CHECK_ONLY" "$AUTH_TOKEN_FILE" <<'PY'
-import json, os, pathlib, re, sys
+python3 - "$PROFILE_PATH" "$GENERATION" "$CHECK_ONLY" "$AUTH_TOKEN_FILE" "$BASE_URL" <<'PY'
+import json, os, pathlib, re, shutil, sys, tempfile
 
-profile_path, generation, check_raw, auth_token_file = sys.argv[1:]
+profile_path, generation, check_raw, auth_token_file, base_url = sys.argv[1:]
 check_only = check_raw == "1"
 profile = json.loads(pathlib.Path(profile_path).read_text(encoding="utf-8"))
 home = pathlib.Path.home()
 settings_path = home / ".claude" / "settings.json"
 agents_path = home / ".claude" / "agents"
 environment_path = home / ".config" / "environment.d" / "claude-provider-profile.conf"
+
+def atomic_write(path: pathlib.Path, content: str, mode: int | None = None) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    temp_path = pathlib.Path(temp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if path.exists():
+            shutil.copy2(path, pathlib.Path(str(path) + ".rollback"))
+        os.replace(temp_path, path)
+        if mode is not None:
+            path.chmod(mode)
+    finally:
+        temp_path.unlink(missing_ok=True)
 
 if settings_path.exists():
     settings = json.loads(settings_path.read_text(encoding="utf-8"))
@@ -36,6 +55,8 @@ else:
 env = settings.setdefault("env", {})
 unset_client_env = [str(key) for key in profile.get("unset_client_env", [])]
 desired = {k: str(v) for k, v in profile["client_env"].items()}
+if base_url:
+    desired["ANTHROPIC_BASE_URL"] = base_url.rstrip("/")
 if auth_token_file:
     desired["ANTHROPIC_AUTH_TOKEN"] = pathlib.Path(auth_token_file).read_text(encoding="utf-8").strip()
 desired["CLAUDE_PROVIDER_PROFILE_GENERATION"] = str(generation)
@@ -52,8 +73,7 @@ for key, value in desired.items():
             env[key] = value
 
 if drift and not check_only:
-    settings_path.parent.mkdir(parents=True, exist_ok=True)
-    settings_path.write_text(json.dumps(settings, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    atomic_write(settings_path, json.dumps(settings, indent=2, ensure_ascii=False) + "\n")
 
 agents_checked = 0
 if agents_path.exists():
@@ -74,16 +94,14 @@ if agents_path.exists():
         if updated != header:
             drift.append(f"agent:{agent.name}")
             if not check_only:
-                agent.write_text("---\n" + updated + "\n---" + text[match.end():], encoding="utf-8")
+                atomic_write(agent, "---\n" + updated + "\n---" + text[match.end():])
 
 environment_text = "\n".join(f"{k}={v}" for k, v in desired.items()) + "\n"
 current_environment = environment_path.read_text(encoding="utf-8") if environment_path.exists() else ""
 if current_environment != environment_text:
     drift.append(f"environment:{environment_path}")
     if not check_only:
-        environment_path.parent.mkdir(parents=True, exist_ok=True)
-        environment_path.write_text(environment_text, encoding="utf-8")
-        environment_path.chmod(0o600)
+        atomic_write(environment_path, environment_text, 0o600)
 
 print(json.dumps({
     "profile": profile["name"],

@@ -381,17 +381,16 @@ function Sync-HyperVHeadroomBridge {
   if ([string]::IsNullOrWhiteSpace($HyperVVmName)) { return $null }
 
   $switchAlias = "vEthernet ($HyperVSwitchName)"
-  $switchIp = Get-NetIPAddress -InterfaceAlias $switchAlias -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+  $switchAddress = Get-NetIPAddress -InterfaceAlias $switchAlias -AddressFamily IPv4 -ErrorAction SilentlyContinue |
     Where-Object { $_.IPAddress -notmatch '^169\.254\.' } |
-    Select-Object -ExpandProperty IPAddress -First 1
+    Select-Object -First 1
+  $switchIp = if ($switchAddress) { [string]$switchAddress.IPAddress } else { "" }
   if ([string]::IsNullOrWhiteSpace($switchIp)) {
     throw "could not determine IPv4 for Hyper-V switch '$HyperVSwitchName'"
   }
 
   $vmIp = Get-HyperVVmIpv4 -VmName $HyperVVmName -SwitchIp $switchIp
-  if ([string]::IsNullOrWhiteSpace($vmIp)) {
-    Write-StackLog "VM IPv4 lookup failed for '$HyperVVmName'; continuing without per-VM firewall RemoteAddress (bridge still listens on switch IP)"
-  }
+  if ([string]::IsNullOrWhiteSpace($vmIp)) { Write-StackLog "VM IPv4 lookup failed for '$HyperVVmName'; bridge firewall remains scoped to the current Hyper-V switch subnet" }
 
   foreach ($entry in @(Get-V4ToV4PortProxyEntries)) {
     if ($entry.ListenPort -ne $HeadroomPort -or $entry.ConnectPort -ne $HeadroomPort) { continue }
@@ -421,9 +420,11 @@ function Sync-HyperVHeadroomBridge {
     Write-StackLog "iphlpsvc restart skipped: $($_.Exception.Message)"
   }
 
-  $firewallRuleName = "Headroom-HyperV-VM-$HeadroomPort"
-  Get-NetFirewallRule -DisplayName $firewallRuleName -ErrorAction SilentlyContinue |
-    Remove-NetFirewallRule -ErrorAction SilentlyContinue
+  $firewallRuleName = "Headroom-HyperV-Fleet-$HeadroomPort"
+  foreach ($staleRuleName in @("Headroom-HyperV-VM-$HeadroomPort", $firewallRuleName)) {
+    Get-NetFirewallRule -DisplayName $staleRuleName -ErrorAction SilentlyContinue |
+      Remove-NetFirewallRule -ErrorAction SilentlyContinue
+  }
   $fwParams = @{
     DisplayName = $firewallRuleName
     Direction = "Inbound"
@@ -433,9 +434,7 @@ function Sync-HyperVHeadroomBridge {
     LocalPort = $HeadroomPort
     Profile = "Any"
   }
-  if (-not [string]::IsNullOrWhiteSpace($vmIp)) {
-    $fwParams.RemoteAddress = $vmIp
-  }
+  $fwParams.RemoteAddress = "$switchIp/$([int]$switchAddress.PrefixLength)"
   New-NetFirewallRule @fwParams | Out-Null
 
   $vmBaseUrl = "http://${switchIp}:$HeadroomPort"

@@ -1,6 +1,7 @@
 param(
   [string]$RepoRoot = "",
   [string]$ProfileDir = "",
+  [string]$FleetManifestPath = "",
   [string]$ProjectName = "sub2api-codex",
   [string]$Distro = "Ubuntu-24.04",
   [int]$HeadroomPort = 8787,
@@ -32,6 +33,11 @@ if (-not (Test-Path -LiteralPath $recoveryPolicyScript)) {
   throw "Recovery policy script not found: $recoveryPolicyScript"
 }
 . $recoveryPolicyScript
+$fleetContract = Join-Path $ScriptDir "fleet-contract.psm1"
+if (-not (Test-Path -LiteralPath $fleetContract)) {
+  throw "Fleet contract module not found: $fleetContract"
+}
+Import-Module $fleetContract -Force
 
 function Resolve-ProfileDir {
   if ($ProfileDir.Trim()) {
@@ -152,13 +158,6 @@ function Invoke-ProviderRouteReconcile {
   try {
     $routeState = Get-Content -Raw -LiteralPath $routeStatePath | ConvertFrom-Json
     $generation = [string]$routeState.generation
-    $bridgeEnv = Read-EnvFile -Path (Join-Path $ProfileRoot "hyperv-bridge.env")
-    $configuredWindowsGuestName = if ($bridgeEnv.ContainsKey("HEADROOM_HYPERV_WINDOWS_GUEST_NAME")) {
-      [string]$bridgeEnv["HEADROOM_HYPERV_WINDOWS_GUEST_NAME"]
-    } else { "" }
-    $configuredWindowsGuestCredentialBlob = if ($bridgeEnv.ContainsKey("HEADROOM_HYPERV_WINDOWS_GUEST_CREDENTIAL_BLOB")) {
-      [string]$bridgeEnv["HEADROOM_HYPERV_WINDOWS_GUEST_CREDENTIAL_BLOB"]
-    } else { "" }
     $settingsPath = Join-Path $HOME ".claude\settings.json"
     $localGeneration = ""
     if (Test-Path -LiteralPath $settingsPath) {
@@ -166,13 +165,9 @@ function Invoke-ProviderRouteReconcile {
     }
     $localDrift = $generation -ne $localGeneration
     $pendingNodes = @($routeState.nodes.PSObject.Properties | Where-Object { [string]$_.Value.status -ne "synced" }).Count
-    $windowsNode = @($routeState.nodes.PSObject.Properties | Where-Object { $_.Name -eq "windows_hyperv" } | Select-Object -First 1)
-    $windowsGuestDrift = $false
-    if ($configuredWindowsGuestName.Trim() -and $configuredWindowsGuestCredentialBlob.Trim()) {
-      $windowsGuestDrift = $windowsNode.Count -eq 0 -or [string]$windowsNode[0].Value.name -ne $configuredWindowsGuestName.Trim()
-    }
-    if (-not $localDrift -and $pendingNodes -eq 0 -and -not $windowsGuestDrift) {
-      return [pscustomobject]@{ status = "synced"; generation = $generation; attempted = $false }
+    $fleetSummary = Get-FleetReconcileSummary -Manifest $fleetManifest -Nodes $routeState.nodes
+    if (-not $localDrift -and $fleetSummary.ok) {
+      return [pscustomobject]@{ status = "synced"; generation = $generation; attempted = $false; fleet = $fleetSummary }
     }
 
     $attemptStatePath = Join-Path $ProfileRoot "logs\provider-route-reconcile-state.json"
@@ -181,8 +176,8 @@ function Invoke-ProviderRouteReconcile {
         $attemptState = Get-Content -Raw -LiteralPath $attemptStatePath | ConvertFrom-Json
         $lastAttempt = [DateTimeOffset]::Parse([string]$attemptState.attempted_at)
         $sameGeneration = [string]$attemptState.generation -eq $generation
-        if (-not $windowsGuestDrift -and $sameGeneration -and ([DateTimeOffset]::UtcNow - $lastAttempt.ToUniversalTime()).TotalMinutes -lt $ProviderReconcileMinutes) {
-          return [pscustomobject]@{ status = "throttled"; generation = $generation; pending_nodes = $pendingNodes; attempted = $false }
+        if ($sameGeneration -and ([DateTimeOffset]::UtcNow - $lastAttempt.ToUniversalTime()).TotalMinutes -lt $ProviderReconcileMinutes) {
+          return [pscustomobject]@{ status = "pending-reconcile"; generation = $generation; pending_nodes = $pendingNodes; attempted = $false; reason = "required fleet reconciliation is throttled"; fleet = $fleetSummary }
         }
       } catch { }
     }
@@ -199,21 +194,23 @@ function Invoke-ProviderRouteReconcile {
     }
 
     Write-Utf8NoBom -Path $attemptStatePath -Content (([ordered]@{ attempted_at = [DateTimeOffset]::UtcNow.ToString("o"); generation = $generation } | ConvertTo-Json -Compress) + [Environment]::NewLine)
-    $controllerArgs = @("reconcile", "-RuntimeRoot", $ProfileRoot)
-    if ($configuredWindowsGuestName.Trim() -and $configuredWindowsGuestCredentialBlob.Trim()) {
-      $controllerArgs += @(
-        "-WindowsGuestName", $configuredWindowsGuestName.Trim(),
-        "-WindowsGuestCredentialBlob", $configuredWindowsGuestCredentialBlob.Trim()
-      )
-    }
+    $controllerArgs = @("reconcile", "-RuntimeRoot", $ProfileRoot, "-FleetManifestPath", $resolvedFleetManifestPath)
     $output = @(& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $controller[0] @controllerArgs 2>&1)
     if ($LASTEXITCODE -ne 0) { throw ($output -join [Environment]::NewLine) }
     $result = $output -join [Environment]::NewLine | ConvertFrom-Json
     Write-SelfHealEvent -Event "provider_route_reconciled" -Data @{ generation = $generation; active_profile = $result.active_profile }
-    return [pscustomobject]@{ status = "reconciled"; generation = $generation; attempted = $true; nodes = $result.nodes }
+    return [pscustomobject]@{ status = "reconciled"; generation = $generation; attempted = $true; nodes = $result.nodes; fleet = $result.fleet }
   } catch {
     Write-SelfHealEvent -Event "provider_route_reconcile_failed" -Data @{ error = $_.Exception.Message }
     return [pscustomobject]@{ status = "pending-reconcile"; attempted = $true; reason = $_.Exception.Message }
+  }
+}
+
+function Assert-ProviderRouteHealthy {
+  param($Result)
+  if ($null -eq $Result -or [string]$Result.status -notin @("synced", "reconciled")) {
+    $reason = if ($Result -and $Result.reason) { [string]$Result.reason } else { "provider route status is not healthy" }
+    throw "Provider fleet reconciliation is incomplete: $reason"
   }
 }
 
@@ -263,6 +260,59 @@ function Write-HyperVInventorySnapshot {
   } catch {
     Write-SelfHealEvent -Event "hyperv_inventory_failed" -Data @{ error = $_.Exception.Message }
   }
+}
+
+function Ensure-RequiredFleetHyperVNodes {
+  $results = [Collections.Generic.List[object]]::new()
+  $requiredNodes = @($fleetManifest.nodes | Where-Object {
+    [string]$_.kind -eq "windows-hyperv" -and
+    [bool]$_.required -and
+    [string]$_.desired_state -eq "running"
+  })
+  if ($requiredNodes.Count -eq 0) { return @() }
+
+  Import-Module Hyper-V -ErrorAction Stop
+  foreach ($definition in $requiredNodes) {
+    $vmName = [string]$definition.vm_name
+    try {
+      $vm = Get-VM -Name $vmName -ErrorAction Stop
+      $changed = [Collections.Generic.List[string]]::new()
+      if ([string]$vm.AutomaticStartAction -ne "Start") {
+        Set-VM -Name $vmName -AutomaticStartAction Start -ErrorAction Stop
+        $changed.Add("automatic_start")
+      }
+      if ([string]$vm.State -eq "Off") {
+        Start-VM -Name $vmName -ErrorAction Stop | Out-Null
+        $changed.Add("started")
+      }
+      $current = Get-VM -Name $vmName -ErrorAction Stop
+      $row = [pscustomobject]@{
+        id = [string]$definition.id
+        vm_name = $vmName
+        required = $true
+        status = if ([string]$current.State -in @("Running", "Starting")) { "ready" } else { "pending" }
+        state = [string]$current.State
+        automatic_start_action = [string]$current.AutomaticStartAction
+        changes = @($changed)
+      }
+      $results.Add($row)
+      if ($changed.Count -gt 0) {
+        Write-SelfHealEvent -Event "fleet_vm_recovered" -Data @{ node = $row }
+      }
+    } catch {
+      $results.Add([pscustomobject]@{
+        id = [string]$definition.id
+        vm_name = $vmName
+        required = $true
+        status = "failed"
+        state = "unknown"
+        automatic_start_action = "unknown"
+        changes = @()
+        error = $_.Exception.Message
+      })
+    }
+  }
+  return @($results)
 }
 
 function Invoke-OfflineWindowsGuestRouteRepair {
@@ -979,14 +1029,36 @@ function Test-HeadroomGpuRoute {
 function Get-RequiredRouteState {
   $sameHostCandidates = @("http://127.0.0.1:$HeadroomPort")
   $wslIp = $null
-  $sameHost = Invoke-HealthProbe -Url $sameHostCandidates[0]
-  if (-not $sameHost.ok) {
+  $service = Invoke-HealthProbe -Url $sameHostCandidates[0]
+  if (-not $service.ok) {
     $wslIp = Get-WslIpv4
     if ($wslIp) {
       $sameHostCandidates += "http://${wslIp}:$HeadroomPort"
-      $sameHost = Invoke-HealthProbe -Url $sameHostCandidates[-1]
+      $service = Invoke-HealthProbe -Url $sameHostCandidates[-1]
     }
   }
+
+  $clientRoutes = [ordered]@{}
+  foreach ($client in @($fleetManifest.clients)) {
+    $settingsPath = Resolve-FleetPath -Path ([string]$client.settings_path)
+    $endpoint = switch ([string]$client.kind) {
+      "claude-code" { Get-ClaudeHeadroomBaseUrl -SettingsPath $settingsPath }
+      "dsh" {
+        $dshUrl = Get-DshHeadBaseUrl -SettingsPath $settingsPath
+        if ($dshUrl) { $dshUrl -replace '/v1/?$', '' } else { $null }
+      }
+      default { $null }
+    }
+    $probe = if ($endpoint) {
+      Invoke-HealthProbe -Url $endpoint.TrimEnd('/')
+    } else {
+      [ordered]@{ url = $null; ok = $false; status = $null; elapsed_ms = 0; error = "configured client endpoint is missing" }
+    }
+    $probe.required = [bool]$client.required
+    $probe.kind = [string]$client.kind
+    $clientRoutes[[string]$client.id] = [pscustomobject]$probe
+  }
+  $requiredClientRoutesOk = @($clientRoutes.GetEnumerator() | Where-Object { $_.Value.required -and -not $_.Value.ok }).Count -eq 0
 
   $bridge = $null
   if ($HyperVVmName.Trim()) {
@@ -1012,14 +1084,39 @@ function Get-RequiredRouteState {
   $dns = Test-Sub2apiDnsRoute
 
   return [ordered]@{
-    ok = ($sameHost.ok -and $bridgeOk -and $gpu.ok -and $dns.ok)
-    same_host = $sameHost
+    ok = ($service.ok -and $requiredClientRoutesOk -and $bridgeOk -and $gpu.ok -and $dns.ok)
+    same_host = $service
+    service = $service
+    client_routes = [pscustomobject]$clientRoutes
     bridge = $bridge
     bridge_required = $RequireHyperVBridge
     wsl_ip = $wslIp
     gpu = $gpu
     dns = $dns
   }
+}
+
+function Sync-ConfiguredClientRoutes {
+  $service = Invoke-HealthProbe -Url "http://127.0.0.1:$HeadroomPort"
+  $baseUrl = "http://127.0.0.1:$HeadroomPort"
+  if (-not $service.ok) {
+    $wslIp = Get-WslIpv4
+    if (-not $wslIp) { return [pscustomobject]@{ status = "unavailable"; reason = "WSL address was not found" } }
+    $baseUrl = "http://${wslIp}:$HeadroomPort"
+    $service = Invoke-HealthProbe -Url $baseUrl
+  }
+  if (-not $service.ok) { return [pscustomobject]@{ status = "unavailable"; reason = "Headroom service route is not healthy"; route = $service } }
+
+  $results = [ordered]@{}
+  foreach ($client in @($fleetManifest.clients)) {
+    $settingsPath = Resolve-FleetPath -Path ([string]$client.settings_path)
+    $results[[string]$client.id] = switch ([string]$client.kind) {
+      "claude-code" { Set-ClaudeHeadroomBaseUrl -SettingsPath $settingsPath -BaseUrl $baseUrl }
+      "dsh" { Set-DshHeadBaseUrl -SettingsPath $settingsPath -BaseUrl ($baseUrl.TrimEnd('/') + "/v1") }
+      default { [pscustomobject]@{ status = "unsupported"; kind = [string]$client.kind } }
+    }
+  }
+  return [pscustomobject]@{ status = "synced"; base_url = $baseUrl; clients = [pscustomobject]$results }
 }
 
 function Save-State {
@@ -1043,6 +1140,14 @@ function Save-State {
 }
 
 $Root = Resolve-ProfileDir
+$resolvedFleetManifestPath = $FleetManifestPath
+if (-not $resolvedFleetManifestPath.Trim()) {
+  $resolvedFleetManifestPath = Join-Path $Root "fleet-manifest.json"
+  if (-not (Test-Path -LiteralPath $resolvedFleetManifestPath) -and $RepoRoot.Trim()) {
+    $resolvedFleetManifestPath = Join-Path (Resolve-Path -LiteralPath $RepoRoot).Path "deploy\claude-code-codex-headroom\fleet-manifest.json"
+  }
+}
+$fleetManifest = Read-FleetManifest -Path $resolvedFleetManifestPath
 $LogDir = Join-Path $Root "logs"
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 $LogPath = Join-Path $LogDir "self-heal.jsonl"
@@ -1073,8 +1178,15 @@ if (-not $RequireHyperVBridge -and $bridgeEnv.ContainsKey("HEADROOM_HYPERV_REQUI
   $RequireHyperVBridge = $bridgeEnv["HEADROOM_HYPERV_REQUIRE_BRIDGE"] -match "^(1|true|yes|on)$"
 }
 
-$hyperVConfigured = $HyperVVmName.Trim().Length -gt 0
+$hyperVConfigured = $HyperVVmName.Trim().Length -gt 0 -or @($fleetManifest.nodes | Where-Object { [string]$_.kind -match "hyperv" }).Count -gt 0
+$fleetVmRecovery = @()
 if ($hyperVConfigured) {
+  try {
+    $fleetVmRecovery = @(Ensure-RequiredFleetHyperVNodes)
+  } catch {
+    $fleetVmRecovery = @([pscustomobject]@{ status = "failed"; error = $_.Exception.Message })
+    Write-SelfHealEvent -Event "fleet_vm_recovery_failed" -Data @{ error = $_.Exception.Message }
+  }
   Write-HyperVInventorySnapshot
 }
 
@@ -1121,10 +1233,36 @@ try {
     $sshAudit | ConvertTo-Json -Compress -Depth 8
     exit 0
   }
+  $fleetVerifyRequest = Join-Path $LogDir "fleet-route-verify.request.json"
+  if (Test-Path -LiteralPath $fleetVerifyRequest) {
+    $fleetVerifier = Join-Path $ScriptDir "verify-fleet-route.ps1"
+    $fleetVerifyResult = Join-Path $LogDir "fleet-route-verify.result.json"
+    try {
+      $request = Get-Content -Raw -LiteralPath $fleetVerifyRequest | ConvertFrom-Json
+      if ($request.output_path -and [IO.Path]::GetFullPath([string]$request.output_path).StartsWith([IO.Path]::GetFullPath($LogDir), [StringComparison]::OrdinalIgnoreCase)) {
+        $fleetVerifyResult = [IO.Path]::GetFullPath([string]$request.output_path)
+      }
+      $verifyOutput = @(& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $fleetVerifier -RepoRoot $RepoRoot -ProfileDir $Root -FleetManifestPath $resolvedFleetManifestPath -OutputPath $fleetVerifyResult 2>&1)
+      $verifyExitCode = $LASTEXITCODE
+      if ($verifyExitCode -ne 0) { throw "Fleet route verification failed with exit code ${verifyExitCode}: $($verifyOutput -join ' ')" }
+      Write-SelfHealEvent -Event "fleet_route_verified" -Data @{ result_path = $fleetVerifyResult }
+      $verifyOutput
+    } catch {
+      Write-SelfHealEvent -Event "fleet_route_verification_failed" -Data @{ result_path = $fleetVerifyResult; error = $_.Exception.Message }
+      throw
+    } finally {
+      Remove-Item -LiteralPath $fleetVerifyRequest -Force -ErrorAction SilentlyContinue
+    }
+    exit 0
+  }
 
   $codexAuthSync = Sync-CodexAuthFile -ProfileRoot $Root -EnvMap $envMap
   $grokAuthSync = Sync-GrokBuildAuth
   $clinePassAuthSync = Sync-ClinePassAuth
+  $clientRouteSync = Sync-ConfiguredClientRoutes
+  if ($clientRouteSync.status -eq "synced") {
+    Write-SelfHealEvent -Event "client_routes_synced" -Data @{ result = $clientRouteSync }
+  }
   $before = Get-RequiredRouteState
   $dnsRepair = $null
   if (-not $before.dns.ok) {
@@ -1169,13 +1307,14 @@ try {
         $writeHeartbeat = $true
       }
     }
-      if ($writeHeartbeat) {
-        Write-SelfHealEvent -Event "healthy" -Data @{ routes = $before; codex_auth = $codexAuthSync; grok_auth = $grokAuthSync; cline_pass_auth = $clinePassAuthSync }
+    $providerRoute = Invoke-ProviderRouteReconcile -ProfileRoot $Root
+    Assert-ProviderRouteHealthy -Result $providerRoute
+    if ($writeHeartbeat) {
+      Write-SelfHealEvent -Event "healthy" -Data @{ routes = $before; fleet_vms = $fleetVmRecovery; provider_route = $providerRoute; codex_auth = $codexAuthSync; grok_auth = $grokAuthSync; cline_pass_auth = $clinePassAuthSync }
       $lastEventAt = (Get-Date).ToUniversalTime().ToString("o")
     }
-    $providerRoute = Invoke-ProviderRouteReconcile -ProfileRoot $Root
     Save-State -Status "healthy" -LastEventAt $lastEventAt
-    [pscustomobject]@{ status = "healthy"; recovered = $false; routes = $before; dns_repair = $dnsRepair; codex_auth = $codexAuthSync; grok_auth = $grokAuthSync; cline_pass_auth = $clinePassAuthSync; provider_route = $providerRoute; headroom_image = $imageState; headroom_image_rollout = $imageRollout } | ConvertTo-Json -Compress -Depth 10
+    [pscustomobject]@{ status = "healthy"; recovered = $false; routes = $before; fleet_vms = $fleetVmRecovery; dns_repair = $dnsRepair; codex_auth = $codexAuthSync; grok_auth = $grokAuthSync; cline_pass_auth = $clinePassAuthSync; provider_route = $providerRoute; headroom_image = $imageState; headroom_image_rollout = $imageRollout } | ConvertTo-Json -Compress -Depth 10
     exit 0
   }
 
@@ -1199,6 +1338,7 @@ try {
     $afterBridge = Get-RequiredRouteState
     if ($afterBridge.ok) {
       $providerRoute = Invoke-ProviderRouteReconcile -ProfileRoot $Root
+      Assert-ProviderRouteHealthy -Result $providerRoute
       Save-State -Status "healthy" -LastEventAt (Get-Date).ToUniversalTime().ToString("o")
       Write-SelfHealEvent -Event "bridge_recovered" -Data @{ routes_before = $before; routes_after = $afterBridge; compose_policy = "--no-recreate" }
       [pscustomobject]@{ status = "healthy"; recovered = $true; recovery = "bridge-only"; routes = $afterBridge; grok_auth = $grokAuthSync; cline_pass_auth = $clinePassAuthSync; provider_route = $providerRoute } | ConvertTo-Json -Compress -Depth 10
@@ -1251,6 +1391,7 @@ try {
     $after = Get-RequiredRouteState
     if ($after.ok) {
       $providerRoute = Invoke-ProviderRouteReconcile -ProfileRoot $Root
+      Assert-ProviderRouteHealthy -Result $providerRoute
       Save-State -Status "healthy" -LastEventAt (Get-Date).ToUniversalTime().ToString("o")
       Write-SelfHealEvent -Event "recovered" -Data @{ routes_before = $before; routes_after = $after }
         [pscustomobject]@{ status = "healthy"; recovered = $true; routes = $after; grok_auth = $grokAuthSync; cline_pass_auth = $clinePassAuthSync; provider_route = $providerRoute } | ConvertTo-Json -Compress -Depth 8

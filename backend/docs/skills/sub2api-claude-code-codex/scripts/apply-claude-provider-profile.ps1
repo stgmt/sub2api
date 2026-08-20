@@ -7,6 +7,7 @@ param(
   [string]$WrapperPath,
   [string]$Generation = "0",
   [string]$AuthToken,
+  [string]$BaseUrl,
   [ValidateSet("User", "Process", "None")]
   [string]$EnvironmentTarget = "User",
   [switch]$CheckOnly
@@ -19,7 +20,18 @@ function Write-Utf8NoBom([string]$Path, [string]$Content) {
   if ($parent -and -not (Test-Path -LiteralPath $parent)) {
     New-Item -ItemType Directory -Path $parent -Force | Out-Null
   }
-  [IO.File]::WriteAllText($Path, $Content, [Text.UTF8Encoding]::new($false))
+  $temp = Join-Path $parent (".{0}.{1}.tmp" -f ([IO.Path]::GetFileName($Path)), [guid]::NewGuid().ToString("N"))
+  $backup = "$Path.rollback"
+  try {
+    [IO.File]::WriteAllText($temp, $Content, [Text.UTF8Encoding]::new($false))
+    if (Test-Path -LiteralPath $Path) {
+      [IO.File]::Replace($temp, $Path, $backup, $true)
+    } else {
+      [IO.File]::Move($temp, $Path)
+    }
+  } finally {
+    Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
+  }
 }
 
 function Set-ObjectProperty($Object, [string]$Name, $Value) {
@@ -56,17 +68,24 @@ $unsetClientEnv = @()
 if ($profile.PSObject.Properties.Name -contains "unset_client_env") {
   $unsetClientEnv = @($profile.unset_client_env | ForEach-Object { [string]$_ })
 }
+$desiredClientEnv = [ordered]@{}
+foreach ($property in $profile.client_env.PSObject.Properties) {
+  $desiredClientEnv[$property.Name] = [string]$property.Value
+}
+if ($BaseUrl.Trim()) {
+  $desiredClientEnv["ANTHROPIC_BASE_URL"] = $BaseUrl.TrimEnd('/')
+}
 foreach ($name in $unsetClientEnv) {
   if ($settings.env.PSObject.Properties.Name -contains $name) {
     $drift.Add("settings.env.$name")
     if (-not $CheckOnly) { $settings.env.PSObject.Properties.Remove($name) }
   }
 }
-foreach ($property in $profile.client_env.PSObject.Properties) {
-  $current = if ($settings.env.PSObject.Properties.Name -contains $property.Name) { [string]$settings.env.($property.Name) } else { $null }
-  if ($current -ne [string]$property.Value) {
-    $drift.Add("settings.env.$($property.Name)")
-    if (-not $CheckOnly) { Set-ObjectProperty $settings.env $property.Name ([string]$property.Value) }
+foreach ($entry in $desiredClientEnv.GetEnumerator()) {
+  $current = if ($settings.env.PSObject.Properties.Name -contains $entry.Key) { [string]$settings.env.($entry.Key) } else { $null }
+  if ($current -ne [string]$entry.Value) {
+    $drift.Add("settings.env.$($entry.Key)")
+    if (-not $CheckOnly) { Set-ObjectProperty $settings.env $entry.Key ([string]$entry.Value) }
   }
 }
 if ($AuthToken) {
@@ -93,8 +112,8 @@ if ($EnvironmentTarget -ne "None") {
     }
   }
   $desiredUserEnvironment = [ordered]@{}
-  foreach ($property in $profile.client_env.PSObject.Properties) {
-    $desiredUserEnvironment[$property.Name] = [string]$property.Value
+  foreach ($entry in $desiredClientEnv.GetEnumerator()) {
+    $desiredUserEnvironment[$entry.Key] = [string]$entry.Value
   }
   if ($AuthToken) { $desiredUserEnvironment["ANTHROPIC_AUTH_TOKEN"] = $AuthToken }
   $desiredUserEnvironment[$markerName] = [string]$Generation
@@ -155,17 +174,17 @@ if (Test-Path -LiteralPath $WrapperPath) {
       $updatedWrapper = "$clearLine`r`n$updatedWrapper"
     }
   }
-  foreach ($property in $profile.client_env.PSObject.Properties) {
-    $escapedName = [regex]::Escape($property.Name)
+  foreach ($entry in $desiredClientEnv.GetEnumerator()) {
+    $escapedName = [regex]::Escape($entry.Key)
     $pattern = '(?im)^set\s+"{0}=.*?"\s*$' -f $escapedName
     if ($updatedWrapper -match $pattern) {
-      $replacement = "set `"$($property.Name)=$($property.Value)`""
+      $replacement = "set `"$($entry.Key)=$($entry.Value)`""
       $updatedWrapper = [regex]::Replace($updatedWrapper, $pattern, $replacement)
     } elseif ($updatedWrapper -match '(?im)^setlocal\s*$') {
-      $replacement = "set `"$($property.Name)=$($property.Value)`""
+      $replacement = "set `"$($entry.Key)=$($entry.Value)`""
       $updatedWrapper = [regex]::Replace($updatedWrapper, '(?im)^setlocal\s*$', "setlocal`r`n$replacement", 1)
     } else {
-      $updatedWrapper = "set `"$($property.Name)=$($property.Value)`"`r`n$updatedWrapper"
+      $updatedWrapper = "set `"$($entry.Key)=$($entry.Value)`"`r`n$updatedWrapper"
     }
   }
   if ($AuthToken) {

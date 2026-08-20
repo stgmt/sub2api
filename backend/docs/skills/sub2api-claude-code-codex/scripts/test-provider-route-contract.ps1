@@ -89,7 +89,7 @@ try {
   Assert-True ($afterQwen.env.ANTHROPIC_AUTH_TOKEN -eq "fleet-test-key") "Fleet API key must be reconciled into settings"
   Assert-True ((Get-Content -Raw $wrapperPath).Contains('ANTHROPIC_AUTH_TOKEN=fleet-test-key')) "Fleet API key must replace a stale wrapper token"
 
-  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $applier -ProfilePath $chatgptProfile -SettingsPath $settingsPath -AgentsPath $agentsPath -WrapperPath $wrapperPath -Generation 10 -AuthToken "fleet-test-key" -EnvironmentTarget None | Out-Null
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $applier -ProfilePath $chatgptProfile -SettingsPath $settingsPath -AgentsPath $agentsPath -WrapperPath $wrapperPath -Generation 10 -AuthToken "fleet-test-key" -BaseUrl "http://172.30.1.2:8787" -EnvironmentTarget None | Out-Null
   Assert-True ($LASTEXITCODE -eq 0) "ChatGPT-only profile apply must succeed"
   $afterChatGPT = Get-Content -Raw $settingsPath | ConvertFrom-Json
   Assert-True ($afterChatGPT.env.ANTHROPIC_MODEL -eq "gpt-5.6-sol") "ChatGPT-only main must expose the OpenAI/Codex identity"
@@ -101,13 +101,16 @@ try {
   Assert-True ($afterChatGPT.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW -eq "340000") "ChatGPT-only compact threshold must be 340k"
   Assert-True ($afterChatGPT.env.CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS -eq "10") "ChatGPT-only profile must enforce the concurrent subagent cap"
   Assert-True ($afterChatGPT.env.CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH -eq "1") "ChatGPT-only profile must disable nested subagent spawning"
+  Assert-True ($afterChatGPT.env.ANTHROPIC_BASE_URL -eq "http://172.30.1.2:8787") "Provider apply must reconcile the exact Headroom endpoint"
   Assert-True ($afterChatGPT.env.PSObject.Properties.Name -notcontains "CLAUDE_CODE_EFFORT_LEVEL") "ChatGPT-only must clear hard interactive effort"
   $agentAfterChatGPT = Get-Content -Raw $agentPath
   Assert-True ($agentAfterChatGPT -match '(?m)^model: gpt-5.6-luna$') "ChatGPT-only agent frontmatter must use Luna"
   Assert-True ($agentAfterChatGPT -match '(?m)^effort: max$') "ChatGPT-only agent frontmatter must use max"
   Assert-True ((Get-Content -Raw $wrapperPath).Contains('set "CLAUDE_CODE_EFFORT_LEVEL="')) "ChatGPT-only wrapper must clear inherited hard interactive effort"
+  Assert-True ((Get-Content -Raw $wrapperPath).Contains('ANTHROPIC_BASE_URL=http://172.30.1.2:8787')) "Wrapper must use the reconciled Headroom endpoint"
+  Assert-True (Test-Path -LiteralPath "$settingsPath.rollback") "Settings updates must retain one atomic rollback file"
 
-  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $applier -ProfilePath $chatgptProfile -SettingsPath $settingsPath -AgentsPath $agentsPath -WrapperPath $wrapperPath -Generation 10 -AuthToken "fleet-test-key" -EnvironmentTarget None -CheckOnly | Out-Null
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $applier -ProfilePath $chatgptProfile -SettingsPath $settingsPath -AgentsPath $agentsPath -WrapperPath $wrapperPath -Generation 10 -AuthToken "fleet-test-key" -BaseUrl "http://172.30.1.2:8787" -EnvironmentTarget None -CheckOnly | Out-Null
   Assert-True ($LASTEXITCODE -eq 0) "ChatGPT-only check-only must be clean immediately after apply"
 
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $applier -ProfilePath $alibabaProfile -SettingsPath $settingsPath -AgentsPath $agentsPath -WrapperPath $wrapperPath -Generation 11 -AuthToken "fleet-test-key" -EnvironmentTarget None | Out-Null
@@ -264,6 +267,7 @@ Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof cont
 
   $installFixture = Join-Path $temp "install-fixture"
   $installedSkill = Join-Path $installFixture "sub2api-claude-code-codex"
+  $installedSafetySkill = Join-Path $installFixture "sub2api-headroom-change-safety"
   $legacySkill = Join-Path $installFixture "claude-provider-switcher"
   $legacyProfileV1 = Join-Path $installedSkill "profiles\anthropic-only.v1.json"
   $legacyProfileV2 = Join-Path $installedSkill "profiles\anthropic-only.v2.json"
@@ -275,7 +279,8 @@ Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof cont
   [IO.File]::WriteAllText($legacyProfileV3, '{}', [Text.UTF8Encoding]::new($false))
   [IO.File]::WriteAllText($legacyChatGPTV2, '{}', [Text.UTF8Encoding]::new($false))
   [IO.File]::WriteAllText((Join-Path $legacySkill 'SKILL.md'), "---`nname: claude-provider-switcher`n---`n", [Text.UTF8Encoding]::new($false))
-  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -InstallRoot $installedSkill -BinDir (Join-Path $installFixture 'bin') -LegacySkillRoot $legacySkill -SkipPathUpdate -SkipStatus | Out-Null
+  [IO.File]::WriteAllText((Join-Path $installedSkill 'stale-managed-file.txt'), 'stale', [Text.UTF8Encoding]::new($false))
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -InstallRoot $installedSkill -SafetyInstallRoot $installedSafetySkill -BinDir (Join-Path $installFixture 'bin') -LegacySkillRoot $legacySkill -SkipPathUpdate -SkipStatus | Out-Null
   Assert-True ($LASTEXITCODE -eq 0) "Consolidated installer fixture must succeed"
   Assert-True (Test-Path -LiteralPath (Join-Path $installedSkill 'profiles\anthropic-only.v4.json')) "Installer must copy Anthropic profile v4"
   Assert-True (Test-Path -LiteralPath (Join-Path $installedSkill 'profiles\chatgpt-only.v5.json')) "Installer must copy ChatGPT-only profile v5"
@@ -289,8 +294,10 @@ Assert-True ($anthropic.expected_provider -eq "anthropic") "Anthropic proof cont
   Assert-True (-not (Test-Path -LiteralPath $legacyProfileV2)) "Installer must remove stale Anthropic profile v2"
   Assert-True (-not (Test-Path -LiteralPath $legacyProfileV3)) "Installer must remove stale Anthropic profile v3"
   Assert-True (-not (Test-Path -LiteralPath $legacySkill)) "Installer must remove the managed standalone provider skill"
+  Assert-True (-not (Test-Path -LiteralPath (Join-Path $installedSkill 'stale-managed-file.txt'))) "Installer must mirror source instead of retaining stale managed files"
+  Assert-True (Test-Path -LiteralPath (Join-Path $installedSafetySkill 'SKILL.md')) "Installer must install the change-safety skill from the same checkout"
 
-  [pscustomobject]@{ status = "PASS"; assertions = 197; profiles = @("anthropic-only", "qwen-only", "alibaba", "chatgpt-only", "hybrid-current") } | ConvertTo-Json -Compress
+  [pscustomobject]@{ status = "PASS"; assertions = 199; profiles = @("anthropic-only", "qwen-only", "alibaba", "chatgpt-only", "hybrid-current") } | ConvertTo-Json -Compress
 } finally {
   Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
 }

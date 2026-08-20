@@ -3,7 +3,8 @@ param(
   [Parameter(Position = 0)]
   [ValidateSet("status", "anthropic", "qwen", "alibaba", "chatgpt", "hybrid", "reconcile", "verify")]
   [string]$Command = "status",
-  [string]$RuntimeRoot = "C:\Users\stigm\Documents\Codex\2026-07-07\new-chat\work\sub2api-runtime",
+  [string]$RuntimeRoot = "",
+  [string]$FleetManifestPath = "",
   [string]$AdminBaseUrl = "http://127.0.0.1:18081",
   [string]$HeadroomBaseUrl = "http://127.0.0.1:8787",
   [string]$StableKeyName = "claude-code-codex-sub2api",
@@ -15,6 +16,7 @@ param(
   [string]$LinuxGuestKey = "C:\Migration\devcontainer-vm-key",
   [string]$WindowsGuestName = "win10-ltsc-docker",
   [string]$WindowsGuestCredentialBlob = "C:\Migration\native-windows-port\secrets\win10-ltsc-docker-admin.dpapi",
+  [string]$HyperVSwitchName = "Default Switch",
   [string[]]$ManagedFleetKeyNames = @("claude-win10-chatgpt-only"),
   [switch]$ForceCredentialRefresh,
   [switch]$SkipFleet
@@ -22,9 +24,29 @@ param(
 
 $ErrorActionPreference = "Stop"
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$repoRoot = $scriptRoot
+while ($repoRoot -and -not (Test-Path -LiteralPath (Join-Path $repoRoot "deploy\claude-code-codex-headroom\docker-compose.yml"))) {
+  $parent = Split-Path -Parent $repoRoot
+  if (-not $parent -or $parent -eq $repoRoot) { $repoRoot = ""; break }
+  $repoRoot = $parent
+}
+if (-not $RuntimeRoot.Trim()) {
+  if (-not $repoRoot) { throw "Could not resolve canonical sub2api runtime root" }
+  $RuntimeRoot = Join-Path $repoRoot "deploy\claude-code-codex-headroom"
+}
+if (-not $FleetManifestPath.Trim()) {
+  $FleetManifestPath = Join-Path $RuntimeRoot "fleet-manifest.json"
+  if (-not (Test-Path -LiteralPath $FleetManifestPath) -and $repoRoot) {
+    $FleetManifestPath = Join-Path $repoRoot "deploy\claude-code-codex-headroom\fleet-manifest.json"
+  }
+}
 $profileRoot = Join-Path (Split-Path -Parent $scriptRoot) "profiles"
 $profileApplier = Join-Path $scriptRoot "apply-claude-provider-profile.ps1"
 $linuxProfileApplier = Join-Path $scriptRoot "apply-claude-provider-profile.sh"
+$fleetContract = Join-Path $scriptRoot "fleet-contract.psm1"
+if (-not (Test-Path -LiteralPath $fleetContract)) { throw "Fleet contract module not found: $fleetContract" }
+Import-Module $fleetContract -Force
+$fleetManifest = Read-FleetManifest -Path $FleetManifestPath
 $statePath = Join-Path $RuntimeRoot "data\provider-route-state.json"
 $envPath = Join-Path $RuntimeRoot ".env"
 $postgresContainer = "sub2api-codex-postgres"
@@ -69,6 +91,17 @@ function Resolve-WslServiceUrl([string]$ConfiguredUrl, [int]$Port) {
   $candidate = "http://${ip}:$Port"
   if (Test-HttpEndpoint $candidate) { return $candidate }
   return $ConfiguredUrl.TrimEnd('/')
+}
+
+function Resolve-HyperVServiceUrl([int]$Port) {
+  $alias = "vEthernet ($HyperVSwitchName)"
+  $ip = Get-NetIPAddress -InterfaceAlias $alias -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+    Where-Object { $_.IPAddress -notlike "169.254.*" } |
+    Select-Object -First 1 -ExpandProperty IPAddress
+  if (-not $ip) { throw "Hyper-V switch IPv4 was not found for '$HyperVSwitchName'" }
+  $candidate = "http://${ip}:$Port"
+  if (-not (Test-HttpEndpoint $candidate)) { throw "Headroom is not reachable through Hyper-V switch route $candidate" }
+  return $candidate
 }
 
 function Write-Utf8NoBom([string]$Path, [string]$Content) {
@@ -536,36 +569,39 @@ function Write-State($State) {
   Write-Utf8NoBom $statePath $content
 }
 
-function Apply-HostProfile($ProfileRecord, [string]$Generation, [string]$AuthToken) {
-  $json = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $profileApplier -ProfilePath $ProfileRecord.Path -Generation $Generation -AuthToken $AuthToken 2>&1
+function Apply-HostProfile($ProfileRecord, [string]$Generation, [string]$AuthToken, [string]$BaseUrl) {
+  $json = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $profileApplier -ProfilePath $ProfileRecord.Path -Generation $Generation -AuthToken $AuthToken -BaseUrl $BaseUrl 2>&1
   if ($LASTEXITCODE -ne 0) { throw "Host profile apply failed: $($json -join [Environment]::NewLine)" }
   return ($json -join [Environment]::NewLine | ConvertFrom-Json)
 }
 
-function Test-HostProfile($ProfileRecord, [string]$Generation, [string]$AuthToken) {
-  $json = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $profileApplier -ProfilePath $ProfileRecord.Path -Generation $Generation -AuthToken $AuthToken -CheckOnly 2>&1
+function Test-HostProfile($ProfileRecord, [string]$Generation, [string]$AuthToken, [string]$BaseUrl) {
+  $json = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $profileApplier -ProfilePath $ProfileRecord.Path -Generation $Generation -AuthToken $AuthToken -BaseUrl $BaseUrl -CheckOnly 2>&1
   $exitCode = $LASTEXITCODE
   $parsed = $null
   try { $parsed = $json -join [Environment]::NewLine | ConvertFrom-Json } catch { }
   return [pscustomobject]@{ status = if ($exitCode -eq 0) { "synced" } else { "drifted" }; exit_code = $exitCode; detail = $parsed }
 }
 
-function Reconcile-LinuxGuest($ProfileRecord, [string]$Generation, [string]$AuthToken = "") {
+function Reconcile-LinuxGuest($ProfileRecord, [string]$Generation, [string]$AuthToken, $Definition, [string]$BaseUrl) {
   $ErrorActionPreference = "Continue"
-  $result = [ordered]@{ name = $LinuxGuestVmName; status = "pending-reconcile"; generation = $Generation; checked_at = [DateTimeOffset]::UtcNow.ToString("o"); detail = "offline or unreachable" }
+  $vmName = [string]$Definition.vm_name
+  $sshKey = Resolve-FleetPath -Path ([string]$Definition.ssh_key)
+  $configuredTarget = [string]$Definition.ssh_target
+  $result = [ordered]@{ name = $vmName; required = [bool]$Definition.required; status = "pending-reconcile"; generation = $Generation; checked_at = [DateTimeOffset]::UtcNow.ToString("o"); detail = "offline or unreachable" }
   if (-not (Get-Command ssh.exe -ErrorAction SilentlyContinue)) { $result.detail = "ssh.exe unavailable"; return [pscustomobject]$result }
-  if (-not (Test-Path -LiteralPath $LinuxGuestKey)) { $result.detail = "SSH key unavailable"; return [pscustomobject]$result }
-  $sshArgs = @("-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=accept-new", "-i", $LinuxGuestKey)
-  $guestParts = $LinuxGuest -split '@', 2
+  if (-not (Test-Path -LiteralPath $sshKey)) { $result.detail = "SSH key unavailable"; return [pscustomobject]$result }
+  $sshArgs = @("-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=accept-new", "-i", $sshKey)
+  $guestParts = $configuredTarget -split '@', 2
   $guestUser = if ($guestParts.Count -eq 2) { $guestParts[0] } else { "migration" }
   $targets = [Collections.Generic.List[string]]::new()
-  $vmNameLiteral = $LinuxGuestVmName.Replace("'", "''")
+  $vmNameLiteral = $vmName.Replace("'", "''")
   $discoveredIps = @(& powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "(Get-VMNetworkAdapter -VMName '$vmNameLiteral' -ErrorAction SilentlyContinue).IPAddresses" 2>$null)
   foreach ($ip in $discoveredIps) {
     $candidateIp = [string]$ip
     if ($candidateIp -match '^\d+\.\d+\.\d+\.\d+$' -and -not $candidateIp.StartsWith('169.254.')) { $targets.Add("${guestUser}@${candidateIp}") }
   }
-  if ($LinuxGuest.Trim()) { $targets.Add($LinuxGuest) }
+  if ($configuredTarget.Trim()) { $targets.Add($configuredTarget) }
   $activeTarget = $null
   $lastProbe = "Hyper-V guest is not registered or has no reachable SSH address"
   foreach ($target in @($targets | Select-Object -Unique)) {
@@ -591,7 +627,7 @@ function Reconcile-LinuxGuest($ProfileRecord, [string]$Generation, [string]$Auth
     if ($LASTEXITCODE -ne 0) { $result.detail = "failed to stage fleet API key"; return [pscustomobject]$result }
     $authTokenArgument = " --auth-token-file $remoteRoot/auth-token"
   }
-  $remoteCommand = "chmod 700 $remoteRoot/apply-profile.sh; chmod 600 $remoteRoot/auth-token 2>/dev/null || true; trap 'rm -f $remoteRoot/auth-token' EXIT; bash $remoteRoot/apply-profile.sh --profile-path $remoteRoot/profile.json --generation '$Generation'$authTokenArgument"
+  $remoteCommand = "chmod 700 $remoteRoot/apply-profile.sh; chmod 600 $remoteRoot/auth-token 2>/dev/null || true; trap 'rm -f $remoteRoot/auth-token' EXIT; bash $remoteRoot/apply-profile.sh --profile-path $remoteRoot/profile.json --generation '$Generation' --base-url '$BaseUrl'$authTokenArgument"
   $remote = @(& ssh.exe @sshArgs $activeTarget $remoteCommand 2>&1)
   $remoteText = ($remote -join " ").Trim()
   if ($LASTEXITCODE -eq 0) {
@@ -601,24 +637,27 @@ function Reconcile-LinuxGuest($ProfileRecord, [string]$Generation, [string]$Auth
   return [pscustomobject]$result
 }
 
-function Reconcile-WindowsGuest($ProfileRecord, [string]$Generation, [string]$AuthToken = "") {
-  $result = [ordered]@{ name = $WindowsGuestName; status = "pending-reconcile"; generation = $Generation; checked_at = [DateTimeOffset]::UtcNow.ToString("o"); detail = "offline, unavailable, or host is not elevated" }
+function Reconcile-WindowsGuest($ProfileRecord, [string]$Generation, [string]$AuthToken, $Definition, [string]$BaseUrl) {
+  $vmName = [string]$Definition.vm_name
+  $credentialBlob = Resolve-FleetPath -Path ([string]$Definition.credential_blob)
+  $credentialUser = if ($Definition.PSObject.Properties.Name -contains "credential_user" -and [string]$Definition.credential_user) { [string]$Definition.credential_user } else { "admin" }
+  $result = [ordered]@{ name = $vmName; required = [bool]$Definition.required; status = "pending-reconcile"; generation = $Generation; checked_at = [DateTimeOffset]::UtcNow.ToString("o"); detail = "offline, unavailable, or host is not elevated" }
   if (-not (Get-Command New-PSSession -ErrorAction SilentlyContinue)) { $result.detail = "PowerShell remoting unavailable"; return [pscustomobject]$result }
-  if (-not (Test-Path -LiteralPath $WindowsGuestCredentialBlob)) { $result.detail = "DPAPI credential blob unavailable"; return [pscustomobject]$result }
+  if (-not (Test-Path -LiteralPath $credentialBlob)) { $result.detail = "DPAPI credential blob unavailable"; return [pscustomobject]$result }
   $session = $null
   $plain = $null
   $password = $null
   $securePassword = $null
   try {
     Add-Type -AssemblyName System.Security
-    $blob = [IO.File]::ReadAllBytes($WindowsGuestCredentialBlob)
+    $blob = [IO.File]::ReadAllBytes($credentialBlob)
     $plain = [Security.Cryptography.ProtectedData]::Unprotect($blob, $null, [Security.Cryptography.DataProtectionScope]::CurrentUser)
     $password = [Text.Encoding]::UTF8.GetString($plain)
     $securePassword = [Security.SecureString]::new()
     foreach ($character in $password.ToCharArray()) { $securePassword.AppendChar($character) }
     $securePassword.MakeReadOnly()
-    $credential = [pscredential]::new("admin", $securePassword)
-    $session = New-PSSession -VMName $WindowsGuestName -Credential $credential -ErrorAction Stop
+    $credential = [pscredential]::new($credentialUser, $securePassword)
+    $session = New-PSSession -VMName $vmName -Credential $credential -ErrorAction Stop
     $remoteRoot = Invoke-Command -Session $session -ScriptBlock {
       $path = Join-Path $env:LOCALAPPDATA "sub2api-claude-route"
       New-Item -ItemType Directory -Path $path -Force | Out-Null
@@ -626,9 +665,9 @@ function Reconcile-WindowsGuest($ProfileRecord, [string]$Generation, [string]$Au
     }
     Copy-Item -LiteralPath $ProfileRecord.Path -Destination (Join-Path $remoteRoot "profile.json") -ToSession $session -Force
     Copy-Item -LiteralPath $profileApplier -Destination (Join-Path $remoteRoot "apply-profile.ps1") -ToSession $session -Force
-    $remote = Invoke-Command -Session $session -ArgumentList $remoteRoot,$Generation,$AuthToken -ScriptBlock {
-      param($Root,$Gen,$Token)
-      $applyOutput = @(& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root "apply-profile.ps1") -ProfilePath (Join-Path $Root "profile.json") -Generation $Gen -AuthToken $Token 2>&1)
+    $remote = Invoke-Command -Session $session -ArgumentList $remoteRoot,$Generation,$AuthToken,$BaseUrl -ScriptBlock {
+      param($Root,$Gen,$Token,$Endpoint)
+      $applyOutput = @(& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root "apply-profile.ps1") -ProfilePath (Join-Path $Root "profile.json") -Generation $Gen -AuthToken $Token -BaseUrl $Endpoint 2>&1)
       $applyExitCode = $LASTEXITCODE
       if ($applyExitCode -ne 0) { throw "Guest profile applier failed with exit code ${applyExitCode}: $($applyOutput -join ' ')" }
       $legacyPaths = @(
@@ -659,15 +698,39 @@ function Reconcile-WindowsGuest($ProfileRecord, [string]$Generation, [string]$Au
 function Reconcile-Fleet($ProfileRecord, [string]$Generation) {
   $nodes = [ordered]@{}
   $stableKey = Get-StableKey
+  $hostDetail = [ordered]@{}
   try {
-    $hostResult = Apply-HostProfile $ProfileRecord $Generation $stableKey.Secret
-    $nodes.windows_host = [pscustomobject]@{ name = [Environment]::MachineName; status = "synced"; generation = $Generation; checked_at = [DateTimeOffset]::UtcNow.ToString("o"); detail = $hostResult }
+    $hostDetail.claude = Apply-HostProfile $ProfileRecord $Generation $stableKey.Secret $HeadroomBaseUrl
+    $dshClient = @($fleetManifest.clients | Where-Object { [string]$_.kind -eq "dsh" } | Select-Object -First 1)
+    if ($dshClient.Count -eq 1) {
+      $dshScript = Join-Path $scriptRoot "sync-dsh-composite-key.ps1"
+      $dshSettings = Resolve-FleetPath -Path ([string]$dshClient[0].settings_path)
+      $dshCredentials = Resolve-FleetPath -Path ([string]$dshClient[0].credentials_path)
+      $dshOutput = @(& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $dshScript -CredentialsPath $dshCredentials -SettingsPath $dshSettings -HeadroomBaseUrl $HeadroomBaseUrl -Distro $WslDistro -GroupName ([string]$ProfileRecord.Data.group_name) 2>&1)
+      if ($LASTEXITCODE -ne 0) { throw "DSH route sync failed: $($dshOutput -join [Environment]::NewLine)" }
+      $hostDetail.dsh = $dshOutput -join [Environment]::NewLine | ConvertFrom-Json
+    }
+    $nodes.windows_host = [pscustomobject]@{ name = [Environment]::MachineName; required = $true; status = "synced"; generation = $Generation; checked_at = [DateTimeOffset]::UtcNow.ToString("o"); detail = [pscustomobject]$hostDetail }
   } catch {
-    $nodes.windows_host = [pscustomobject]@{ name = [Environment]::MachineName; status = "drifted"; generation = $Generation; checked_at = [DateTimeOffset]::UtcNow.ToString("o"); detail = $_.Exception.Message }
+    $nodes.windows_host = [pscustomobject]@{ name = [Environment]::MachineName; required = $true; status = "drifted"; generation = $Generation; checked_at = [DateTimeOffset]::UtcNow.ToString("o"); detail = $_.Exception.Message }
   }
   if ($SkipFleet) { return [pscustomobject]$nodes }
-  $nodes.ubuntu_hyperv = Reconcile-LinuxGuest $ProfileRecord $Generation $stableKey.Secret
-  $nodes.windows_hyperv = Reconcile-WindowsGuest $ProfileRecord $Generation $stableKey.Secret
+
+  $guestBaseUrl = $null
+  $guestRouteError = $null
+  try { $guestBaseUrl = Resolve-HyperVServiceUrl 8787 } catch { $guestRouteError = $_.Exception.Message }
+  foreach ($definition in @($fleetManifest.nodes | Where-Object { [string]$_.kind -ne "windows-host" })) {
+    $stateKey = Get-FleetNodeStateKey -Node $definition
+    if (-not $guestBaseUrl) {
+      $nodes[$stateKey] = [pscustomobject]@{ name = [string]$definition.vm_name; required = [bool]$definition.required; status = "pending-reconcile"; generation = $Generation; checked_at = [DateTimeOffset]::UtcNow.ToString("o"); detail = $guestRouteError }
+      continue
+    }
+    switch ([string]$definition.kind) {
+      "windows-hyperv" { $nodes[$stateKey] = Reconcile-WindowsGuest $ProfileRecord $Generation $stableKey.Secret $definition $guestBaseUrl }
+      "linux-hyperv" { $nodes[$stateKey] = Reconcile-LinuxGuest $ProfileRecord $Generation $stableKey.Secret $definition $guestBaseUrl }
+      default { $nodes[$stateKey] = [pscustomobject]@{ name = [string]$definition.id; required = [bool]$definition.required; status = "pending-reconcile"; generation = $Generation; checked_at = [DateTimeOffset]::UtcNow.ToString("o"); detail = "unsupported fleet node kind: $($definition.kind)" } }
+    }
+  }
   return [pscustomobject]$nodes
 }
 
@@ -687,7 +750,7 @@ function Show-Status {
   $state = Read-State
   $profileRecord = if ($activeGroup) { Get-ProfileForGroup $activeGroup.name } else { $null }
   $generation = if ($state -and $state.generation) { [string]$state.generation } else { "0" }
-  $hostStatus = if ($profileRecord) { Test-HostProfile $profileRecord $generation $key.Secret } else { [pscustomobject]@{status="unknown";exit_code=$null;detail=$null} }
+  $hostStatus = if ($profileRecord) { Test-HostProfile $profileRecord $generation $key.Secret $HeadroomBaseUrl } else { [pscustomobject]@{status="unknown";exit_code=$null;detail=$null} }
   [pscustomobject]@{
     command = "status"
     active_profile = if ($profileRecord) { $profileRecord.Data.name } else { "unknown" }
@@ -698,6 +761,7 @@ function Show-Status {
     proxy_verified_at = if ($state) { $state.proxy_verified_at } else { $null }
     host = $hostStatus
     nodes = if ($state) { $state.nodes } else { $null }
+    fleet = if ($state -and $state.nodes) { Get-FleetReconcileSummary -Manifest $fleetManifest -Nodes $state.nodes } else { $null }
   } | ConvertTo-Json -Depth 30
 }
 
@@ -773,9 +837,30 @@ function Invoke-Switch([string]$ProfileName) {
     proxy_verified_at = [DateTimeOffset]::UtcNow.ToString("o")
     proxy_proof = $proof
     nodes = [pscustomobject]@{}
+    fleet = $null
   }
-  Write-State $state
   $state.nodes = Reconcile-Fleet $profileRecord ([string]$generation)
+  $state.fleet = Get-FleetReconcileSummary -Manifest $fleetManifest -Nodes $state.nodes
+  if (-not $state.fleet.ok) {
+    foreach ($binding in $previousBindings) {
+      if ($null -ne $binding.GroupId) { Set-StableKeyGroup $binding.Id ([int64]$binding.GroupId) }
+    }
+    if ($oldGroup) {
+      $oldProfileRecord = Get-ProfileForGroup $oldGroup.name
+      if ($oldProfileRecord) {
+        $rollbackGeneration = if ($oldState -and $oldState.generation) { [string]$oldState.generation } else { [string]$generation }
+        $rollbackNodes = Reconcile-Fleet $oldProfileRecord $rollbackGeneration
+        if ($oldState) {
+          $oldState.nodes = $rollbackNodes
+          $rollbackFleet = Get-FleetReconcileSummary -Manifest $fleetManifest -Nodes $rollbackNodes
+          if ($oldState.PSObject.Properties.Name -contains "fleet") { $oldState.fleet = $rollbackFleet } else { $oldState | Add-Member -NotePropertyName fleet -NotePropertyValue $rollbackFleet }
+          Write-State $oldState
+        }
+      }
+    }
+    $failedNames = @($state.fleet.required_failures | ForEach-Object { "$($_.id)=$($_.status)" }) -join ", "
+    throw "Switch to '$ProfileName' was rolled back because required fleet nodes did not synchronize: $failedNames"
+  }
   Write-State $state
   $state | ConvertTo-Json -Depth 30
 }
@@ -799,7 +884,7 @@ function Invoke-Reconcile {
       stable_key_id = $stableKey.Id; active_group_id = $stableKey.GroupId; active_group_name = $group.name
       managed_key_ids = @($managedKeys | ForEach-Object { [int64]$_.Id })
       previous_group_id = $null; previous_group_name = $null; switched_at = $null; proxy_verified_at = $null
-      proxy_proof = $null; nodes = $nodes
+      proxy_proof = $null; nodes = $nodes; fleet = $null
     }
   } else {
     $state.nodes = $nodes
@@ -809,7 +894,13 @@ function Invoke-Reconcile {
       $state | Add-Member -NotePropertyName managed_key_ids -NotePropertyValue @($managedKeys | ForEach-Object { [int64]$_.Id })
     }
   }
+  $fleetSummary = Get-FleetReconcileSummary -Manifest $fleetManifest -Nodes $nodes
+  if ($state.PSObject.Properties.Name -contains "fleet") { $state.fleet = $fleetSummary } else { $state | Add-Member -NotePropertyName fleet -NotePropertyValue $fleetSummary }
   Write-State $state
+  if (-not $fleetSummary.ok) {
+    $failedNames = @($fleetSummary.required_failures | ForEach-Object { "$($_.id)=$($_.status)" }) -join ", "
+    throw "Required fleet nodes remain unsynchronized: $failedNames"
+  }
   $state | ConvertTo-Json -Depth 30
 }
 
