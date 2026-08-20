@@ -25,6 +25,8 @@ try {
   New-Item -ItemType Directory -Path $agentsPath -Force | Out-Null
   New-Item -ItemType Directory -Path (Split-Path -Parent $wrapperPath) -Force | Out-Null
   $settings = @{
+    model = "old-model"
+    advisorModel = "old-advisor"
     permissions = @{ defaultMode = "bypassPermissions" }
     hooks = @{ SessionStart = @(@{ hooks = @(@{ type = "command"; command = "preserve-me" }) }) }
     env = @{
@@ -48,6 +50,8 @@ try {
   $afterAnthropic = Get-Content -Raw $settingsPath | ConvertFrom-Json
   Assert-True ($afterAnthropic.env.UNRELATED -eq "keep") "Unrelated env must survive"
   Assert-True ($afterAnthropic.hooks.SessionStart[0].hooks[0].command -eq "preserve-me") "Hooks must survive"
+  Assert-True ($afterAnthropic.model -eq "claude-opus-5") "Top-level Claude model must follow the active profile"
+  Assert-True ($afterAnthropic.advisorModel -eq "claude-opus-5") "Top-level advisor model must follow the active profile"
   Assert-True ($afterAnthropic.env.ANTHROPIC_MODEL -eq "claude-opus-5[1m]") "Anthropic gateway main model must request 1M context"
   Assert-True ($afterAnthropic.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS -eq "1000000") "Anthropic settings context must replace stale hybrid context"
   Assert-True ($afterAnthropic.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW -eq "1000000") "Anthropic settings compact window must replace stale hybrid window"
@@ -72,6 +76,8 @@ try {
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $applier -ProfilePath $hybridProfile -SettingsPath $settingsPath -AgentsPath $agentsPath -WrapperPath $wrapperPath -Generation 8 -EnvironmentTarget None | Out-Null
   Assert-True ($LASTEXITCODE -eq 0) "Hybrid profile apply must succeed"
   $afterHybrid = Get-Content -Raw $settingsPath | ConvertFrom-Json
+  Assert-True ($afterHybrid.model -eq "gpt-5.6-sol") "Hybrid top-level model must restore"
+  Assert-True ($afterHybrid.advisorModel -eq "gpt-5.6-sol") "Hybrid advisor model must restore"
   Assert-True ($afterHybrid.env.ANTHROPIC_MODEL -eq "gpt-5.6-sol") "Hybrid main model must restore"
   Assert-True ($afterHybrid.env.CLAUDE_CODE_SUBAGENT_MODEL -eq "qwen3.8-max-preview") "Hybrid subagent must restore"
   Assert-True ($afterHybrid.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS -eq "370000") "Hybrid must replace stale 1M context with its GPT safety target"
@@ -83,6 +89,8 @@ try {
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $applier -ProfilePath $qwenProfile -SettingsPath $settingsPath -AgentsPath $agentsPath -WrapperPath $wrapperPath -Generation 9 -AuthToken "fleet-test-key" -EnvironmentTarget None | Out-Null
   Assert-True ($LASTEXITCODE -eq 0) "Qwen-only profile apply must succeed"
   $afterQwen = Get-Content -Raw $settingsPath | ConvertFrom-Json
+  Assert-True ($afterQwen.model -eq "qwen3.8-max-preview") "Qwen-only top-level model must use Qwen"
+  Assert-True ($afterQwen.advisorModel -eq "qwen3.8-max-preview") "Qwen-only advisor model must use Qwen"
   Assert-True ($afterQwen.env.ANTHROPIC_MODEL -eq "qwen3.8-max-preview") "Qwen-only main must use Qwen"
   Assert-True ($afterQwen.env.CLAUDE_CODE_SUBAGENT_MODEL -eq "qwen3.8-max-preview") "Qwen-only subagents must use Qwen"
   Assert-True ($afterQwen.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS -eq "1000000") "Qwen-only must publish the Qwen 1M context"
@@ -92,6 +100,8 @@ try {
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $applier -ProfilePath $chatgptProfile -SettingsPath $settingsPath -AgentsPath $agentsPath -WrapperPath $wrapperPath -Generation 10 -AuthToken "fleet-test-key" -BaseUrl "http://172.30.1.2:8787" -EnvironmentTarget None | Out-Null
   Assert-True ($LASTEXITCODE -eq 0) "ChatGPT-only profile apply must succeed"
   $afterChatGPT = Get-Content -Raw $settingsPath | ConvertFrom-Json
+  Assert-True ($afterChatGPT.model -eq "gpt-5.6-sol") "ChatGPT-only top-level model must expose Sol"
+  Assert-True ($afterChatGPT.advisorModel -eq "gpt-5.6-sol") "ChatGPT-only advisor model must expose Sol"
   Assert-True ($afterChatGPT.env.ANTHROPIC_MODEL -eq "gpt-5.6-sol") "ChatGPT-only main must expose the OpenAI/Codex identity"
   Assert-True ($afterChatGPT.env.ANTHROPIC_DEFAULT_OPUS_MODEL -eq "gpt-5.6-sol") "ChatGPT-only primary picker slot must expose the OpenAI/Codex identity"
    Assert-True ($afterChatGPT.env.CLAUDE_CODE_SKIP_FAST_MODE_NETWORK_ERRORS -eq "1") "ChatGPT-only must bypass the gateway network probe"
@@ -116,6 +126,8 @@ try {
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $applier -ProfilePath $alibabaProfile -SettingsPath $settingsPath -AgentsPath $agentsPath -WrapperPath $wrapperPath -Generation 11 -AuthToken "fleet-test-key" -EnvironmentTarget None | Out-Null
   Assert-True ($LASTEXITCODE -eq 0) "Alibaba Qwen + DeepSeek Flash profile apply must succeed"
   $afterAlibaba = Get-Content -Raw $settingsPath | ConvertFrom-Json
+  Assert-True ($afterAlibaba.model -eq "qwen3.8-max-preview") "Alibaba top-level model must use Qwen"
+  Assert-True ($afterAlibaba.advisorModel -eq "qwen3.8-max-preview") "Alibaba advisor model must use Qwen"
   Assert-True ($afterAlibaba.env.ANTHROPIC_MODEL -eq "qwen3.8-max-preview") "Alibaba main must use Qwen 3.8 Max"
   Assert-True ($afterAlibaba.env.CLAUDE_CODE_SUBAGENT_MODEL -eq "deepseek-v4-flash-0731") "Alibaba subagents must use the live DeepSeek V4 Flash ID"
   Assert-True ($afterAlibaba.env.ANTHROPIC_SMALL_FAST_MODEL -eq "deepseek-v4-flash-0731") "Alibaba small-fast must use the live DeepSeek V4 Flash ID"

@@ -34,7 +34,10 @@
       "desired_state": "running",
       "vm_name": "ghost-spectre-win11",
       "credential_blob": "C:\\Migration\\native-windows-port\\secrets\\ghost-spectre-win11-admin.dpapi",
-      "credential_user": "admin",
+      "credential_user": "Administrator",
+      "ssh_target": "Administrator@172.22.135.37",
+      "ssh_key": "C:\\Users\\stigm\\.ssh\\ghost-spectre-win11",
+      "ssh_remote_root": "C:\\Users\\Administrator\\AppData\\Local\\sub2api-claude-route",
       "route": "hyperv-switch"
     },
     {

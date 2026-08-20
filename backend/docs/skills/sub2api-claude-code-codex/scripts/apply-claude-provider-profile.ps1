@@ -64,6 +64,22 @@ if (-not ($settings.PSObject.Properties.Name -contains "env") -or $null -eq $set
 }
 
 $drift = [Collections.Generic.List[string]]::new()
+$desiredTopLevelModel = [string]$profile.main_model
+$desiredAdvisorModel = if ($profile.PSObject.Properties.Name -contains "advisor_model" -and [string]$profile.advisor_model) {
+  [string]$profile.advisor_model
+} else {
+  $desiredTopLevelModel
+}
+foreach ($entry in @(
+  @{ Name = "model"; Value = $desiredTopLevelModel },
+  @{ Name = "advisorModel"; Value = $desiredAdvisorModel }
+)) {
+  $current = if ($settings.PSObject.Properties.Name -contains $entry.Name) { [string]$settings.($entry.Name) } else { $null }
+  if ($current -ne [string]$entry.Value) {
+    $drift.Add("settings.$($entry.Name)")
+    if (-not $CheckOnly) { Set-ObjectProperty $settings $entry.Name ([string]$entry.Value) }
+  }
+}
 $unsetClientEnv = @()
 if ($profile.PSObject.Properties.Name -contains "unset_client_env") {
   $unsetClientEnv = @($profile.unset_client_env | ForEach-Object { [string]$_ })

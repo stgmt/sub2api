@@ -321,7 +321,8 @@ function Invoke-OfflineWindowsGuestRouteRepair {
   $request = Get-Content -Raw -LiteralPath $RequestPath | ConvertFrom-Json
   $vmName = [string]$request.vm_name
   $vhdPath = [string]$request.vhd_path
-  $guestUser = if ([string]$request.guest_user) { [string]$request.guest_user } else { "admin" }
+  $requestedGuestUser = if ([string]$request.guest_user) { [string]$request.guest_user } else { "admin" }
+  $guestUser = $requestedGuestUser
   $baseUrl = if ([string]$request.base_url) { [string]$request.base_url } else { "http://172.22.128.1:8787" }
   if (-not $vmName -or -not (Test-Path -LiteralPath $vhdPath)) { throw "Offline guest repair request is invalid" }
 
@@ -444,6 +445,18 @@ function Invoke-OfflineWindowsGuestSshSetup {
       $addedAccessPath = $true
     }
 
+    $profileCandidates = @(Get-ChildItem -LiteralPath (Join-Path $driveRoot "Users") -Directory -ErrorAction SilentlyContinue |
+      Where-Object { $_.Name -notin @("All Users", "Default", "Default User", "Public", "defaultuser0", "WDAGUtilityAccount") } |
+      ForEach-Object Name)
+    $samUserCandidates = @()
+    $samLoadError = "offline SAM enumeration is unavailable without modifying the guest SAM"
+    $realGuestUsers = @($profileCandidates)
+    if ($realGuestUsers -notcontains $guestUser) {
+      $fallbackGuestUser = @($realGuestUsers | Sort-Object @{ Expression = { if ($_ -eq "Administrator") { 0 } else { 1 } } }, Name | Select-Object -First 1)
+      if (-not $fallbackGuestUser) { throw "No usable guest user profile found under $(Join-Path $driveRoot 'Users')" }
+      $guestUser = [string]$fallbackGuestUser
+    }
+
     $openSshDir = Join-Path $driveRoot "Windows\System32\OpenSSH"
     New-Item -ItemType Directory -Force -Path $openSshDir | Out-Null
     Get-ChildItem -LiteralPath $packageRoot -Force | ForEach-Object {
@@ -466,20 +479,21 @@ function Invoke-OfflineWindowsGuestSshSetup {
     $authorizedDir = Join-Path $driveRoot "Users\$guestUser\.ssh"
     New-Item -ItemType Directory -Force -Path $authorizedDir | Out-Null
     $authorizedPath = Join-Path $authorizedDir "authorized_keys"
-    if (-not (Test-Path -LiteralPath $authorizedPath)) { Copy-Item -LiteralPath $publicKeyPath -Destination $authorizedPath -Force }
+    & icacls.exe $authorizedPath /grant '*S-1-5-18:(F)' '*S-1-5-32-544:(F)' /C | Out-Null
+    Copy-Item -LiteralPath $publicKeyPath -Destination $authorizedPath -Force
     $administratorsAuthorizedPath = Join-Path $programSshDir "administrators_authorized_keys"
-    if (-not (Test-Path -LiteralPath $administratorsAuthorizedPath)) { Copy-Item -LiteralPath $publicKeyPath -Destination $administratorsAuthorizedPath -Force }
+    & icacls.exe $administratorsAuthorizedPath /grant '*S-1-5-18:(F)' '*S-1-5-32-544:(F)' /C | Out-Null
+    Copy-Item -LiteralPath $publicKeyPath -Destination $administratorsAuthorizedPath -Force
     $config = @(
       "Port 22",
       "ListenAddress 0.0.0.0",
       "PubkeyAuthentication yes",
       "PasswordAuthentication no",
-      "AuthorizedKeysFile .ssh/authorized_keys",
-      "HostKey __PROGRAMDATA__/ssh/ssh_host_ed25519_key",
-      "HostKey __PROGRAMDATA__/ssh/ssh_host_rsa_key",
-      "Subsystem sftp sftp-server.exe",
-      "Match Group administrators",
-      "    AuthorizedKeysFile __PROGRAMDATA__/ssh/administrators_authorized_keys"
+      "StrictModes no",
+      "AuthorizedKeysFile C:/ProgramData/ssh/administrators_authorized_keys",
+      "HostKey C:/ProgramData/ssh/ssh_host_ed25519_key",
+      "HostKey C:/ProgramData/ssh/ssh_host_rsa_key",
+      "Subsystem sftp sftp-server.exe"
     ) -join [Environment]::NewLine
     $sshdConfigPath = Join-Path $programSshDir "sshd_config"
     & icacls.exe $sshdConfigPath /grant '*S-1-5-18:(F)' '*S-1-5-32-544:(F)' /C | Out-Null
@@ -555,8 +569,8 @@ function Invoke-OfflineWindowsGuestSshSetup {
     if ($wasRunning) { Start-VM -Name $vmName -ErrorAction Stop | Out-Null }
     if (-not $binaryInstalled) { throw "OpenSSH package copy did not produce sshd.exe in the guest system directory" }
     Move-Item -LiteralPath $RequestPath -Destination ($RequestPath -replace '\.request\.json$','.done.json') -Force
-    Write-SelfHealEvent -Event "offline_guest_ssh_configured" -Data @{ vm = $vmName; user = $guestUser; port = 22; public_key = "installed"; sshd_exe = $true; guest_drive = $driveRoot; current_control_set = $currentControlSet; sshd_log_tail = $sshdLogTail; service_event_tail = $serviceEventTail }
-    return [pscustomobject]@{ status = "configured"; vm = $vmName; port = 22; restarted = $wasRunning; current_control_set = $currentControlSet }
+    Write-SelfHealEvent -Event "offline_guest_ssh_configured" -Data @{ vm = $vmName; requested_user = $requestedGuestUser; user = $guestUser; profile_candidates = $profileCandidates; sam_user_candidates = $samUserCandidates; sam_load_error = $samLoadError; port = 22; public_key = "installed"; sshd_exe = $true; guest_drive = $driveRoot; current_control_set = $currentControlSet; sshd_log_tail = $sshdLogTail; service_event_tail = $serviceEventTail }
+    return [pscustomobject]@{ status = "configured"; vm = $vmName; requested_user = $requestedGuestUser; user = $guestUser; profile_candidates = $profileCandidates; sam_user_candidates = $samUserCandidates; sam_load_error = $samLoadError; port = 22; restarted = $wasRunning; current_control_set = $currentControlSet }
   } catch {
     if ($hiveLoaded) { & reg.exe unload HKLM\OfflineGhostSystem | Out-Null }
     if ($addedAccessPath -and $disk -and $partition -and $driveRoot) { Remove-PartitionAccessPath -DiskNumber $disk.Number -PartitionNumber $partition[0].PartitionNumber -AccessPath $driveRoot -ErrorAction SilentlyContinue }
@@ -1257,9 +1271,14 @@ try {
   }
   $offlineGuestSshRequest = Join-Path $LogDir "ghost-offline-ssh.request.json"
   if (Test-Path -LiteralPath $offlineGuestSshRequest) {
-    $sshSetup = Invoke-OfflineWindowsGuestSshSetup -RequestPath $offlineGuestSshRequest
-    $sshSetup | ConvertTo-Json -Compress -Depth 6
-    exit 0
+    try {
+      $sshSetup = Invoke-OfflineWindowsGuestSshSetup -RequestPath $offlineGuestSshRequest
+      $sshSetup | ConvertTo-Json -Compress -Depth 6
+      exit 0
+    } catch {
+      Write-SelfHealEvent -Event "recovery_failed" -Data @{ stage = "offline_guest_ssh_setup"; error = $_.Exception.Message }
+      throw
+    }
   }
   $directGuestSshRequest = Join-Path $LogDir "ghost-powershell-direct-ssh.request.json"
   if (Test-Path -LiteralPath $directGuestSshRequest) {

@@ -637,7 +637,62 @@ function Reconcile-LinuxGuest($ProfileRecord, [string]$Generation, [string]$Auth
   return [pscustomobject]$result
 }
 
+function Reconcile-WindowsGuestOverSsh($ProfileRecord, [string]$Generation, [string]$AuthToken, $Definition, [string]$BaseUrl) {
+  $vmName = [string]$Definition.vm_name
+  $sshTarget = [string]$Definition.ssh_target
+  $sshKey = Resolve-FleetPath -Path ([string]$Definition.ssh_key)
+  $remoteRoot = if ($Definition.PSObject.Properties.Name -contains "ssh_remote_root" -and [string]$Definition.ssh_remote_root) {
+    [string]$Definition.ssh_remote_root
+  } else {
+    "C:\Users\Administrator\AppData\Local\sub2api-claude-route"
+  }
+  $result = [ordered]@{ name = $vmName; required = [bool]$Definition.required; status = "pending-reconcile"; generation = $Generation; checked_at = [DateTimeOffset]::UtcNow.ToString("o"); detail = "SSH unavailable" }
+  if (-not (Get-Command ssh.exe -ErrorAction SilentlyContinue) -or -not (Get-Command scp.exe -ErrorAction SilentlyContinue)) {
+    $result.detail = "ssh.exe/scp.exe unavailable"
+    return [pscustomobject]$result
+  }
+  if (-not (Test-Path -LiteralPath $sshKey)) {
+    $result.detail = "SSH key unavailable"
+    return [pscustomobject]$result
+  }
+  if (-not $sshTarget.Trim()) {
+    $result.detail = "SSH target missing"
+    return [pscustomobject]$result
+  }
+  $sshArgs = @("-o", "BatchMode=yes", "-o", "ConnectTimeout=8", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=NUL", "-o", "LogLevel=ERROR", "-i", $sshKey)
+  $probe = @(& ssh.exe @sshArgs $sshTarget "cmd.exe /d /c echo SUB2API_SSH_ROUTE_OK" 2>&1)
+  if ($LASTEXITCODE -ne 0 -or -not (($probe -join " ") -match "SUB2API_SSH_ROUTE_OK")) {
+    $result.detail = (($probe -join " ").Trim())
+    return [pscustomobject]$result
+  }
+  $remoteProfile = "$remoteRoot\profile.json"
+  $remoteApplier = "$remoteRoot\apply-profile.ps1"
+  $remoteProfileScp = "$remoteRoot/profile.json"
+  $remoteApplierScp = "$remoteRoot/apply-profile.ps1"
+  $remoteRootCommand = "if not exist $remoteRoot mkdir $remoteRoot"
+  @(& ssh.exe @sshArgs $sshTarget $remoteRootCommand 2>&1) | Out-Null
+  if ($LASTEXITCODE -ne 0) { $result.detail = "failed to create remote staging directory"; return [pscustomobject]$result }
+  @(& scp.exe @sshArgs $ProfileRecord.Path "$($sshTarget):$remoteProfileScp" 2>&1) | Out-Null
+  if ($LASTEXITCODE -ne 0) { $result.detail = "failed to stage Windows guest profile"; return [pscustomobject]$result }
+  @(& scp.exe @sshArgs $profileApplier "$($sshTarget):$remoteApplierScp" 2>&1) | Out-Null
+  if ($LASTEXITCODE -ne 0) { $result.detail = "failed to stage Windows guest applier"; return [pscustomobject]$result }
+  try {
+    $remoteCommand = "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $remoteApplier -ProfilePath $remoteProfile -Generation $Generation -AuthToken $AuthToken -BaseUrl $BaseUrl"
+    $remote = @(& ssh.exe @sshArgs $sshTarget $remoteCommand 2>&1)
+    $remoteText = ($remote -join " ").Trim()
+    if ($LASTEXITCODE -ne 0) { $result.detail = $remoteText; return [pscustomobject]$result }
+    $result.status = "synced"
+    try { $result.detail = $remoteText | ConvertFrom-Json } catch { $result.detail = $remoteText }
+  } finally {
+    @(& ssh.exe @sshArgs $sshTarget "del /q $remoteProfile $remoteApplier" 2>&1) | Out-Null
+  }
+  return [pscustomobject]$result
+}
+
 function Reconcile-WindowsGuest($ProfileRecord, [string]$Generation, [string]$AuthToken, $Definition, [string]$BaseUrl) {
+  if ($Definition.PSObject.Properties.Name -contains "ssh_target" -and [string]$Definition.ssh_target) {
+    return Reconcile-WindowsGuestOverSsh $ProfileRecord $Generation $AuthToken $Definition $BaseUrl
+  }
   $vmName = [string]$Definition.vm_name
   $credentialBlob = Resolve-FleetPath -Path ([string]$Definition.credential_blob)
   $credentialUser = if ($Definition.PSObject.Properties.Name -contains "credential_user" -and [string]$Definition.credential_user) { [string]$Definition.credential_user } else { "admin" }
