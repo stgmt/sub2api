@@ -130,10 +130,18 @@ Register-ScheduledTask `
   -Principal $principal `
   -Settings $settings `
   -Description "Health-checks and self-heals the single WSL Docker compose stack, Hyper-V bridge, and stale WSL VHDX attach locks." `
-  -Force | Out-Null
+  -Force `
+  -ErrorAction Stop | Out-Null
 
-$task = Get-ScheduledTask -TaskName $TaskName
-$info = Get-ScheduledTaskInfo -TaskName $TaskName
+$task = Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop
+$info = Get-ScheduledTaskInfo -TaskName $TaskName -ErrorAction Stop
+$actualArguments = [string]$task.Actions.Arguments
+if ($ProfileDir.Trim() -and -not $actualArguments.Contains($ProfileDir)) {
+  throw "Scheduled task registration did not persist the requested profile: $ProfileDir"
+}
+if ($RepoRoot.Trim() -and -not $actualArguments.Contains($RepoRoot)) {
+  throw "Scheduled task registration did not persist the requested repository: $RepoRoot"
+}
 Write-InstallLog "installed: runLevel=$($task.Principal.RunLevel) logonType=$($task.Principal.LogonType) triggers=$($task.Triggers.Count) restartCount=$($task.Settings.RestartCount) lastResult=$($info.LastTaskResult)"
 
 $task | Select-Object TaskName,State,@{Name="RunLevel";Expression={$_.Principal.RunLevel}},@{Name="LogonType";Expression={$_.Principal.LogonType}},@{Name="Execute";Expression={$_.Actions.Execute}},@{Name="Arguments";Expression={$_.Actions.Arguments}}

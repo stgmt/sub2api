@@ -53,7 +53,22 @@ Assert-Contains $installer '-RestartCount $TaskRestartCount' "Scheduled Task mus
 Assert-Contains $installer '-MultipleInstances IgnoreNew' "Scheduled Task must remain a single owner"
 Assert-Contains $installer 'run-hidden.vbs' "Scheduled Task must use the zero-window launcher"
 Assert-Contains $installer '-Execute "wscript.exe"' "Scheduled Task must run through the GUI script host"
+Assert-Contains $installer '-ErrorAction Stop | Out-Null' "Scheduled Task registration errors must fail closed"
+Assert-Contains $installer 'did not persist the requested profile' "Installer must verify the registered profile instead of echoing a stale task"
+Assert-Contains $installer 'did not persist the requested repository' "Installer must verify the registered repository instead of echoing a stale task"
 Assert-Contains $hiddenLauncher 'shell.Run(command, 0, True)' "Hidden launcher must hide the process and preserve its exit code"
+
+$ensureResolver = $ensure.Substring($ensure.IndexOf('function Resolve-ProfileDir'), $ensure.IndexOf('function Read-EnvFile') - $ensure.IndexOf('function Resolve-ProfileDir'))
+$startResolver = $start.Substring($start.IndexOf('function Resolve-ProfileDir'), $start.IndexOf('$Root = Resolve-ProfileDir') - $start.IndexOf('function Resolve-ProfileDir'))
+Assert-True ($ensureResolver.IndexOf('$RepoRoot.Trim()') -lt $ensureResolver.IndexOf('$ProfileDir.Trim()')) "Ensure must prefer the canonical repo profile over a stale explicit runtime"
+Assert-True ($startResolver.IndexOf('$RepoRoot.Trim()') -lt $startResolver.IndexOf('$ProfileDir.Trim()')) "Start must prefer the canonical repo profile over a stale explicit runtime"
+Assert-Contains $ensure 'SyncAutostartOnly = $true' "The elevated watchdog must repair its own stale task without recreating containers"
+Assert-Contains $start '[switch]$SyncAutostartOnly' "The start script must expose a task-only synchronization path"
+Assert-Contains $start '$actionUsesCanonicalProfile' "Task self-heal must detect a stale runtime path"
+Assert-Contains $start '$actionUsesExpectedRemoteMode' "Task self-heal must detect a stale Hyper-V configuration mode"
+Assert-Contains $start 'HyperVRemoteConfigMode = $HyperVRemoteConfigMode' "Task self-heal must preserve the resolved Hyper-V configuration mode"
+Assert-Contains $start '$actionHasForbiddenSshArgs' "Bridge-only mode must remove obsolete SSH arguments from the task"
+Assert-Contains $ensure '$HyperVVmSshUser = ""' "Bridge-only mode must clear inherited SSH credentials before task reconciliation"
 
 $probeIndex = $ensure.IndexOf('$before = Get-RequiredRouteState')
 $recoveryIndex = $ensure.IndexOf('& $startScript @startParams')

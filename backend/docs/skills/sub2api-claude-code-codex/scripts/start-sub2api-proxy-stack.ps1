@@ -10,6 +10,7 @@ param(
   [int]$WslRetrySeconds = 120,
   [switch]$ForceRecreate,
   [switch]$AllowWslRestart,
+  [switch]$SyncAutostartOnly,
   [string]$HyperVVmName = "",
   [string]$HyperVVmSshUser = "",
   [string]$HyperVVmSshKey = "",
@@ -26,14 +27,14 @@ if (Get-Variable PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyCo
 $ScriptDir = Split-Path -Parent $PSCommandPath
 
 function Resolve-ProfileDir {
-  if ($ProfileDir.Trim()) {
-    return (Resolve-Path -LiteralPath $ProfileDir).Path
-  }
   if ($RepoRoot.Trim()) {
     $candidate = Join-Path (Resolve-Path -LiteralPath $RepoRoot).Path "deploy\claude-code-codex-headroom"
     if (Test-Path -LiteralPath (Join-Path $candidate "docker-compose.yml")) {
       return $candidate
     }
+  }
+  if ($ProfileDir.Trim()) {
+    return (Resolve-Path -LiteralPath $ProfileDir).Path
   }
 
   $starts = @()
@@ -98,15 +99,20 @@ function Sync-SelfHealScheduledTask {
 
   try {
     $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-    $actionUsesEnsure = $task -and ([string]$task.Actions.Arguments).Contains("ensure-sub2api-proxy-stack.ps1")
+    $taskArguments = if ($task) { [string]$task.Actions.Arguments } else { "" }
+    $actionUsesEnsure = $task -and $taskArguments.Contains("ensure-sub2api-proxy-stack.ps1")
     $actionUsesHiddenLauncher = $task -and
       ([IO.Path]::GetFileName([string]$task.Actions.Execute) -eq "wscript.exe") -and
-      ([string]$task.Actions.Arguments).Contains("run-hidden.vbs")
+      $taskArguments.Contains("run-hidden.vbs")
     $hasRepeatingTrigger = $task -and (@($task.Triggers | Where-Object {
       $_.Repetition -and $_.Repetition.Interval -eq "PT1M"
     }).Count -gt 0)
     $hasRetryPolicy = $task -and ([int]$task.Settings.RestartCount -ge 3)
-    if ($actionUsesEnsure -and $actionUsesHiddenLauncher -and $hasRepeatingTrigger -and $hasRetryPolicy) { return }
+    $actionUsesCanonicalProfile = $task -and $taskArguments.Contains($Root)
+    $actionUsesExpectedRemoteMode = $task -and $taskArguments.Contains("-HyperVRemoteConfigMode `"$HyperVRemoteConfigMode`"")
+    $actionUsesExpectedVm = -not $HyperVVmName.Trim() -or ($task -and $taskArguments.Contains("-HyperVVmName `"$HyperVVmName`""))
+    $actionHasForbiddenSshArgs = $HyperVRemoteConfigMode -eq "none" -and ($taskArguments.Contains("-HyperVVmSshUser") -or $taskArguments.Contains("-HyperVVmSshKey"))
+    if ($actionUsesEnsure -and $actionUsesHiddenLauncher -and $hasRepeatingTrigger -and $hasRetryPolicy -and $actionUsesCanonicalProfile -and $actionUsesExpectedRemoteMode -and $actionUsesExpectedVm -and -not $actionHasForbiddenSshArgs) { return }
 
     Write-StackLog "upgrading legacy or focus-stealing autostart task to repeating zero-window self-heal"
     $installParams = @{
@@ -121,6 +127,7 @@ function Sync-SelfHealScheduledTask {
       HyperVVmSshUser = $HyperVVmSshUser
       HyperVVmSshKey = $HyperVVmSshKey
       HyperVSwitchName = $HyperVSwitchName
+      HyperVRemoteConfigMode = $HyperVRemoteConfigMode
     }
     $output = & $installer @installParams 2>&1
     if ($output) { Add-Content -Path $LogPath -Value ($output -join [Environment]::NewLine) }
@@ -495,6 +502,10 @@ print("UPDATED_BASE_URL=" + base_url)
 try {
   Write-StackLog "starting sub2api-codex proxy stack"
   Sync-SelfHealScheduledTask
+  if ($SyncAutostartOnly) {
+    Write-StackLog "scheduled task synchronization completed without touching the proxy stack"
+    return
+  }
 
   $deadline = (Get-Date).AddSeconds($DockerWaitSeconds)
   do {

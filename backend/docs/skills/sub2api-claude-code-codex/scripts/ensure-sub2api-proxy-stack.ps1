@@ -40,14 +40,14 @@ if (-not (Test-Path -LiteralPath $fleetContract)) {
 Import-Module $fleetContract -Force
 
 function Resolve-ProfileDir {
-  if ($ProfileDir.Trim()) {
-    return (Resolve-Path -LiteralPath $ProfileDir).Path
-  }
   if ($RepoRoot.Trim()) {
     $candidate = Join-Path (Resolve-Path -LiteralPath $RepoRoot).Path "deploy\claude-code-codex-headroom"
     if (Test-Path -LiteralPath (Join-Path $candidate "docker-compose.yml")) {
       return $candidate
     }
+  }
+  if ($ProfileDir.Trim()) {
+    return (Resolve-Path -LiteralPath $ProfileDir).Path
   }
   throw "Could not resolve the sub2api runtime profile. Pass -ProfileDir or -RepoRoot."
 }
@@ -1174,6 +1174,10 @@ if ($bridgeEnv.ContainsKey("HEADROOM_HYPERV_SWITCH_NAME") -and $bridgeEnv["HEADR
 if ($bridgeEnv.ContainsKey("HEADROOM_HYPERV_REMOTE_CONFIG_MODE") -and $bridgeEnv["HEADROOM_HYPERV_REMOTE_CONFIG_MODE"].Trim()) {
   $HyperVRemoteConfigMode = $bridgeEnv["HEADROOM_HYPERV_REMOTE_CONFIG_MODE"]
 }
+if ($HyperVRemoteConfigMode -eq "none") {
+  $HyperVVmSshUser = ""
+  $HyperVVmSshKey = ""
+}
 if (-not $RequireHyperVBridge -and $bridgeEnv.ContainsKey("HEADROOM_HYPERV_REQUIRE_BRIDGE")) {
   $RequireHyperVBridge = $bridgeEnv["HEADROOM_HYPERV_REQUIRE_BRIDGE"] -match "^(1|true|yes|on)$"
 }
@@ -1208,6 +1212,22 @@ try {
     Write-SelfHealEvent -Event "check_skipped" -Data @{ reason = "another watchdog instance is active" }
     exit 0
   }
+
+  $taskSyncParams = @{
+    RepoRoot = $RepoRoot
+    ProfileDir = $Root
+    ProjectName = $ProjectName
+    Distro = $Distro
+    HeadroomPort = $HeadroomPort
+    Sub2apiPort = $Sub2apiPort
+    HyperVVmName = $HyperVVmName
+    HyperVVmSshUser = $HyperVVmSshUser
+    HyperVVmSshKey = $HyperVVmSshKey
+    HyperVSwitchName = $HyperVSwitchName
+    HyperVRemoteConfigMode = $HyperVRemoteConfigMode
+    SyncAutostartOnly = $true
+  }
+  & $startScript @taskSyncParams
 
   $offlineGuestRepairRequest = Join-Path $LogDir "ghost-offline-route.request.json"
   if (Test-Path -LiteralPath $offlineGuestRepairRequest) {

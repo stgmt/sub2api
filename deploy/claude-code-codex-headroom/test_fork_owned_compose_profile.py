@@ -29,9 +29,12 @@ def test_headroom_image_builds_from_stgmt_fork_ref() -> None:
 def test_sub2api_service_records_fork_provenance() -> None:
     compose = read("docker-compose.yml")
     env_example = read(".env.example")
+    dockerfile = (ROOT / "../Dockerfile").resolve().read_text(encoding="utf-8")
 
     assert "org.opencontainers.image.source: ${SUB2API_GIT_REPO:-https://github.com/stgmt/sub2api.git}" in compose
     assert "org.opencontainers.image.revision: ${SUB2API_GIT_REF:-local}" in compose
+    assert 'LABEL org.opencontainers.image.source="https://github.com/stgmt/sub2api"' in dockerfile
+    assert 'org.opencontainers.image.revision="${COMMIT}"' in dockerfile
     assert "SUB2API_GIT_REPO=https://github.com/stgmt/sub2api.git" in env_example
     assert "SUB2API_GIT_REF=local" in env_example
     assert "GOPROXY: ${SUB2API_GOPROXY:-https://proxy.golang.org,direct}" in compose
