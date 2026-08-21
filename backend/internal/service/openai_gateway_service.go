@@ -49,7 +49,8 @@ const (
 	// 与真实 Codex CLI 的 User-Agent 结构对齐：
 	// {originator}/{version} ({OS} {OS_version}; {arch}) {terminal}
 	// 旧值 "codex_cli_rs/0.125.0" 缺少 OS/架构/终端后缀，易被上游指纹识别为非官方客户端。
-	codexCLIUserAgent = "codex_cli_rs/0.125.0 (Ubuntu 22.4.0; x86_64) xterm-256color"
+	// 值取自真实 codex-cli 0.144.6 (Windows 10.0.26200; x86_64) 的线上抓包。
+	codexCLIUserAgent = "codex_cli_rs/0.144.6 (Windows 10.0.26200; x86_64) unknown"
 	// codex_cli_only 拒绝时单个请求头日志长度上限（字符）
 	codexCLIOnlyHeaderValueMaxBytes = 256
 
@@ -63,7 +64,8 @@ const (
 	openAIWSRetryBackoffMaxDefault     = 2 * time.Second
 	openAIWSRetryJitterRatioDefault    = 0.2
 	openAICompactSessionSeedKey        = "openai_compact_session_seed"
-	codexCLIVersion                    = "0.125.0"
+	// 与 codexCLIUserAgent 保持同一真实客户端版本（compact 路径的 version 头）。
+	codexCLIVersion = "0.144.6"
 	// Codex 限额快照仅用于后台展示/诊断，不需要每个成功请求都立即落库。
 	openAICodexSnapshotPersistMinInterval = 30 * time.Second
 	// 配额自动暂停时，超过该时长仍未刷新的 used% 快照视为陈旧，不再据此暂停账号。
@@ -956,6 +958,13 @@ func getAPIKeyIDFromContext(c *gin.Context) int64 {
 // isolateOpenAISessionID 将 apiKeyID 混入 session 标识符，
 // 确保不同 API Key 的用户即使使用相同的原始 session_id/conversation_id，
 // 到达上游的标识符也不同，防止跨用户会话碰撞。
+//
+// The isolated identifier is formatted as a canonical RFC 4122 v4-shaped UUID
+// (36 chars, 8-4-4-4-12). The real Codex CLI always sends UUID-formatted
+// session/conversation ids upstream; emitting a bare 16-hex-char digest is an
+// observable fingerprint that the request did not originate from the CLI.
+// Determinism and per-key isolation are preserved: the same (apiKeyID, raw)
+// always maps to the same UUID, and different keys never collide.
 func isolateOpenAISessionID(apiKeyID int64, raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -964,7 +973,15 @@ func isolateOpenAISessionID(apiKeyID int64, raw string) string {
 	h := xxhash.New()
 	_, _ = fmt.Fprintf(h, "k%d:", apiKeyID)
 	_, _ = h.WriteString(raw)
-	return fmt.Sprintf("%016x", h.Sum64())
+	sum := h.Sum64()
+	var u [16]byte
+	for i := 0; i < 8; i++ {
+		u[i] = byte(sum >> (8 * i))
+		u[15-i] = byte(sum >> (8 * i))
+	}
+	u[6] = (u[6] & 0x0f) | 0x40 // version 4
+	u[8] = (u[8] & 0x3f) | 0x80 // RFC 4122 variant
+	return fmt.Sprintf("%x-%x-%x-%x-%x", u[0:4], u[4:6], u[6:8], u[8:10], u[10:16])
 }
 
 func logCodexCLIOnlyDetection(ctx context.Context, c *gin.Context, account *Account, apiKeyID int64, result CodexClientRestrictionDetectionResult, body []byte) {

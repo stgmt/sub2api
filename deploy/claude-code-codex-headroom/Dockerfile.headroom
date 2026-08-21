@@ -76,5 +76,10 @@ ARG HEADROOM_TORCH_INDEX_URL=https://download.pytorch.org/whl/cu128
 RUN python -m pip install "torch==${HEADROOM_TORCH_VERSION}" --index-url "${HEADROOM_TORCH_INDEX_URL}" \
     && python -c "import torch; assert torch.version.cuda; print('torch', torch.__version__, 'cuda', torch.version.cuda, 'build_gpu_visible', torch.cuda.is_available())"
 
+# Late site-packages patches: kept AFTER the torch layer so refreshing the
+# patch never invalidates the multi-GB CUDA wheel cache.
+COPY patch-headroom-codex-session-headers.py /tmp/patch-headroom-codex-session-headers.py
+RUN python /tmp/patch-headroom-codex-session-headers.py
+
 # Keep this as the final stage so a plain `docker build` remains CPU-safe.
 FROM headroom-base AS cpu
